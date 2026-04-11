@@ -2,8 +2,8 @@
 
 # ======================================================== #
 #
-# Hestia Control Panel Installer for Ubuntu
-# https://www.hestiacp.com/
+# QemuCP Control Panel Installer for Ubuntu
+# https://www.qemugen.com/
 #
 # Currently Supported Versions:
 # Ubuntu 20.04, 22.04, 24.04 LTS
@@ -438,7 +438,7 @@ if [ ! -f /etc/apt/apt.conf.d/80-retries ]; then
 fi
 
 # Welcome message
-echo "Welcome to the Hestia Control Panel installer!"
+echo "Welcome to the QemuCP Control Panel installer!"
 echo
 echo "Please wait, the installer is now checking for missing dependencies..."
 echo
@@ -490,7 +490,7 @@ if [ -n "$conflicts" ] && [ -z "$force" ]; then
 		check_result $? 'apt-get remove failed'
 		unset $answer
 	else
-		check_result 1 "Hestia Control Panel should be installed on a clean server."
+		check_result 1 "QemuCP Control Panel should be installed on a clean server."
 	fi
 fi
 
@@ -568,13 +568,13 @@ esac
 install_welcome_message() {
 	DISPLAY_VER=$(echo $HESTIA_INSTALL_VER | sed "s|~alpha||g" | sed "s|~beta||g")
 	echo
-	echo '                _   _           _   _        ____ ____                  '
-	echo '               | | | | ___  ___| |_(_) __ _ / ___|  _ \                 '
-	echo '               | |_| |/ _ \/ __| __| |/ _` | |   | |_) |                '
-	echo '               |  _  |  __/\__ \ |_| | (_| | |___|  __/                 '
-	echo '               |_| |_|\___||___/\__|_|\__,_|\____|_|                    '
+	echo '    ___  ___ _ __ ___  _   _  ___ _ __                                 '
+	echo '   / _ \/ _ \ '_  ` _ \| | | |/ __| '_ \                              '
+	echo '  | (_) |  __/ | | | | | |_| | (__| |_) |                              '
+	echo '   \___/ \___|_| |_| |_|\__,_|\___|  __/                               '
+	echo '                                   |_|                                  '
 	echo "                                                                        "
-	echo "                          Hestia Control Panel                          "
+	echo "                          QemuCP Control Panel                          "
 	if [[ "$HESTIA_INSTALL_VER" =~ "beta" ]]; then
 		echo "                              BETA RELEASE                          "
 	fi
@@ -584,11 +584,11 @@ install_welcome_message() {
 		echo "                          USE AT YOUR OWN RISK                      "
 	fi
 	echo "                                  ${DISPLAY_VER}                        "
-	echo "                            www.hestiacp.com                            "
+	echo "                            www.qemugen.com                            "
 	echo
 	echo "========================================================================"
 	echo
-	echo "Thank you for downloading Hestia Control Panel! In a few moments,"
+	echo "Thank you for downloading QemuCP Control Panel! In a few moments,"
 	echo "we will begin installing the following components on your server:"
 	echo
 }
@@ -838,8 +838,8 @@ if [ "$mysql" = 'yes' ]; then
 	curl -s https://mariadb.org/mariadb_release_signing_key.asc | gpg --dearmor | tee /usr/share/keyrings/mariadb-keyring.gpg > /dev/null 2>&1
 fi
 
-# Installing HestiaCP repo
-echo "[ * ] Hestia Control Panel"
+# Installing QemuCP repo
+echo "[ * ] QemuCP Control Panel"
 echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/hestia-keyring.gpg] https://$RHOST/ $codename main" > $apt/hestia.list
 gpg --no-default-keyring --keyring /usr/share/keyrings/hestia-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys A189E93654F0B0E5 > /dev/null 2>&1
 
@@ -1274,7 +1274,7 @@ fi
 #                     Configure Hestia                     #
 #----------------------------------------------------------#
 
-echo "[ * ] Configuring Hestia Control Panel..."
+echo "[ * ] Configuring QemuCP Control Panel..."
 # Installing sudo configuration
 mkdir -p /etc/sudoers.d
 cp -f $HESTIA_COMMON_DIR/sudo/hestiaweb /etc/sudoers.d/
@@ -1526,7 +1526,7 @@ fi
 # Generating SSL certificate
 echo "[ * ] Generating default self-signed SSL certificate..."
 $HESTIA/bin/v-generate-ssl-cert $(hostname) '' 'US' 'California' \
-	'San Francisco' 'Hestia Control Panel' 'IT' > /tmp/hst.pem
+	'San Francisco' 'QemuCP Control Panel' 'IT' > /tmp/hst.pem
 
 # Parsing certificate file
 crt_end=$(grep -n "END CERTIFICATE-" /tmp/hst.pem | cut -f 1 -d:)
@@ -1539,7 +1539,7 @@ else
 fi
 
 # Adding SSL certificate
-echo "[ * ] Adding SSL certificate to Hestia Control Panel..."
+echo "[ * ] Adding SSL certificate to QemuCP Control Panel..."
 cd $HESTIA/ssl
 sed -n "1,${crt_end}p" /tmp/hst.pem > certificate.crt
 sed -n "$key_start,${key_end}p" /tmp/hst.pem > certificate.key
@@ -2437,7 +2437,7 @@ echo -e "\n"
 # Sending notification to admin email
 echo -e "Congratulations!
 
-You have successfully installed Hestia Control Panel on your server.
+You have successfully installed QemuCP Control Panel on your server.
 
 Ready to get started? Log in using the following credentials:
 
@@ -2448,31 +2448,31 @@ fi
 echo -e -n " 	Username:   $username
 	Password:   $displaypass
 
-Thank you for choosing Hestia Control Panel to power your full stack web server,
+Thank you for choosing QemuCP Control Panel to power your full stack web server,
 we hope that you enjoy using it as much as we do!
 
 Please feel free to contact us at any time if you have any questions,
 or if you encounter any bugs or problems:
 
 Documentation:  https://docs.hestiacp.com/
-Forum:          https://forum.hestiacp.com/
+Forum:          https://qemugen.com/
 GitHub:         https://www.github.com/hestiacp/hestiacp
 
 Note: Automatic updates are enabled by default. If you would like to disable them,
 please log in and navigate to Server > Updates to turn them off.
 
-Help support the Hestia Control Panel project by donating via PayPal:
-https://www.hestiacp.com/donate
+Help support the QemuCP Control Panel project by donating via PayPal:
+https://www.qemugen.com/donate
 
 --
 Sincerely yours,
-The Hestia Control Panel development team
+The QemuCP Control Panel development team
 
 Made with love & pride by the open-source community around the world.
 " >> $tmpfile
 
 send_mail="$HESTIA/web/inc/mail-wrapper.php"
-cat $tmpfile | $send_mail -s "Hestia Control Panel" $email
+cat $tmpfile | $send_mail -s "QemuCP Control Panel" $email
 
 # Congrats
 echo
@@ -2480,7 +2480,7 @@ cat $tmpfile
 rm -f $tmpfile
 
 # Add welcome message to notification panel
-$HESTIA/bin/v-add-user-notification "$username" 'Welcome to Hestia Control Panel!' '<p>You are now ready to begin adding <a href="/add/user/">user accounts</a> and <a href="/add/web/">domains</a>. For help and assistance, <a href="https://hestiacp.com/docs/" target="_blank">view the documentation</a> or <a href="https://forum.hestiacp.com/" target="_blank">visit our forum</a>.</p><p>Please <a href="https://github.com/hestiacp/hestiacp/issues" target="_blank">report any issues via GitHub</a>.</p><p class="u-text-bold">Have a wonderful day!</p><p><i class="fas fa-heart icon-red"></i> The Hestia Control Panel development team</p>'
+$HESTIA/bin/v-add-user-notification "$username" 'Welcome to QemuCP Control Panel!' '<p>You are now ready to begin adding <a href="/add/user/">user accounts</a> and <a href="/add/web/">domains</a>. For help and assistance, <a href="https://qemugen.com/" target="_blank">view the documentation</a> or <a href="https://qemugen.com/" target="_blank">visit our forum</a>.</p><p>Please <a href="https://github.com/qemugen/qemucp/issues" target="_blank">report any issues via GitHub</a>.</p><p class="u-text-bold">Have a wonderful day!</p><p><i class="fas fa-heart icon-red"></i> The QemuCP Control Panel development team</p>'
 
 # Clean-up
 # Sort final configuration file
