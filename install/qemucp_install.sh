@@ -1544,8 +1544,8 @@ if [[ ! -f /home/admin/.ssh/id_rsa ]]; then
     mkdir -p /home/admin/.ssh
     ssh-keygen -t rsa -b 4096 -f /home/admin/.ssh/id_rsa -N "" -q
     cat /home/admin/.ssh/id_rsa.pub >> /home/admin/.ssh/authorized_keys
-chmod 700 /home/admin/.ssh 2>/dev/null || true
-chmod 600 /home/admin/.ssh/authorized_keys 2>/dev/null || true
+    chmod 700 /home/admin/.ssh 2>/dev/null || true
+    chmod 600 /home/admin/.ssh/authorized_keys 2>/dev/null || true
     chown -R admin:admin /home/admin/.ssh 2>/dev/null || true
     log "Claves SSH admin generadas para File Manager"
 fi
