@@ -2,9 +2,9 @@
 
 # ======================================================== #
 #
-# Hestia Control Panel Installation Routine
+# QemuCP Control Panel Installation Routine
 # Automatic OS detection wrapper
-# https://www.hestiacp.com/
+# https://www.qemugen.com/
 #
 # Currently Supported Operating Systems:
 #
@@ -80,7 +80,7 @@ fi
 no_support_message() {
 	echo "****************************************************"
 	echo "Your operating system (OS) is not supported by"
-	echo "Hestia Control Panel. Officially supported releases:"
+	echo "QemuCP Control Panel. Officially supported releases:"
 	echo "****************************************************"
 	echo "  Debian 11, 12"
 	echo "  Ubuntu 22.04, 24.04 LTS"
