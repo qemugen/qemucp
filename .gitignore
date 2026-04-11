@@ -51,8 +51,3 @@ npm-debug.log
 
 # optional eslint cache
 .eslintcache
-
-# QemuCP custom theme - NO ignorar
-!web/css/themes/
-!web/css/themes/custom/
-!web/css/themes/custom/qemucp-light-blue.css
