@@ -17,7 +17,7 @@
 				<div class="container top-bar-inner">
 					<div class="top-bar-left">
 						<a href="/" class="top-bar-logo" title="<?= _("Hestia Control Panel") ?>">
-							<img src="/images/logo-header.svg" alt="<?= _("Hestia Control Panel") ?>" width="54" height="29">
+							<img src="/images/logo-header.svg" alt="<?= _("Hestia Control Panel") ?>" width="180" height="36">
 						</a>
 					</div>
 					<div class="top-bar-right">
