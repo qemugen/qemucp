@@ -1,6 +1,6 @@
 <div class="login">
 	<a href="/" class="u-block u-mb40">
-		<img src="/images/logo.svg" alt="<?= htmlentities($_SESSION["APP_NAME"]) ?>" width="260" height="53">
+		<img src="/images/logo.svg" alt="<?= htmlentities($_SESSION["APP_NAME"]) ?>" width="320" height="68">
 	</a>
 	<form id="login-form" method="post" action="/login/">
 		<input type="hidden" name="token" value="<?= $_SESSION["token"] ?>">
