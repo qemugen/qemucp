@@ -1569,7 +1569,7 @@ with open("/usr/local/hestia/web/fm/backend/Services/Session/Adapters/SessionSto
     content = f.read()
 if "function migrate" not in content:
     method = """
-    public function migrate(bool $destroy = false, int $lifetime = null): bool
+    public function migrate($destroy = false, $lifetime = null): bool
     {
         if ($destroy) {
             $this->destroy(session_id());
@@ -1586,6 +1586,19 @@ FMEOF
     log "FIX #4: FileGator migrate() anadido (PHP 8.3 compatibility)"
 else
     log "FIX #4: FileGator migrate() ya presente o fichero no encontrado"
+fi
+
+# FIX #5: Sudoers - hestiaweb necesita chmod para el File Manager
+# El File Manager ejecuta: sudo chmod o+x /home/USER/.ssh
+# hestiaweb solo tiene permiso para /usr/local/hestia/bin/* por defecto
+# Sin este fix aparece "Error desconocido" al abrir el File Manager
+SUDOERS_FILE="/etc/sudoers.d/hestiaweb"
+if ! grep -q "chmod" "$SUDOERS_FILE" 2>/dev/null; then
+    echo "hestiaweb   ALL=NOPASSWD:/usr/bin/chmod o+x /home/*/.ssh" >> "$SUDOERS_FILE"
+    echo "hestiaweb   ALL=NOPASSWD:/usr/bin/chmod 700 /home/*/.ssh" >> "$SUDOERS_FILE"
+    log "FIX #5: Sudoers chmod anadido para File Manager"
+else
+    log "FIX #5: Sudoers chmod ya presente"
 fi
 cat > /etc/sysctl.d/99-qemucp-performance.conf << 'SYSCTLEOF'
 net.core.somaxconn = 65535
