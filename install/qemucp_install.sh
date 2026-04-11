@@ -1557,6 +1557,36 @@ $HESTIA/bin/v-add-user-sftp-key admin 2>/dev/null && \
 
 systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
 log "SSH configurado"
+
+# FIX #4: FileGator / File Manager - PHP 8.3 compatibility
+# SessionStorage no implementa migrate() requerido por SessionHandlerInterface en PHP 8.1+
+# Causa: Fatal error al abrir el File Manager (/fm/)
+FM_SESSION="$HESTIA/web/fm/backend/Services/Session/Adapters/SessionStorage.php"
+if [ -f "$FM_SESSION" ] && ! grep -q "function migrate" "$FM_SESSION"; then
+    cp "$FM_SESSION" "$FM_SESSION.bak" 2>/dev/null || true
+    python3 << 'FMEOF'
+with open("/usr/local/hestia/web/fm/backend/Services/Session/Adapters/SessionStorage.php") as f:
+    content = f.read()
+if "function migrate" not in content:
+    method = """
+    public function migrate(bool $destroy = false, int $lifetime = null): bool
+    {
+        if ($destroy) {
+            $this->destroy(session_id());
+        }
+        return session_regenerate_id($destroy);
+    }
+"""
+    last = content.rfind("}")
+    content = content[:last] + method + content[last:]
+    with open("/usr/local/hestia/web/fm/backend/Services/Session/Adapters/SessionStorage.php", "w") as f:
+        f.write(content)
+    print("OK")
+FMEOF
+    log "FIX #4: FileGator migrate() anadido (PHP 8.3 compatibility)"
+else
+    log "FIX #4: FileGator migrate() ya presente o fichero no encontrado"
+fi
 cat > /etc/sysctl.d/99-qemucp-performance.conf << 'SYSCTLEOF'
 net.core.somaxconn = 65535
 net.core.netdev_max_backlog = 65535
