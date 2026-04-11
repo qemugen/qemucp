@@ -1328,6 +1328,7 @@ chmod 660 $HESTIA/conf/hestia.conf
 # Write default port value to hestia.conf
 # If a custom port is specified it will be set at the end of the installation process
 write_config_value "BACKEND_PORT" "8083"
+write_config_value "APP_NAME" "QemuCP Control Panel"
 
 # Web stack
 if [ "$apache" = 'yes' ]; then
