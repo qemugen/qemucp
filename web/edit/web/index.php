@@ -317,6 +317,29 @@ if (!empty($_POST["save"])) {
 			$restart_web = "yes";
 		}
 
+		// QemuCP: Change web engine (Apache2/OpenLiteSpeed)
+		if (
+			!empty($_SESSION["OLS_SYSTEM"]) &&
+			!empty($_POST["v_web_engine"]) &&
+			empty($_SESSION["error_msg"])
+		) {
+			$v_web_engine = $_POST["v_web_engine"];
+			exec(
+				HESTIA_CMD .
+					"v-change-web-domain-backend " .
+					$user .
+					" " .
+					quoteshellarg($v_domain) .
+					" " .
+					quoteshellarg($v_web_engine) .
+					" 'yes'",
+				$output,
+				$return_var,
+			);
+			check_return_code($return_var, $output);
+			unset($output);
+		}
+
 		// Change backend template
 		if (
 			!empty($_SESSION["WEB_BACKEND"]) &&

@@ -70,11 +70,18 @@ if [ -n "$WEB_BACKEND" ]; then
 fi
 
 # Deleting vhost configuration
-del_web_config "$WEB_SYSTEM" "$TPL.tpl"
+if [ "$WEB_SYSTEM" = "openlitespeed" ]; then
+	# QemuCP: OLS cleanup
+	ols_delete_vhost "$domain"
+else
+	del_web_config "$WEB_SYSTEM" "$TPL.tpl"
+fi
 
 # Deleting SSL configuration and certificates
 if [ "$SSL" = 'yes' ]; then
-	del_web_config "$WEB_SYSTEM" "$TPL.stpl"
+	if [ "$WEB_SYSTEM" != "openlitespeed" ]; then
+		del_web_config "$WEB_SYSTEM" "$TPL.stpl"
+	fi
 	$BIN/v-delete-web-domain-ssl-force "$user" "$domain" 'no' 'yes'
 	rm -f $HOMEDIR/$user/conf/web/$domain/ssl/$domain.*
 	rm -f $USER_DATA/ssl/$domain.*

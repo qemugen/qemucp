@@ -78,6 +78,15 @@
 			<?php } ?>
 		</div>
 
+		<?php if (!empty($_SESSION["OLS_SYSTEM"])) { ?>
+			<div class="u-mb10">
+				<label for="v_web_engine" class="form-label"><?= _("Web Engine") ?></label>
+				<select class="form-select" name="v_web_engine" id="v_web_engine">
+					<option value="apache2"><?= _("Apache2 + PHP-FPM (default)") ?></option>
+					<option value="openlitespeed"><?= _("OpenLiteSpeed + LSCache") ?></option>
+				</select>
+			</div>
+			<?php } ?>
 	</form>
 
 </div>
