@@ -1438,7 +1438,7 @@ write_config_value "LANGUAGE" "$lang"
 write_config_value "LOGIN_STYLE" "default"
 
 # Theme
-write_config_value "THEME" "qemucp-light-blue"
+write_config_value "THEME" "dark"
 
 # Inactive session timeout
 write_config_value "INACTIVE_SESSION_TIMEOUT" "60"
