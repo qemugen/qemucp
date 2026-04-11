@@ -1,9 +1,16 @@
+[DEFAULT]
+bantime  = 3600
+findtime = 600
+maxretry = 5
+ignoreip = 127.0.0.1/8 ::1
+
 [ssh-iptables]
 enabled  = true
 filter   = sshd
 action   = hestia[name=SSH]
 logpath  = /var/log/auth.log
 maxretry = 5
+bantime  = 7200
 
 [vsftpd-iptables]
 enabled  = false
@@ -25,11 +32,12 @@ action   = hestia[name=MAIL]
 logpath  = /var/log/dovecot.log
 
 [mysqld-iptables]
-enabled  = false
+enabled  = true
 filter   = mysqld-auth
 action   = hestia[name=DB]
 logpath  = /var/log/mysql/error.log
-maxretry = 5
+maxretry = 3
+bantime  = 86400
 
 [hestia-iptables]
 enabled  = true
@@ -52,6 +60,39 @@ action   = hestia[name=WEB]
 logpath  = /var/log/auth.log
 maxretry = 5
 
+[nginx-http-auth]
+enabled  = true
+filter   = nginx-http-auth
+action   = hestia[name=WEB]
+logpath  = /var/log/nginx/error.log
+maxretry = 5
+
+[nginx-botsearch]
+enabled  = true
+filter   = nginx-botsearch
+action   = hestia[name=WEB]
+logpath  = /var/log/nginx/access.log
+maxretry = 2
+bantime  = 86400
+
+[nginx-badbots]
+enabled  = true
+filter   = nginx-badbots
+action   = hestia[name=WEB]
+logpath  = /var/log/nginx/access.log
+maxretry = 1
+bantime  = 86400
+findtime = 3600
+
+[nginx-444]
+enabled  = true
+filter   = nginx-444
+action   = hestia[name=WEB]
+logpath  = /var/log/nginx/access.log
+maxretry = 3
+bantime  = 86400
+findtime = 600
+
 [recidive]
 enabled  = true
 filter   = recidive
@@ -60,7 +101,3 @@ logpath  = /var/log/fail2ban.log
 maxretry = 5
 findtime = 86400
 bantime  = 864000
-
-#Uncomment and add your IPs and or domains to the Whitelist
-#[DEFAULT]
-#ignoreip = 111.111.111.111 222.222.222.222 subdomain.example.tld example.tld 333.333.333.333
