@@ -296,8 +296,34 @@
 							</div>
 						</div>
 					<?php } ?>
-					<?php if (!empty($_SESSION["WEB_BACKEND"])) { ?>
+					<?php if (!empty($_SESSION["OLS_SYSTEM"])) { ?>
 						<div class="u-mb10">
+							<label for="v_web_engine" class="form-label">
+								<?= _("Web Engine") ?>
+							</label>
+							<select class="form-select" name="v_web_engine" id="v_web_engine" onchange="qemucp_engine_change(this)">
+								<option value="apache2" <?= (!empty($v_web_engine) && $v_web_engine == 'apache2') ? 'selected' : '' ?>>
+									Apache2 + PHP-FPM
+								</option>
+								<option value="openlitespeed" <?= (!empty($v_web_engine) && $v_web_engine == 'openlitespeed') ? 'selected' : '' ?>>
+									OpenLiteSpeed + LSCache
+								</option>
+							</select>
+							<small class="form-text text-muted">
+								<?= _("OpenLiteSpeed offers better performance with built-in LSCache for WordPress and PrestaShop") ?>
+							</small>
+						</div>
+						<script>
+						function qemucp_engine_change(sel) {
+							var backend = document.getElementById('v_backend_template_section');
+							if (backend) {
+								backend.style.display = sel.value === 'openlitespeed' ? 'none' : 'block';
+							}
+						}
+						</script>
+					<?php } ?>
+					<?php if (!empty($_SESSION["WEB_BACKEND"])) { ?>
+						<div class="u-mb10" id="v_backend_template_section">
 							<label for="v_backend_template" class="form-label">
 								<?= _("Backend Template") . " <span class='optional'>" . strtoupper($_SESSION["WEB_BACKEND"]) . "</span>" ?>
 							</label>

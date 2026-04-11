@@ -1067,3 +1067,134 @@ process_http2_directive() {
 		fi
 	fi
 }
+
+#----------------------------------------------------------#
+#          QemuCP - OpenLiteSpeed Functions                #
+#----------------------------------------------------------#
+
+# Configure OpenLiteSpeed virtual host
+ols_add_vhost() {
+	local user=$1
+	local domain=$2
+	local docroot=$3
+	local ip=$4
+	local home=$5
+
+	local OLS_VHOST_DIR="/usr/local/lsws/conf/vhosts/$domain"
+	local OLS_SERVER_CONF="/usr/local/lsws/conf/httpd_config.conf"
+
+	mkdir -p "$OLS_VHOST_DIR"
+
+	# Generate vhost config from template
+	local template_dir="$WEBTPL/openlitespeed/php-fpm"
+	local template="$template_dir/default.sh"
+
+	if [ -f "$template" ]; then
+		bash "$template" "$user" "$domain" "$ip" "$home" "$docroot"
+	fi
+
+	# Add virtualHost entry to main OLS config if not exists
+	if ! grep -q "virtualHost $domain" "$OLS_SERVER_CONF" 2>/dev/null; then
+		# Find the last virtualHost block and add after it
+		python3 -c "
+import re, sys
+
+with open('$OLS_SERVER_CONF', 'r') as f:
+    content = f.read()
+
+new_vh = '''
+virtualHost $domain {
+  vhRoot                  $docroot
+  configFile              \$SERVER_ROOT/conf/vhosts/$domain/vhconf.conf
+  allowSymbolLink         1
+  enableScript            1
+  restrained              0
+  setUIDMode              2
+}
+'''
+
+# Add listener mapping
+new_listener = 'map                     $domain $domain'
+
+# Insert before the first listener block
+content = re.sub(r'(listener\s+Default\s*\{)', new_vh + r'\1', content, count=1)
+
+with open('$OLS_SERVER_CONF', 'w') as f:
+    f.write(content)
+" 2>/dev/null || true
+	fi
+
+	# Add listener mapping for this domain
+	if ! grep -q "map.*$domain" "$OLS_SERVER_CONF" 2>/dev/null; then
+		sed -i "/listener Default/,/^}/ s|}|  map $domain $domain\n}|" \
+			"$OLS_SERVER_CONF" 2>/dev/null || true
+	fi
+
+	/usr/local/lsws/bin/lswsctrl graceful > /dev/null 2>&1 || true
+}
+
+# Remove OpenLiteSpeed virtual host
+ols_delete_vhost() {
+	local domain=$1
+	local OLS_VHOST_DIR="/usr/local/lsws/conf/vhosts/$domain"
+	local OLS_SERVER_CONF="/usr/local/lsws/conf/httpd_config.conf"
+
+	# Remove vhost directory
+	rm -rf "$OLS_VHOST_DIR" 2>/dev/null || true
+
+	# Remove from main config
+	python3 -c "
+import re
+with open('$OLS_SERVER_CONF', 'r') as f:
+    content = f.read()
+# Remove virtualHost block
+content = re.sub(r'virtualHost $domain \{[^}]*\}\n?', '', content)
+# Remove listener mapping
+content = re.sub(r'\s*map\s+$domain\s+$domain\n?', '', content)
+with open('$OLS_SERVER_CONF', 'w') as f:
+    f.write(content)
+" 2>/dev/null || true
+
+	/usr/local/lsws/bin/lswsctrl graceful > /dev/null 2>&1 || true
+}
+
+# Add SSL to OpenLiteSpeed virtual host
+ols_add_ssl() {
+	local domain=$1
+	local ssl_crt=$2
+	local ssl_key=$3
+	local ssl_ca=$4
+	local OLS_VHOST_CONF="/usr/local/lsws/conf/vhosts/$domain/vhconf.conf"
+
+	if [ ! -f "$OLS_VHOST_CONF" ]; then
+		return 1
+	fi
+
+	# Update SSL section in vhconf
+	if grep -q "vhssl" "$OLS_VHOST_CONF" 2>/dev/null; then
+		sed -i "s|keyFile.*|keyFile $ssl_key|" "$OLS_VHOST_CONF"
+		sed -i "s|certFile.*|certFile $ssl_crt|" "$OLS_VHOST_CONF"
+	else
+		cat >> "$OLS_VHOST_CONF" << SSLEOF
+
+vhssl {
+  keyFile                 $ssl_key
+  certFile                $ssl_crt
+  certChain               1
+  sslProtocol             24
+  enableECDHE             1
+  renegProtection         1
+  sslSessionCache         1
+  enableSpdy              15
+  enableQuic              1
+}
+SSLEOF
+	fi
+
+	/usr/local/lsws/bin/lswsctrl graceful > /dev/null 2>&1 || true
+}
+
+# Check if OLS is the web system
+is_ols() {
+	[ "$WEB_SYSTEM" = "openlitespeed" ]
+}
