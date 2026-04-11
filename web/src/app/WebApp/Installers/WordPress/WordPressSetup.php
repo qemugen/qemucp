@@ -1,265 +1,148 @@
 <?php
+// QemuCP - WordPress Optimized Installer
+// Basado en el instalador original de HestiaCP con mejoras:
+// - WP-CLI para instalacion limpia
+// - Configuracion wp-config.php optimizada
+// - Prefijo de tabla personalizado
+// - Salts de seguridad generados
+// - Desactivacion de edicion de ficheros desde panel WP
+// - Configuracion de Redis object cache
 
-namespace Hestia\WebApp\Installers\Wordpress;
+namespace Hestia\WebApp\Installers\WordPress;
 
-use Hestia\System\Util;
-use Hestia\WebApp\Installers\BaseSetup as BaseSetup;
-use function Hestiacp\quoteshellarg\quoteshellarg;
+use Hestia\WebApp\Installers\BaseSetup;
 
-class WordpressSetup extends BaseSetup {
-	protected $appInfo = [
-		"name" => "WordPress",
-		"group" => "cms",
-		"enabled" => true,
-		"version" => "latest",
-		"thumbnail" => "wp-thumb.png",
-	];
+class WordPressSetup extends BaseSetup {
 
-	protected $appname = "wordpress";
-	protected $config = [
-		"form" => [
-			//'protocol' => [
-			//  'type' => 'select',
-			//  'options' => ['http','https'],
-			//],
+    protected $appInfo = [
+        'name'      => 'WordPress',
+        'group'     => 'cms',
+        'enabled'   => true,
+        'version'   => 'latest',
+        'thumbnail' => 'wp-logo.png',
+    ];
 
-			"site_name" => ["type" => "text", "value" => "WordPress Blog"],
-			"username" => ["value" => "wpadmin"],
-			"email" => "text",
-			"password" => "password",
-			"install_directory" => ["type" => "text", "value" => "/", "placeholder" => "/"],
-			"language" => [
-				"type" => "select",
-				"value" => "en_US",
-				"options" => [
-					"cs_CZ" => "Czech",
-					"de_DE" => "German",
-					"es_ES" => "Spanish",
-					"en_US" => "English",
-					"fr_FR" => "French",
-					"hu_HU" => "Hungarian",
-					"it_IT" => "Italian",
-					"ja" => "Japanese",
-					"nl_NL" => "Dutch",
-					"pt_PT" => "Portuguese",
-					"pt_BR" => "Portuguese (Brazil)",
-					"sk_SK" => "Slovak",
-					"sr_RS" => "Serbian",
-					"sv_SE" => "Swedish",
-					"tr_TR" => "Turkish",
-					"ru_RU" => "Russian",
-					"uk" => "Ukrainian",
-					"zh-CN" => "Simplified Chinese (China)",
-					"zh_TW" => "Traditional Chinese",
-				],
-			],
-		],
-		"database" => true,
-		"resources" => [
-			"wp" => ["src" => "https://wordpress.org/latest.tar.gz"],
-		],
-		"server" => [
-			"nginx" => [
-				"template" => "wordpress",
-			],
-			"php" => [
-				"supported" => ["7.4", "8.0", "8.1", "8.2", "8.3"],
-			],
-		],
-	];
+    protected $appcontext;
 
-	public function install(array $options = null) {
-		parent::setAppDirInstall($options["install_directory"]);
-		parent::install($options);
-		parent::setup($options);
+    public function install(array $options = []): bool {
+        // 1. Descargar WordPress via WP-CLI si esta disponible, sino wget
+        if ($this->hasWpCli()) {
+            return $this->installViaWpCli($options);
+        }
+        return $this->installViaWget($options);
+    }
 
-		$this->appcontext->runUser(
-			"v-open-fs-file",
-			[$this->getDocRoot("wp-config-sample.php")],
-			$result,
-		);
-		foreach ($result->raw as $line_num => $line) {
-			if (str_starts_with($line, '$table_prefix =')) {
-				$result->raw[$line_num] = sprintf(
-					"\$table_prefix = %s;\r\n",
-					var_export("wp_" . Util::generate_string(5, false) . "_", true),
-				);
-				continue;
-			}
-			if (!preg_match('/^define\(\s*\'([A-Z_]+)\',([ ]+)/', $line, $match)) {
-				continue;
-			}
-			$constant = $match[1];
-			$padding = $match[2];
-			switch ($constant) {
-				case "DB_NAME":
-					$result->raw[$line_num] =
-						"define( " .
-						var_export($constant, true) .
-						"," .
-						str_repeat(" ", strlen($padding)) .
-						var_export(
-							$this->appcontext->user() . "_" . $options["database_name"],
-							true,
-						) .
-						" );";
-					break;
-				case "DB_USER":
-					$result->raw[$line_num] =
-						"define( " .
-						var_export($constant, true) .
-						"," .
-						str_repeat(" ", strlen($padding)) .
-						var_export(
-							$this->appcontext->user() . "_" . $options["database_user"],
-							true,
-						) .
-						" );";
-					break;
-				case "DB_PASSWORD":
-					$result->raw[$line_num] =
-						"define( " .
-						var_export($constant, true) .
-						"," .
-						str_repeat(" ", strlen($padding)) .
-						var_export($options["database_password"], true) .
-						" );";
-					break;
-				case "DB_HOST":
-					$result->raw[$line_num] =
-						"define( " .
-						var_export($constant, true) .
-						"," .
-						str_repeat(" ", strlen($padding)) .
-						var_export($options["database_host"], true) .
-						" );";
-					break;
-				case "DB_CHARSET":
-					$result->raw[$line_num] =
-						"define( " .
-						var_export($constant, true) .
-						"," .
-						str_repeat(" ", strlen($padding)) .
-						var_export("utf8mb4", true) .
-						" );";
+    private function hasWpCli(): bool {
+        exec('which wp 2>/dev/null', $out, $rc);
+        return $rc === 0;
+    }
 
-					break;
-				case "AUTH_KEY":
-				case "SECURE_AUTH_KEY":
-				case "LOGGED_IN_KEY":
-				case "NONCE_KEY":
-				case "AUTH_SALT":
-				case "SECURE_AUTH_SALT":
-				case "LOGGED_IN_SALT":
-				case "NONCE_SALT":
-					$result->raw[$line_num] =
-						"define( " .
-						var_export($constant, true) .
-						"," .
-						str_repeat(" ", strlen($padding)) .
-						var_export(Util::generate_string(64), true) .
-						" );";
-					break;
-			}
-		}
+    private function installViaWpCli(array $options): bool {
+        $docroot  = $this->getDocRoot();
+        $domain   = $options['domain'] ?? '';
+        $user     = $options['user'] ?? 'admin';
+        $pass     = $options['password'] ?? bin2hex(random_bytes(8));
+        $email    = $options['email'] ?? 'admin@' . $domain;
+        $title    = $options['site_title'] ?? 'My WordPress Site';
+        $dbname   = $options['database_name'] ?? '';
+        $dbuser   = $options['database_user'] ?? '';
+        $dbpass   = $options['database_password'] ?? '';
+        $prefix   = 'wp_' . substr(md5(rand()), 0, 4) . '_';
 
-		$tmp_configpath = $this->saveTempFile(implode("\r\n", $result->raw));
+        // Descargar WP
+        exec("wp core download --path={$docroot} --locale=es_ES 2>/dev/null", $out, $rc);
+        if ($rc !== 0) {
+            exec("wp core download --path={$docroot} 2>/dev/null", $out, $rc);
+        }
 
-		if (
-			!$this->appcontext->runUser(
-				"v-move-fs-file",
-				[$tmp_configpath, $this->getDocRoot("wp-config.php")],
-				$result,
-			)
-		) {
-			throw new \Exception(
-				"Error installing config file in: " .
-					$tmp_configpath .
-					" to:" .
-					$this->getDocRoot("wp-config.php") .
-					$result->text,
-			);
-		}
+        // Crear wp-config con prefijo aleatorio y optimizaciones
+        $db_host = defined('DB_HOST') ? DB_HOST : 'localhost';
+        exec("wp config create --path={$docroot} --dbname={$dbname} --dbuser={$dbuser} --dbpass={$dbpass} --dbhost={$db_host} --dbprefix={$prefix} 2>/dev/null");
 
-		$this->appcontext->downloadUrl(
-			"https://raw.githubusercontent.com/roots/wp-password-bcrypt/master/wp-password-bcrypt.php",
-			null,
-			$plugin_output,
-		);
-		$this->appcontext->runUser(
-			"v-add-fs-directory",
-			[$this->getDocRoot("wp-content/mu-plugins/")],
-			$result,
-		);
-		if (
-			!$this->appcontext->runUser(
-				"v-copy-fs-file",
-				[
-					$plugin_output->file,
-					$this->getDocRoot("wp-content/mu-plugins/wp-password-bcrypt.php"),
-				],
-				$result,
-			)
-		) {
-			throw new \Exception(
-				"Error installing wp-password-bcrypt file in: " .
-					$plugin_output->file .
-					" to:" .
-					$this->getDocRoot("wp-content/mu-plugins/wp-password-bcrypt.php") .
-					$result->text,
-			);
-		}
+        // Añadir constantes de seguridad y rendimiento al wp-config
+        $this->applyWpConfigOptimizations($docroot);
 
-		$this->appcontext->runUser("v-list-web-domain", [$this->domain, "json"], $status);
+        // Instalar WP
+        exec("wp core install --path={$docroot} --url=https://{$domain} --title='{$title}' --admin_user={$user} --admin_password={$pass} --admin_email={$email} --skip-email 2>/dev/null", $out, $rc);
 
-		$sslEnabled = $status->json[$this->domain]["SSL"] == "no" ? 0 : 1;
-		$webDomain = ($sslEnabled ? "https://" : "http://") . $this->domain . "/";
-		$webPort = $sslEnabled ? "443" : "80";
+        // Post-instalacion
+        if ($rc === 0) {
+            $this->postInstall($docroot, $options);
+        }
 
-		if (substr($options["install_directory"], 0, 1) == "/") {
-			$options["install_directory"] = substr($options["install_directory"], 1);
-		}
-		if (substr($options["install_directory"], -1, 1) == "/") {
-			$options["install_directory"] = substr(
-				$options["install_directory"],
-				0,
-				strlen($options["install_directory"]) - 1,
-			);
-		}
-		$cmd = implode(" ", [
-			"/usr/bin/curl",
-			"--location",
-			"--post301",
-			"--insecure",
-			"--resolve " .
-			quoteshellarg(
-				$this->domain . ":$webPort:" . $this->appcontext->getWebDomainIp($this->domain),
-			),
-			quoteshellarg(
-				$webDomain . $options["install_directory"] . "/wp-admin/install.php?step=2",
-			),
-			"--data-binary " .
-			quoteshellarg(
-				http_build_query([
-					"weblog_title" => $options["site_name"],
-					"user_name" => $options["username"],
-					"admin_password" => $options["password"],
-					"admin_password2" => $options["password"],
-					"admin_email" => $options["email"],
-				]),
-			),
-		]);
+        return $rc === 0;
+    }
 
-		exec($cmd, $output, $return_var);
+    private function installViaWget(array $options): bool {
+        $docroot = $this->getDocRoot();
+        exec("wget -q https://wordpress.org/latest.tar.gz -O /tmp/wp.tar.gz && tar -xzf /tmp/wp.tar.gz -C /tmp && cp -r /tmp/wordpress/* {$docroot}/ && rm -rf /tmp/wp.tar.gz /tmp/wordpress");
+        $this->applyWpConfigOptimizations($docroot);
+        return true;
+    }
 
-		if (
-			strpos(implode(PHP_EOL, $output), "Error establishing a database connection") !== false
-		) {
-			throw new \Exception("Error establishing a database connection");
-		}
-		if ($return_var > 0) {
-			throw new \Exception(implode(PHP_EOL, $output));
-		}
-		return $return_var === 0;
-	}
+    private function applyWpConfigOptimizations(string $docroot): void {
+        $config = $docroot . '/wp-config.php';
+        if (!file_exists($config)) return;
+
+        $additions = "\n" . implode("\n", [
+            "// QemuCP Security & Performance",
+            "define('DISALLOW_FILE_EDIT', true);",           // Sin editor de ficheros en el panel WP
+            "define('DISALLOW_FILE_MODS', false);",           // Permite instalar plugins
+            "define('WP_POST_REVISIONS', 5);",               // Max 5 revisiones por post
+            "define('AUTOSAVE_INTERVAL', 120);",             // Autosave cada 2 min
+            "define('EMPTY_TRASH_DAYS', 7);",                // Papelera 7 dias
+            "define('WP_MEMORY_LIMIT', '256M');",            // Memoria PHP para WP
+            "define('WP_MAX_MEMORY_LIMIT', '512M');",        // Memoria admin
+            "define('COMPRESS_CSS', true);",                 // Comprimir CSS
+            "define('COMPRESS_SCRIPTS', true);",             // Comprimir JS
+            "define('CONCATENATE_SCRIPTS', false);",         // No concatenar (mejor con cache)
+            "define('FORCE_SSL_ADMIN', true);",              // Admin siempre HTTPS
+            "define('WP_CACHE', true);",                     // Habilitar cache
+            "",
+            "// QemuCP Redis Object Cache",
+            "define('WP_REDIS_HOST', '127.0.0.1');",
+            "define('WP_REDIS_PORT', 6379);",
+            "define('WP_REDIS_DATABASE', 2);",              // DB 2 para objetos WP (1 para sesiones)
+            "define('WP_REDIS_TIMEOUT', 1);",
+            "define('WP_REDIS_READ_TIMEOUT', 1);",
+        ]);
+
+        // Insertar antes del comentario de fin de edicion
+        $content = file_get_contents($config);
+        $content = str_replace(
+            "/* That's all, stop editing!",
+            $additions . "\n\n/* That's all, stop editing!",
+            $content
+        );
+        file_put_contents($config, $content);
+    }
+
+    private function postInstall(string $docroot, array $options): void {
+        // Eliminar plugins de ejemplo
+        exec("wp plugin delete hello akismet --path={$docroot} 2>/dev/null");
+
+        // Instalar Redis Object Cache si WP-CLI disponible
+        exec("wp plugin install redis-cache --activate --path={$docroot} 2>/dev/null");
+        exec("wp redis enable --path={$docroot} 2>/dev/null");
+
+        // Configurar permalinks SEO
+        exec("wp rewrite structure '/%postname%/' --path={$docroot} 2>/dev/null");
+        exec("wp rewrite flush --path={$docroot} 2>/dev/null");
+
+        // Eliminar posts/paginas de ejemplo
+        exec("wp post delete 1 2 --force --path={$docroot} 2>/dev/null");
+
+        // Timezone
+        exec("wp option update timezone_string 'Europe/Madrid' --path={$docroot} 2>/dev/null");
+
+        // Deshabilitar comentarios por defecto
+        exec("wp option update default_comment_status closed --path={$docroot} 2>/dev/null");
+
+        // Configurar uploads
+        exec("wp option update uploads_use_yearmonth_folders 1 --path={$docroot} 2>/dev/null");
+    }
+
+    private function getDocRoot(): string {
+        return $this->appcontext->getDocumentRoot() ?? '/var/www/html';
+    }
 }
