@@ -1,0 +1,120 @@
+#!/bin/bash
+# info: change web domain backend (engine)
+# options: USER DOMAIN BACKEND [RESTART]
+#
+# example: v-change-web-domain-backend admin acme.com openlitespeed yes
+# example: v-change-web-domain-backend admin acme.com apache2 yes
+#
+# QemuCP: This function switches the web engine for a domain between
+# Apache2+PHP-FPM and OpenLiteSpeed. When switching to OLS, the domain
+# is reconfigured to use OLS vhost system with LSCache support.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+user=$1
+domain=$2
+domain_idn=$2
+backend=$3
+restart=$4
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source $HESTIA/func/domain.sh
+source $HESTIA/func/ip.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+format_domain
+format_domain_idn
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '3' "$#" 'USER DOMAIN BACKEND [RESTART]'
+is_format_valid 'user' 'domain' 'restart'
+is_object_valid 'user' 'USER' "$user"
+is_object_unsuspended 'user' 'USER' "$user"
+is_object_valid 'web' 'DOMAIN' "$domain"
+is_object_unsuspended 'web' 'DOMAIN' "$domain"
+
+# Validate backend value
+if [ "$backend" != "apache2" ] && [ "$backend" != "openlitespeed" ] && \
+   [ "$backend" != "nginx" ]; then
+    check_result "$E_INVALID" "Invalid backend: $backend (valid: apache2, openlitespeed, nginx)"
+fi
+
+# Check OLS is installed if switching to it
+if [ "$backend" = "openlitespeed" ]; then
+    if [ ! -f "/usr/local/lsws/bin/lswsctrl" ]; then
+        check_result "$E_NOTEXIST" "OpenLiteSpeed is not installed. Run: bash $HESTIA/install/ols-install.sh"
+    fi
+fi
+
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+get_domain_values 'web'
+local_ip=$(get_real_ip "$IP")
+export local_ip
+
+HOMEDIR=$(get_user_home "$user")
+docroot="$HOMEDIR/$user/web/$domain/public_html"
+
+# Remove existing web config (current engine)
+if [ "$WEB_SYSTEM" = "openlitespeed" ]; then
+    # Remove OLS vhost
+    ols_delete_vhost "$domain"
+else
+    # Remove Apache/Nginx config
+    del_web_config "$WEB_SYSTEM" "$TPL.tpl"
+    if [ "$SSL" = 'yes' ]; then
+        del_web_config "$WEB_SYSTEM" "$TPL.stpl"
+    fi
+fi
+
+# Apply new engine config
+if [ "$backend" = "openlitespeed" ]; then
+    # Switch TO OpenLiteSpeed
+    ols_add_vhost "$user" "$domain" "$docroot" "$local_ip" "$HOMEDIR"
+    if [ "$SSL" = 'yes' ]; then
+        ssl_crt="$HOMEDIR/$user/conf/web/$domain/ssl/$domain.crt"
+        ssl_key="$HOMEDIR/$user/conf/web/$domain/ssl/$domain.key"
+        ssl_ca="$HOMEDIR/$user/conf/web/$domain/ssl/$domain.ca"
+        ols_add_ssl "$domain" "$ssl_crt" "$ssl_key" "$ssl_ca"
+    fi
+    # Update WEB_SYSTEM to OLS
+    update_object_value 'web' 'DOMAIN' "$domain" '$WEB_ENGINE' "openlitespeed"
+    log_msg="Switched to OpenLiteSpeed"
+else
+    # Switch TO Apache2/Nginx
+    prepare_web_domain_values
+    add_web_config "$backend" "$TPL.tpl"
+    if [ "$SSL" = 'yes' ]; then
+        add_web_config "$backend" "$TPL.stpl"
+    fi
+    update_object_value 'web' 'DOMAIN' "$domain" '$WEB_ENGINE' "$backend"
+    log_msg="Switched to $backend"
+fi
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+# Restart appropriate web server
+if [ "$backend" = "openlitespeed" ]; then
+    /usr/local/lsws/bin/lswsctrl graceful > /dev/null 2>&1 || true
+else
+    $BIN/v-restart-web "$restart"
+    check_result $? "Web restart failed" > /dev/null
+fi
+
+$BIN/v-log-action "$user" "Info" "Web" "Web engine changed (Domain: $domain, Engine: $backend)."
+log_event "$OK" "$ARGUMENTS"
+
+exit

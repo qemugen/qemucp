@@ -1,0 +1,55 @@
+#!/bin/bash
+# info: list available web engines
+# options: [FORMAT]
+#
+# example: v-list-web-engines json
+#
+# QemuCP: Lists available web engines (Apache2, OpenLiteSpeed)
+
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+format=${1-shell}
+
+# Build engines list
+engines="apache2"
+if [ -f "/usr/local/lsws/bin/lswsctrl" ]; then
+    engines="$engines openlitespeed"
+fi
+
+case $format in
+    json)
+        echo -n "{"
+        first=true
+        for engine in $engines; do
+            if [ "$first" = true ]; then first=false; else echo -n ","; fi
+            case $engine in
+                apache2)        label="Apache2 + PHP-FPM" ;;
+                openlitespeed)  label="OpenLiteSpeed + LSCache" ;;
+                nginx)          label="Nginx + PHP-FPM" ;;
+                *)              label="$engine" ;;
+            esac
+            echo -n "\"$engine\":{\"NAME\":\"$engine\",\"LABEL\":\"$label\"}"
+        done
+        echo "}"
+        ;;
+    plain)
+        for engine in $engines; do echo "$engine"; done
+        ;;
+    *)
+        echo "ENGINE    LABEL"
+        echo "--------  ----------------------------"
+        for engine in $engines; do
+            case $engine in
+                apache2)        label="Apache2 + PHP-FPM" ;;
+                openlitespeed)  label="OpenLiteSpeed + LSCache" ;;
+                nginx)          label="Nginx + PHP-FPM" ;;
+                *)              label="$engine" ;;
+            esac
+            echo "$engine    $label"
+        done
+        ;;
+esac
+
+exit

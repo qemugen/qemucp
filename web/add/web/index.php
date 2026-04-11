@@ -122,6 +122,21 @@ if (!empty($_POST["ok"])) {
 		unset($output);
 	}
 
+	// QemuCP: Switch to OLS if selected
+	if (empty($_SESSION["error_msg"]) && !empty($_POST["v_web_engine"]) && $_POST["v_web_engine"] === "openlitespeed") {
+		exec(
+			HESTIA_CMD .
+				"v-change-web-domain-backend " .
+				$user .
+				" " .
+				quoteshellarg($v_domain) .
+				" openlitespeed 'yes'",
+			$output,
+			$return_var,
+		);
+		unset($output);
+	}
+
 	// Flush field values on success
 	if (empty($_SESSION["error_msg"])) {
 		$_SESSION["ok_msg"] = htmlify_trans(

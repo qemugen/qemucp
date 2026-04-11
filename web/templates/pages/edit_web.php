@@ -296,8 +296,40 @@
 							</div>
 						</div>
 					<?php } ?>
-					<?php if (!empty($_SESSION["WEB_BACKEND"])) { ?>
+					<?php if (!empty($web_engines) && count($web_engines) > 1) { ?>
 						<div class="u-mb10">
+							<label for="v_web_engine" class="form-label">
+								<?= _("Web Engine") ?>
+								<span class="badge bg-info ms-1">QemuCP</span>
+							</label>
+							<select class="form-select" name="v_web_engine" id="v_web_engine" onchange="qemucp_engine_change(this)">
+								<?php foreach ($web_engines as $engine_key => $engine_data): ?>
+									<option value="<?= htmlentities($engine_key) ?>"
+										<?= (!empty($v_web_engine) && $v_web_engine == $engine_key) ? 'selected' : '' ?>>
+										<?= htmlentities($engine_data['LABEL']) ?>
+									</option>
+								<?php endforeach; ?>
+							</select>
+							<small class="form-text text-muted">
+								<?= _("OpenLiteSpeed provides native LSCache for 10x faster WordPress and PrestaShop") ?>
+							</small>
+						</div>
+						<script>
+						function qemucp_engine_change(sel) {
+							var backend = document.getElementById('v_backend_template_section');
+							if (backend) {
+								backend.style.display = sel.value === 'openlitespeed' ? 'none' : 'block';
+							}
+						}
+						// Apply on page load
+						document.addEventListener('DOMContentLoaded', function() {
+							var sel = document.getElementById('v_web_engine');
+							if (sel) qemucp_engine_change(sel);
+						});
+						</script>
+					<?php } ?>
+					<?php if (!empty($_SESSION["WEB_BACKEND"])) { ?>
+						<div class="u-mb10" id="v_backend_template_section">
 							<label for="v_backend_template" class="form-label">
 								<?= _("Backend Template") . " <span class='optional'>" . strtoupper($_SESSION["WEB_BACKEND"]) . "</span>" ?>
 							</label>

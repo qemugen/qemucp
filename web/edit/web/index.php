@@ -71,6 +71,15 @@ if (empty($v_letsencrypt)) {
 }
 $v_ssl_home = $data[$v_domain]["SSL_HOME"] ?? "";
 $v_backend_template = $data[$v_domain]["BACKEND"] ?? "";
+
+// QemuCP: Load current web engine and available engines
+$v_web_engine = $data[$v_domain]["WEB_ENGINE"] ?? "apache2";
+$web_engines = [];
+exec(HESTIA_CMD . "v-list-web-engines json", $output, $return_var);
+if ($return_var === 0) {
+    $web_engines = json_decode(implode("", $output), true) ?? [];
+}
+unset($output);
 $v_nginx_cache = $data[$v_domain]["FASTCGI_CACHE"] ?? "";
 $v_nginx_cache_duration = $data[$v_domain]["FASTCGI_DURATION"] ?? "";
 $v_nginx_cache_check = "";
@@ -315,6 +324,29 @@ if (!empty($_POST["save"])) {
 			check_return_code($return_var, $output);
 			unset($output);
 			$restart_web = "yes";
+		}
+
+		// QemuCP: Change web engine (Apache2/OpenLiteSpeed)
+		if (
+			!empty($_SESSION["OLS_SYSTEM"]) &&
+			!empty($_POST["v_web_engine"]) &&
+			empty($_SESSION["error_msg"])
+		) {
+			$v_web_engine = $_POST["v_web_engine"];
+			exec(
+				HESTIA_CMD .
+					"v-change-web-domain-backend " .
+					$user .
+					" " .
+					quoteshellarg($v_domain) .
+					" " .
+					quoteshellarg($v_web_engine) .
+					" 'yes'",
+				$output,
+				$return_var,
+			);
+			check_return_code($return_var, $output);
+			unset($output);
 		}
 
 		// Change backend template

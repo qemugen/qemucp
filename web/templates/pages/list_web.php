@@ -138,6 +138,13 @@
 					$backend_support='yes';
 				}
 
+				// QemuCP: Detect web engine
+				$web_engine = $data[$key]['WEB_ENGINE'] ?? 'apache2';
+				$web_engine_badge = '';
+				if ($web_engine === 'openlitespeed') {
+					$web_engine_badge = '<span class="badge bg-success ms-1" title="OpenLiteSpeed + LSCache">OLS</span>';
+				}
+
 				$proxy_support='no';
 				if (!empty($data[$key]['PROXY'])) {
 					$proxy_support='yes';
@@ -212,6 +219,7 @@
 						}
 						?>
 						<a href="/edit/web/?domain=<?= $key ?>&token=<?= $_SESSION['token'] ?>" title="<?= _("Edit Domain") ?>: <?= $key ?>">
+							<?= $web_engine_badge ?>
 							<?= $key ?>
 							<?php
 								if (!empty($alias_new) && !empty($data[$key]['ALIAS'])) {

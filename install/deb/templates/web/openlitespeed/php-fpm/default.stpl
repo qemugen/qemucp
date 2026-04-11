@@ -1,0 +1,22 @@
+#=========================================================================#
+# Default OpenLiteSpeed SSL Web Domain Template - QemuCP                  #
+# DO NOT MODIFY THIS FILE! CHANGES WILL BE LOST WHEN REBUILDING DOMAINS   #
+#=========================================================================#
+
+virtualHost %domain% {
+  vhRoot                  %docroot%
+  configFile              $SERVER_ROOT/conf/vhosts/%domain%/vhconf.conf
+  allowSymbolLink         1
+  enableScript            1
+  restrained              0
+  setUIDMode              2
+}
+
+listener HTTPS_%domain% {
+  address                 %ip%:%web_ssl_port%
+  secure                  1
+  keyFile                 %ssl_key%
+  certFile                %ssl_crt%
+  CACertFile              %ssl_ca%
+  map                     %domain% %domain%
+}
