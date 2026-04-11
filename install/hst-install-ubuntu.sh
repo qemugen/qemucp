@@ -570,11 +570,11 @@ esac
 install_welcome_message() {
 	DISPLAY_VER=$(echo $HESTIA_INSTALL_VER | sed "s|~alpha||g" | sed "s|~beta||g")
 	echo
-	echo '    ___  ___ _ __ ___  _   _  ___ _ __                                 '
-	echo '   / _ \/ _ \ '_  ` _ \| | | |/ __| '_ \                              '
-	echo '  | (_) |  __/ | | | | | |_| | (__| |_) |                              '
-	echo '   \___/ \___|_| |_| |_|\__,_|\___|  __/                               '
-	echo '                                   |_|                                  '
+	echo '   ___  ___ _ __ ___  _   _  ___ _ __'
+	echo '  / _ \/ _ \ .__/ _ \| | | |/ __| ._ \'
+	echo ' | (_) |  __/ | | | | | |_| | (__| |_) |'
+	echo '  \___/ \___|_| |_| |_|\__,_|\___|  __/'
+	echo '                                   |_|   '
 	echo "                                                                        "
 	echo "                          QemuCP Control Panel                          "
 	if [[ "$HESTIA_INSTALL_VER" =~ "beta" ]]; then
