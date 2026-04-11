@@ -93,3 +93,15 @@ systemctl start lsws 2>/dev/null || warn "No se pudo iniciar OLS - verifica manu
 log "OpenLiteSpeed instalado correctamente"
 log "Para asignar OLS a un dominio:"
 log "  v-change-web-domain-backend USUARIO DOMINIO openlitespeed"
+
+# Aplicar traducciones OLS
+if [ -f "$HESTIA/install/ols-i18n-patch.sh" ]; then
+    bash "$HESTIA/install/ols-i18n-patch.sh" 2>/dev/null || true
+fi
+
+log "Instalacion de OpenLiteSpeed completada"
+log ""
+log "Comandos disponibles:"
+log "  v-list-web-engines              - listar motores web"
+log "  v-change-web-domain-backend U D openlitespeed - cambiar dominio a OLS"
+log "  v-change-web-domain-backend U D apache2        - volver a Apache2"

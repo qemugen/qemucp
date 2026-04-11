@@ -219,6 +219,7 @@
 						}
 						?>
 						<a href="/edit/web/?domain=<?= $key ?>&token=<?= $_SESSION['token'] ?>" title="<?= _("Edit Domain") ?>: <?= $key ?>">
+							<?= $web_engine_badge ?>
 							<?= $key ?>
 							<?php
 								if (!empty($alias_new) && !empty($data[$key]['ALIAS'])) {
