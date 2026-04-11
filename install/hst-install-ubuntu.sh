@@ -1438,7 +1438,7 @@ write_config_value "LANGUAGE" "$lang"
 write_config_value "LOGIN_STYLE" "default"
 
 # Theme
-write_config_value "THEME" "dark"
+write_config_value "THEME" "light"
 
 # Inactive session timeout
 write_config_value "INACTIVE_SESSION_TIMEOUT" "60"
