@@ -19,32 +19,64 @@ datadir=/var/lib/mysql
 tmpdir=/tmp
 lc-messages-dir=/usr/share/mysql
 log_error=/var/log/mysql/error.log
-collation-server = utf8mb4_unicode_520_ci
+collation-server=utf8mb4_unicode_520_ci
 init-connect='SET NAMES utf8mb4'
-character-set-server = utf8mb4
-
+character-set-server=utf8mb4
 symbolic-links=0
 local-infile=0
-
 skip-external-locking
-key_buffer_size = 256M
-max_allowed_packet = 32M
-table_open_cache = 256
-sort_buffer_size = 1M
-read_buffer_size = 1M
-read_rnd_buffer_size = 4M
-myisam_sort_buffer_size = 64M
-thread_cache_size = 8
-query_cache_size= 16M
+bind-address=0.0.0.0
 
-#innodb_use_native_aio = 0
-innodb_file_per_table
+# === QemuCP Optimizations ===
+# InnoDB - calculado en el instalador segun RAM disponible
+# innodb_buffer_pool_size se configura en post-install
+# con el valor RAM/2 via /etc/mysql/mariadb.conf.d/99-qemucp.cnf
 
-max_connections=200
-max_user_connections=50
-wait_timeout=10
-interactive_timeout=50
-long_query_time=5
+key_buffer_size=32M
+max_connections=300
+max_connect_errors=10000
+table_open_cache=4000
+table_definition_cache=4000
+thread_cache_size=16
+thread_stack=256K
+tmp_table_size=128M
+max_heap_table_size=128M
+sort_buffer_size=4M
+join_buffer_size=4M
+read_buffer_size=2M
 
-!includedir /etc/mysql/conf.d/
-!includedir /etc/mysql/mariadb.conf.d/
+# InnoDB
+innodb_file_per_table=1
+innodb_log_file_size=256M
+innodb_log_buffer_size=64M
+innodb_flush_log_at_trx_commit=2
+innodb_flush_method=O_DIRECT
+innodb_read_io_threads=4
+innodb_write_io_threads=4
+innodb_io_capacity=2000
+innodb_io_capacity_max=4000
+innodb_open_files=4000
+innodb_stats_on_metadata=0
+innodb_autoinc_lock_mode=2
+
+# Query cache - DESACTIVADO (deprecado en MariaDB 10.x)
+query_cache_size=0
+query_cache_type=0
+
+# Charset
+character-set-client-handshake=FALSE
+character-set-server=utf8mb4
+collation-server=utf8mb4_unicode_ci
+
+# Logs
+slow_query_log=1
+slow_query_log_file=/var/log/mysql/slow.log
+long_query_time=2
+log_queries_not_using_indexes=0
+
+[mysqldump]
+quick
+max_allowed_packet=1G
+
+[myisamchk]
+key_buffer=256M
