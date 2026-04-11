@@ -25,7 +25,9 @@ request_slowlog_timeout = 10s
 slowlog = /var/log/php%backend_version%-fpm-slow.log
 
 php_admin_value[upload_tmp_dir] = /home/%user%/tmp
-php_admin_value[session.save_path] = /home/%user%/tmp
+; Session backend: Redis (QemuCP) - fallback a ficheros si Redis no disponible
+php_admin_value[session.save_handler] = redis
+php_admin_value[session.save_path] = "tcp://127.0.0.1:6379?timeout=1&prefix=SESS_&database=1"
 php_admin_value[open_basedir] = /home/%user%/.composer:/home/%user%/web/%domain%/public_html:/home/%user%/web/%domain%/private:/home/%user%/web/%domain%/public_shtml:/home/%user%/tmp:/tmp:/var/www/html:/bin:/usr/bin:/usr/local/bin:/usr/share:/opt
 php_admin_value[sendmail_path] = /usr/sbin/sendmail -t -i -f admin@%domain%
 
@@ -54,10 +56,10 @@ php_admin_value[opcache.revalidate_freq] = 60
 php_admin_value[opcache.save_comments] = 1
 
 ; Sessions
-php_value[session.gc_maxlifetime] = 1440
-php_value[session.cookie_httponly] = 1
-php_value[session.cookie_secure] = 1
-php_value[session.use_strict_mode] = 1
+php_admin_value[session.gc_maxlifetime] = 1440
+php_admin_value[session.cookie_httponly] = 1
+php_admin_value[session.cookie_secure] = 1
+php_admin_value[session.use_strict_mode] = 1
 
 ; SOAP (PrestaShop)
 php_value[soap.wsdl_cache_enabled] = 1

@@ -213,6 +213,13 @@
 											<span class="top-bar-menu-link-label u-hide-desktop"><?= _("Server settings") ?></span>
 										</a>
 									</li>
+									<!-- QemuCP Performance Dashboard -->
+									<li class="top-bar-menu-item">
+										<a title="<?= _("Performance Dashboard") ?>" class="top-bar-menu-link <?php if ($TAB == "PERFORMANCE") { echo "active"; } ?>" href="/list/performance/">
+											<i class="fas fa-gauge-high"></i>
+											<span class="top-bar-menu-link-label u-hide-desktop"><?= _("Performance") ?></span>
+										</a>
+									</li>
 								<?php } ?>
 							<?php } ?>
 

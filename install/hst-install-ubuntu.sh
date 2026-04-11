@@ -840,6 +840,10 @@ if [ "$mysql" = 'yes' ]; then
 	curl -s https://mariadb.org/mariadb_release_signing_key.asc | gpg --dearmor | tee /usr/share/keyrings/mariadb-keyring.gpg > /dev/null 2>&1
 fi
 
+# Installing WP-CLI
+echo "[ * ] WP-CLI"
+curl -sS https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar     -o /usr/local/bin/wp 2>/dev/null && chmod +x /usr/local/bin/wp || true
+
 # Installing QemuCP repo
 echo "[ * ] QemuCP Control Panel"
 echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/hestia-keyring.gpg] https://$RHOST/ $codename main" > $apt/hestia.list
