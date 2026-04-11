@@ -5101,3 +5101,20 @@ msgstr ""
 #: ../../bin/v-list-sys-services:336
 msgid "web terminal backend"
 msgstr ""
+
+#: web/templates/pages/edit_web.php web/templates/pages/add_web.php
+#: QemuCP OpenLiteSpeed integration
+msgid "Web Engine"
+msgstr ""
+
+msgid "OpenLiteSpeed + LSCache"
+msgstr ""
+
+msgid "Apache2 + PHP-FPM (default)"
+msgstr ""
+
+msgid "OpenLiteSpeed provides native LSCache for 10x faster WordPress and PrestaShop"
+msgstr ""
+
+msgid "OpenLiteSpeed offers better performance with built-in LSCache for WordPress and PrestaShop"
+msgstr ""

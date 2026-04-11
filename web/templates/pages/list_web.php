@@ -138,6 +138,13 @@
 					$backend_support='yes';
 				}
 
+				// QemuCP: Detect web engine
+				$web_engine = $data[$key]['WEB_ENGINE'] ?? 'apache2';
+				$web_engine_badge = '';
+				if ($web_engine === 'openlitespeed') {
+					$web_engine_badge = '<span class="badge bg-success ms-1" title="OpenLiteSpeed + LSCache">OLS</span>';
+				}
+
 				$proxy_support='no';
 				if (!empty($data[$key]['PROXY'])) {
 					$proxy_support='yes';
