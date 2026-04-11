@@ -1,0 +1,177 @@
+name: Sync with HestiaCP upstream
+
+on:
+  schedule:
+    # Ejecutar cada dia a las 3:00 AM UTC
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    # Permitir ejecucion manual desde GitHub Actions
+    inputs:
+      dry_run:
+        description: 'Dry run (no push, solo ver cambios)'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  sync:
+    name: Sync upstream HestiaCP -> QemuCP
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout QemuCP fork
+        uses: actions/checkout@v4
+        with:
+          ref: release
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "QemuCP Sync Bot"
+          git config user.email "soporte@qemugen.com"
+
+      - name: Add HestiaCP upstream remote
+        run: |
+          git remote add upstream https://github.com/hestiacp/hestiacp.git || true
+          git remote -v
+
+      - name: Fetch upstream changes
+        run: |
+          git fetch upstream release --no-tags
+          echo "Upstream fetched successfully"
+
+      - name: Check for new commits
+        id: check
+        run: |
+          UPSTREAM_HASH=$(git rev-parse upstream/release)
+          OUR_HASH=$(git rev-parse HEAD)
+          echo "upstream=$UPSTREAM_HASH" >> $GITHUB_OUTPUT
+          echo "ours=$OUR_HASH" >> $GITHUB_OUTPUT
+          
+          if [ "$UPSTREAM_HASH" = "$OUR_HASH" ]; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No new changes in upstream"
+          else
+            CHANGES=$(git log HEAD..upstream/release --oneline | wc -l)
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "changes_count=$CHANGES" >> $GITHUB_OUTPUT
+            echo "Found $CHANGES new commits in upstream"
+            git log HEAD..upstream/release --oneline
+          fi
+
+      - name: Merge upstream changes
+        if: steps.check.outputs.has_changes == 'true'
+        id: merge
+        run: |
+          # Guardar nuestros ficheros personalizados antes del merge
+          git stash push -m "QemuCP customizations before upstream sync" \
+            install/hst-install-ubuntu.sh \
+            install/hst-install.sh \
+            install/deb/nginx/nginx.conf \
+            install/deb/apache2/apache2.conf \
+            install/deb/mysql/my-large.cnf \
+            install/deb/php-fpm/multiphp.tpl \
+            install/deb/fail2ban/jail.local \
+            install/deb/fail2ban/filter.d/nginx-badbots.conf \
+            install/deb/fail2ban/filter.d/nginx-444.conf \
+            2>/dev/null || true
+
+          # Merge upstream
+          git merge upstream/release \
+            --no-edit \
+            -m "sync: Merge HestiaCP upstream $(date +%Y-%m-%d)
+            
+          Upstream commit: ${{ steps.check.outputs.upstream }}
+          Changes: ${{ steps.check.outputs.changes_count }} commits
+          
+          QemuCP customizations preserved via post-merge restore." \
+            || {
+              echo "MERGE_CONFLICT=true" >> $GITHUB_ENV
+              git merge --abort
+              exit 1
+            }
+
+          echo "Merge successful"
+
+      - name: Restore QemuCP customizations after merge
+        if: steps.check.outputs.has_changes == 'true' && env.MERGE_CONFLICT != 'true'
+        run: |
+          # Restaurar nuestros ficheros personalizados
+          git stash pop 2>/dev/null || true
+          
+          # Si hay conflictos en los ficheros propios, usar nuestra version
+          git checkout HEAD -- \
+            install/deb/redis/redis.conf \
+            install/deb/sysctl/99-qemucp.conf \
+            install/deb/templates/web/openlitespeed/ \
+            install/ols-install.sh \
+            install/ols-i18n-patch.sh \
+            2>/dev/null || true
+
+          # Añadir los cambios restaurados
+          git add -A
+          
+          # Hacer commit de la restauracion si hay cambios
+          git diff --cached --quiet || \
+            git commit -m "restore: QemuCP customizations after upstream sync $(date +%Y-%m-%d)"
+
+      - name: Push changes
+        if: |
+          steps.check.outputs.has_changes == 'true' && 
+          env.MERGE_CONFLICT != 'true' &&
+          github.event.inputs.dry_run != 'true'
+        run: |
+          git push origin release
+          echo "Changes pushed to QemuCP fork"
+
+      - name: Create issue on merge conflict
+        if: env.MERGE_CONFLICT == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const upstream = '${{ steps.check.outputs.upstream }}';
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Sync conflict with HestiaCP upstream - ${new Date().toISOString().split('T')[0]}`,
+              body: `## Upstream sync failed - Manual intervention required
+              
+            The automatic sync with HestiaCP upstream failed due to merge conflicts.
+            
+            **Upstream commit:** \`${upstream}\`
+            **Date:** ${new Date().toISOString()}
+            
+            ### How to resolve
+            
+            \`\`\`bash
+            git remote add upstream https://github.com/hestiacp/hestiacp.git
+            git fetch upstream release
+            git merge upstream/release
+            # Resolve conflicts manually
+            git push origin release
+            \`\`\`
+            
+            ### Files to protect during merge
+            - \`install/hst-install-ubuntu.sh\` (QemuCP branding)
+            - \`install/deb/nginx/nginx.conf\` (QemuCP optimizations)
+            - \`install/deb/apache2/apache2.conf\` (QemuCP optimizations)
+            - \`install/deb/mysql/my-large.cnf\` (QemuCP optimizations)
+            - \`install/deb/php-fpm/multiphp.tpl\` (QemuCP optimizations)
+            - \`install/deb/fail2ban/jail.local\` (QemuCP security)
+            `,
+              labels: ['sync-conflict', 'needs-manual-review']
+            });
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.check.outputs.has_changes }}" = "false" ]; then
+            echo "### No changes - Fork is up to date with HestiaCP" >> $GITHUB_STEP_SUMMARY
+          elif [ "$MERGE_CONFLICT" = "true" ]; then
+            echo "### MERGE CONFLICT - Manual intervention required" >> $GITHUB_STEP_SUMMARY
+            echo "An issue has been created in the repository." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### Sync successful" >> $GITHUB_STEP_SUMMARY
+            echo "Merged ${{ steps.check.outputs.changes_count }} commits from HestiaCP upstream" >> $GITHUB_STEP_SUMMARY
+            echo "QemuCP customizations preserved" >> $GITHUB_STEP_SUMMARY
+          fi
