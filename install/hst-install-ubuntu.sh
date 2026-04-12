@@ -523,8 +523,9 @@ if [ -d /etc/netplan ] && [ -z "$force" ]; then
 	fi
 fi
 
-# Validate whether installation script matches release version before continuing with install
-if [ -z "$withdebs" ] || [ ! -d "$withdebs" ]; then
+# QemuCP: Version check deshabilitado (fork propio)
+# El check original compara contra el repo oficial de HestiaCP y abortaria
+if false && [ -z "$withdebs" ] || [ ! -d "$withdebs" ]; then
 	release_branch_ver=$(curl -s https://raw.githubusercontent.com/hestiacp/hestiacp/release/src/deb/hestia/control | grep "Version:" | awk '{print $2}')
 	if [ "$HESTIA_INSTALL_VER" != "$release_branch_ver" ]; then
 		echo
