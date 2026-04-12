@@ -1690,6 +1690,35 @@ else
     warn "No se encontro $IP_CONF - HestiaCP puede no haberlo generado aun"
 fi
 
+# Corregir phpmyadmin.inc - HestiaCP instala version con alias que da 404
+# La version correcta usa root en lugar de alias
+PMA_INC="/etc/nginx/conf.d/phpmyadmin.inc"
+if [ -f "$PMA_INC" ]; then
+    cp "$PMA_INC" "$PMA_INC.bak"
+    cat > "$PMA_INC" << 'PMAEOF'
+location /phpmyadmin {
+        root /usr/share/;
+        index index.php;
+        location ~ /(libraries|setup|templates|locale) {
+                deny all;
+                return 404;
+        }
+        location ~ ^/phpmyadmin/(.+\.php)$ {
+                root /usr/share/;
+                include /etc/nginx/fastcgi_params;
+                fastcgi_index index.php;
+                fastcgi_param HTTP_EARLY_DATA $rfc_early_data if_not_empty;
+                fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+                fastcgi_pass unix:/run/php/www.sock;
+        }
+        location ~* ^/phpmyadmin/.+\.(jpg|jpeg|gif|css|png|webp|js|ico|html|xml|txt)$ {
+                root /usr/share/;
+        }
+}
+PMAEOF
+    log "phpmyadmin.inc corregido (root en lugar de alias)"
+fi
+
 # ---------------------------------------------
 #  PASO 11: VERIFICACION NGINX + REINICIO
 # ---------------------------------------------
