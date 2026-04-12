@@ -1069,7 +1069,7 @@ done
 
 mkdir -p /var/lib/php/sessions /var/lib/php/wsdlcache
 chown -R www-data:www-data /var/lib/php/ 2>/dev/null || true
-chmod 700 /var/lib/php/sessions 2>/dev/null || true
+chmod 1733 /var/lib/php/sessions 2>/dev/null || true
 
 # ---------------------------------------------
 #  PASO 7B: REDIS - CACHE DE OBJETOS EN RAM
@@ -1624,6 +1624,55 @@ SYSCTLEOF
 
 sysctl -p /etc/sysctl.d/99-qemucp-performance.conf > /dev/null 2>&1
 log "Parametros de kernel optimizados"
+
+# ---------------------------------------------
+#  PASO 10B: CORRECCION FICHERO IP NGINX
+# ---------------------------------------------
+header "PASO 10B: Corrigiendo configuracion Nginx para IP directa"
+
+# HestiaCP genera /etc/nginx/conf.d/$SERVER_IP.conf durante la instalacion
+# Hay que:
+# 1. Anadir phpmyadmin.inc en ambos bloques (80 y 443)
+# 2. Eliminar el return 301 del bloque 443 (causa bucles con dominios SSL)
+
+IP_CONF="/etc/nginx/conf.d/${SERVER_IP}.conf"
+if [ -f "$IP_CONF" ]; then
+    cp "$IP_CONF" "$IP_CONF.bak"
+    cat > "$IP_CONF" << IPCEOF
+server {
+    include /etc/nginx/conf.d/server-includes/main-rules.conf;
+        listen ${SERVER_IP}:80 default_server;
+        server_name _;
+        access_log off;
+        error_log /dev/null;
+        include /etc/nginx/conf.d/phpmyadmin.inc;
+        include /etc/nginx/conf.d/phppgadmin.inc;
+        location / {
+                proxy_pass http://${SERVER_IP}:8080;
+        }
+}
+server {
+    include /etc/nginx/conf.d/server-includes/main-rules.conf;
+        listen ${SERVER_IP}:443 default_server ssl;
+        server_name _;
+        access_log off;
+        error_log /dev/null;
+        ssl_certificate     /usr/local/hestia/ssl/certificate.crt;
+        ssl_certificate_key /usr/local/hestia/ssl/certificate.key;
+        include /etc/nginx/conf.d/phpmyadmin.inc;
+        include /etc/nginx/conf.d/phppgadmin.inc;
+        location / {
+                root /var/www/document_errors/;
+        }
+        location /error/ {
+                alias /var/www/document_errors/;
+        }
+}
+IPCEOF
+    log "Fichero IP Nginx corregido: $IP_CONF"
+else
+    warn "No se encontro $IP_CONF - HestiaCP puede no haberlo generado aun"
+fi
 
 # ---------------------------------------------
 #  PASO 11: VERIFICACION NGINX + REINICIO
