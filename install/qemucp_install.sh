@@ -1649,6 +1649,8 @@ header "PASO 10B: Corrigiendo configuracion Nginx para IP directa"
 # 1. Anadir phpmyadmin.inc en ambos bloques (80 y 443)
 # 2. Eliminar el return 301 del bloque 443 (causa bucles con dominios SSL)
 
+# Obtener IP publica del servidor
+SERVER_IP=$(curl -s --max-time 5 ifconfig.me 2>/dev/null ||             curl -s --max-time 5 api.ipify.org 2>/dev/null ||             hostname -I | awk '{print $1}')
 IP_CONF="/etc/nginx/conf.d/${SERVER_IP}.conf"
 if [ -f "$IP_CONF" ]; then
     cp "$IP_CONF" "$IP_CONF.bak"
