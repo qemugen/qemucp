@@ -1704,7 +1704,8 @@ systemctl restart redis-server 2>/dev/null && log "Redis reiniciado"
 systemctl restart apache2 2>/dev/null  && log "Apache reiniciado"
 systemctl restart nginx 2>/dev/null    && log "Nginx reiniciado (GeoIP2 + Brotli activos)"
 systemctl restart hestia   && log "QemuCP reiniciado"
-systemctl restart fail2ban 2>/dev/null && log "Fail2ban reiniciado"
+systemctl enable fail2ban 2>/dev/null || true
+systemctl restart fail2ban 2>/dev/null && log "Fail2ban activado y reiniciado"
 
 for VER in "${PHP_VERSIONS[@]}"; do
     systemctl restart "php${VER}-fpm" 2>/dev/null && \
