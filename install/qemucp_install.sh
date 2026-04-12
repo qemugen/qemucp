@@ -404,6 +404,20 @@ else
 fi
 log "APP_NAME configurado como QemuCP Control Panel"
 
+# Instalar Quick Install optimizados de QemuCP
+FORK_RAW="https://raw.githubusercontent.com/qemugen/qemucp/release"
+INSTALLERS_DIR="$HESTIA/web/src/app/WebApp/Installers"
+
+# WordPress Optimizado
+mkdir -p "$INSTALLERS_DIR/WordPressOptimized"
+wget -q --timeout=30     "$FORK_RAW/web/src/app/WebApp/Installers/WordPressOptimized/WordPressOptimizedSetup.php"     -O "$INSTALLERS_DIR/WordPressOptimized/WordPressOptimizedSetup.php" &&     log "WordPress Optimizado (QemuCP) instalado" ||     warn "No se pudo instalar WordPress Optimizado"
+wget -q --timeout=30     "$FORK_RAW/web/src/app/WebApp/Installers/WordPressOptimized/wp-qemucp-thumb.png"     -O "$INSTALLERS_DIR/WordPressOptimized/wp-qemucp-thumb.png" 2>/dev/null || true
+
+# PrestaShop Optimizado
+mkdir -p "$INSTALLERS_DIR/PrestaShopOptimized"
+wget -q --timeout=30     "$FORK_RAW/web/src/app/WebApp/Installers/PrestaShopOptimized/PrestaShopOptimizedSetup.php"     -O "$INSTALLERS_DIR/PrestaShopOptimized/PrestaShopOptimizedSetup.php" &&     log "PrestaShop Optimizado (QemuCP) instalado" ||     warn "No se pudo instalar PrestaShop Optimizado"
+wget -q --timeout=30     "$FORK_RAW/web/src/app/WebApp/Installers/PrestaShopOptimized/ps-qemucp-thumb.png"     -O "$INSTALLERS_DIR/PrestaShopOptimized/ps-qemucp-thumb.png" 2>/dev/null || true
+
 
 
 for HEADER_FILE in "$WEB_DIR/templates/header.php" "$WEB_DIR/templates/header.html"; do
