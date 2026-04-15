@@ -144,7 +144,7 @@ wget -q --timeout=30 "https://raw.githubusercontent.com/qemugen/qemucp/release/i
 # Modificar textos de marca en el instalador usando sed (mas fiable)
 sed -i \
     -e "s|Hestia Control Panel|QemuCP Control Panel|g" \
-    -e "s|www\.hestiacp\.com|www.qemugen.com|g" \
+    -e "s|www\.hestiacp\.com|www.qemucp.com|g" \
     -e "s|1\.9\.[0-9][0-9]*|1.0|g" \
     hst-install.sh 2>/dev/null || true
 
@@ -262,7 +262,7 @@ done
 
 # 3. Re-aplicar reemplazos de marca en templates actualizados
 find "$WEB_DIR" \( -name "*.php" -o -name "*.html" -o -name "*.tpl" \)     -newer "$LOG" -not -path "*/node_modules/*" 2>/dev/null | while read -r f; do
-    sed -i         -e "s|Hestia Control Panel|QemuCP Control Panel|g"         -e "s|HestiaCP|QemuCP|g"         -e "s|hestiacp\.com|qemugen.com|g"         "$f" 2>/dev/null || true
+    sed -i         -e "s|Hestia Control Panel|QemuCP Control Panel|g"         -e "s|HestiaCP|QemuCP|g"         -e "s|hestiacp\.com|qemucp.com|g"         "$f" 2>/dev/null || true
 done
 
 # 4. Re-aplicar optimizaciones en templates PHP-FPM si fueron sobreescritos
@@ -371,7 +371,7 @@ find "$WEB_DIR" \( -name "*.php" -o -name "*.html" -o -name "*.tpl" \) \
         -e 's|Hestia Control Panel|QemuCP Control Panel|g' \
         -e 's|HestiaCP|QemuCP|g' \
         -e 's|Hestia CP|QemuCP|g' \
-        -e 's|hestiacp\.com|qemugen.com|g' \
+        -e 's|hestiacp\.com|qemucp.com|g' \
         "$f" 2>/dev/null || true
 done
 log "Referencias de marca reemplazadas"
