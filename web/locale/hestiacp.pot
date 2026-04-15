@@ -26,7 +26,7 @@ msgstr ""
 #: ../../web/unsuspend/dns/index.php:44 ../../web/unsuspend/mail/index.php:18
 #: ../../web/unsuspend/mail/index.php:45 ../../web/schedule/backup/index.php:17
 #: ../../web/schedule/restore/index.php:70 ../../web/bulk/restore/index.php:78
-msgid "Error: Hestia did not return any output."
+msgid "Error: QemuCP did not return any output."
 msgstr ""
 
 #: ../../web/schedule/backup/incremental/index.php:17
@@ -2889,7 +2889,7 @@ msgstr ""
 
 #: ../../web/templates/pages/list_server_info.php:19
 #: ../../web/templates/pages/list_server_info.php:20
-msgid "Hestia Control Panel"
+msgid "QemuCP Control Panel"
 msgstr ""
 
 #: ../../web/templates/pages/list_server_info.php:30
@@ -5031,15 +5031,15 @@ msgid "NGINX cache has been purged successfully."
 msgstr ""
 
 #: ../../bin/v-list-sys-hestia-updates:110
-msgid "Hestia core package"
+msgid "QemuCP core package"
 msgstr ""
 
 #: ../../bin/v-list-sys-hestia-updates:125
-msgid "Hestia internal php interpreter"
+msgid "QemuCP internal php interpreter"
 msgstr ""
 
 #: ../../bin/v-list-sys-hestia-updates:141
-msgid "Hestia internal web server"
+msgid "QemuCP internal web server"
 msgstr ""
 
 #: ../../bin/v-list-sys-services:167
