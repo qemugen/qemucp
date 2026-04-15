@@ -43,7 +43,7 @@ upgrade_health_check() {
 		export VERSION="1.1.0"
 		$BIN/v-change-sys-config-value 'VERSION' "$VERSION"
 		echo
-		echo "[ ! ] Unable to detect installed version of Hestia Control Panel."
+		echo "[ ! ] Unable to detect installed version of QemuCP."
 		echo "      Setting default version to $VERSION and processing upgrade steps."
 		echo
 	fi
@@ -62,7 +62,7 @@ upgrade_welcome_message() {
 	echo '                 |  _  |  __/\__ \ |_| | (_| | |___|  __/                     '
 	echo '                 |_| |_|\___||___/\__|_|\__,_|\____|_|                        '
 	echo "                                                                              "
-	echo "                    Hestia Control Panel Software Update                      "
+	echo "                    QemuCP Software Update                      "
 	echo "                               Version: ${DISPLAY_VER}"
 	if [[ "$new_version" =~ "beta" ]]; then
 		echo "                                BETA RELEASE                                 "
@@ -86,7 +86,7 @@ upgrade_welcome_message() {
 
 upgrade_welcome_message_log() {
 	echo "============================================================================="
-	echo "Hestia Control Panel Software Update Log"
+	echo "QemuCP Software Update Log"
 	echo "============================================================================="
 	echo
 	echo "OPERATING SYSTEM:      $OS_TYPE ($OS_VERSION)"
@@ -119,24 +119,24 @@ upgrade_complete_message() {
 	echo
 	echo "Upgrade complete! If you encounter any issues or find a bug,                 "
 	echo "please take a moment to report it to us on GitHub at the URL below:          "
-	echo "https://github.com/hestiacp/hestiacp/issues                                  "
+	echo "https://github.com/qemugen/qemucp/issues                                  "
 	echo
 	echo "Read the release notes to learn about new fixes and features:                "
-	echo "https://github.com/hestiacp/hestiacp/blob/release/CHANGELOG.md               "
+	echo "https://github.com/qemugen/qemucp/blob/release/CHANGELOG.md               "
 	echo
-	echo "We hope that you enjoy using this version of Hestia Control Panel,           "
+	echo "We hope that you enjoy using this version of QemuCP,           "
 	echo "have a wonderful day!                                                        "
 	echo
 	echo "Sincerely,                                                                   "
-	echo "The Hestia Control Panel development team                                    "
+	echo "The QemuCP development team                                    "
 	echo
-	echo "Web:      https://www.hestiacp.com/                                          "
-	echo "Docs:     https://docs.hestiacp.com/										   "
-	echo "Forum:    https://forum.hestiacp.com/                                        "
+	echo "Web:      https://qemucp.com/                                          "
+	echo "Docs:     https://docs.qemucp.com/										   "
+	echo "Forum:    https://forum.qemucp.com/                                        "
 	echo "GitHub:   https://github.com/hestiacp/hestiacp/                              "
 	echo
-	echo "Help support the Hestia Control Panel project by donating via PayPal:        "
-	echo "https://www.hestiacp.com/donate                                              "
+	echo "More info at https://qemucp.com/                                               "
+	echo "https://qemucp.com/donate                                              "
 	echo
 	echo "Made with love & pride by the open-source community around the world.        "
 	echo
@@ -149,7 +149,7 @@ upgrade_complete_message_log() {
 	echo "============================================================================="
 	echo "UPGRADE COMPLETE.                                                            "
 	echo "Please report any issues on GitHub:                                          "
-	echo "https://github.com/hestiacp/hestiacp/issues                                  "
+	echo "https://github.com/qemugen/qemucp/issues                                  "
 	echo "============================================================================="
 	echo
 	$BIN/v-log-action "system" "Info" "Updates" "Update installed (Version: $new_version)."
@@ -162,7 +162,7 @@ upgrade_cleanup_message() {
 }
 
 upgrade_get_version() {
-	# Retrieve new version number for Hestia Control Panel from .deb package
+	# Retrieve new version number for QemuCP from .deb package
 	new_version=$(dpkg -l | awk '$2=="hestia" { print $3 }')
 }
 
@@ -187,13 +187,13 @@ upgrade_send_notification_to_panel() {
 	# Add notification to panel if variable is set to true or is not set
 	if [[ "$new_version" =~ "alpha" ]]; then
 		# Send notifications for development releases
-		$BIN/v-add-user-notification "$ROOT_USER" 'Development snapshot installed' '<p><span class="u-text-bold">Version:</span> '$new_version'<br><span class="u-text-bold">Code Branch:</span> '$RELEASE_BRANCH'</p><p>Please report any bugs by <a href="https://github.com/hestiacp/hestiacp/issues" target="_blank">opening an issue on GitHub</a>, and feel free to share your feedback on our <a href="https://forum.hestiacp.com" target="_blank">discussion forum</a>.</p><p><i class="fas fa-heart icon-red"></i> The Hestia Control Panel development team</p>'
+		$BIN/v-add-user-notification "$ROOT_USER" 'Development snapshot installed' '<p><span class="u-text-bold">Version:</span> '$new_version'<br><span class="u-text-bold">Code Branch:</span> '$RELEASE_BRANCH'</p><p>Please report any bugs by <a href="https://github.com/qemugen/qemucp/issues" target="_blank">opening an issue on GitHub</a>, and feel free to share your feedback on our <a href="https://forum.qemucp.com" target="_blank">discussion forum</a>.</p><p><i class="fas fa-heart icon-red"></i> The QemuCP development team</p>'
 	elif [[ "$new_version" =~ "beta" ]]; then
 		# Send feedback notification for beta releases
-		$BIN/v-add-user-notification "$ROOT_USER" 'Thank you for testing Hestia Control Panel '$new_version'.' '<p>Please share your feedback with our development team through our <a href="https://forum.hestiacp.com" target="_blank">discussion forum</a>.</p><p>Found a bug? <a href="https://github.com/hestiacp/hestiacp/issues" target="_blank">Open an issue on GitHub</a>!</p><p><i class="fas fa-heart icon-red"></i> The Hestia Control Panel development team</p>'
+		$BIN/v-add-user-notification "$ROOT_USER" 'Thank you for testing Hestia Control Panel '$new_version'.' '<p>Please share your feedback with our development team through our <a href="https://forum.qemucp.com" target="_blank">discussion forum</a>.</p><p>Found a bug? <a href="https://github.com/qemugen/qemucp/issues" target="_blank">Open an issue on GitHub</a>!</p><p><i class="fas fa-heart icon-red"></i> The QemuCP development team</p>'
 	else
 		# Send normal upgrade complete notification for stable releases
-		$BIN/v-add-user-notification "$ROOT_USER" 'Upgrade complete' '<p>Hestia Control Panel has been updated to <span class="u-text-bold">v'$new_version'</span>.</p><p><a href="https://github.com/hestiacp/hestiacp/blob/release/CHANGELOG.md" target="_blank">View release notes</a></p><p>Please report any bugs by <a href="https://github.com/hestiacp/hestiacp/issues" target="_blank">opening an issue on GitHub</a>.</p><p class="u-text-bold">Have a wonderful day!</p><p><i class="fas fa-heart icon-red"></i> The Hestia Control Panel development team</p>'
+		$BIN/v-add-user-notification "$ROOT_USER" 'Upgrade complete' '<p>QemuCP has been updated to <span class="u-text-bold">v'$new_version'</span>.</p><p><a href="https://github.com/qemugen/qemucp/blob/release/CHANGELOG.md" target="_blank">View release notes</a></p><p>Please report any bugs by <a href="https://github.com/qemugen/qemucp/issues" target="_blank">opening an issue on GitHub</a>.</p><p class="u-text-bold">Have a wonderful day!</p><p><i class="fas fa-heart icon-red"></i> The QemuCP development team</p>'
 	fi
 }
 
@@ -212,7 +212,7 @@ upgrade_send_notification_to_email() {
 		touch $message_tmp_file
 
 		# Write message to file
-		echo "$HOSTNAME has been upgraded from Hestia Control Panel v$VERSION to v${new_version}." >> $message_tmp_file
+		echo "$HOSTNAME has been upgraded from QemuCP v$VERSION to v${new_version}." >> $message_tmp_file
 		echo "Installation log: $LOG" >> $message_tmp_file
 		echo "" >> $message_tmp_file
 
@@ -230,13 +230,13 @@ upgrade_send_notification_to_email() {
 		echo "What's new: https://github.com/hestiacp/hestiacp/blob/$RELEASE_BRANCH/CHANGELOG.md" >> $message_tmp_file
 		echo >> $message_tmp_file
 		echo "What to do if you run into issues:" >> $message_tmp_file
-		echo "- Check our forums for possible solutions: https://forum.hestiacp.com" >> $message_tmp_file
-		echo "- File an issue report on GitHub: https://github.com/hestiacp/hestiacp/issues" >> $message_tmp_file
+		echo "- Check our forums for possible solutions: https://forum.qemucp.com" >> $message_tmp_file
+		echo "- File an issue report on GitHub: https://github.com/qemugen/qemucp/issues" >> $message_tmp_file
 		echo "" >> $message_tmp_file
-		echo "Help support the Hestia Control Panel project by donating via PayPal: https://www.hestiacp.com/donate" >> $message_tmp_file
+		echo "More info at https://qemucp.com/" >> $message_tmp_file
 		echo "===================================================" >> $message_tmp_file
 		echo "Have a wonderful day," >> $message_tmp_file
-		echo "The Hestia Control Panel development team" >> $message_tmp_file
+		echo "The QemuCP development team" >> $message_tmp_file
 
 		# Read back message from file and pass through to sendmail
 		cat $message_tmp_file | $send_mail -s "Update Installed - v${new_version}" $admin_email
@@ -350,10 +350,10 @@ upgrade_init_logging() {
 
 	# Add warnings for pre-release builds
 	if [[ "$new_version" =~ "alpha" ]]; then
-		$BIN/v-log-action "system" "Warning" "Updates" "Development build for testing purposes only. Report bugs at https://github.com/hestiacp/hestiacp/issues/."
+		$BIN/v-log-action "system" "Warning" "Updates" "Development build for testing purposes only. Report bugs at https://github.com/qemugen/qemucp/issues/."
 	fi
 	if [[ "$new_version" =~ "beta" ]]; then
-		$BIN/v-log-action "system" "Warning" "Updates" "Beta release. Please report bugs at https://github.com/hestiacp/hestiacp/issues/."
+		$BIN/v-log-action "system" "Warning" "Updates" "Beta release. Please report bugs at https://github.com/qemugen/qemucp/issues/."
 	fi
 }
 
@@ -527,7 +527,7 @@ upgrade_start_routine() {
 		upgrade_refresh_config
 	else
 		echo ""
-		echo "[ ! ] The latest version of Hestia Control Panel is already installed."
+		echo "[ ! ] The latest version of QemuCP is already installed."
 		echo "      Verifying configuration..."
 		echo ""
 		if [ -e "$HESTIA/install/upgrade/versions/$VERSION.sh" ]; then
@@ -892,7 +892,7 @@ upgrade_restart_services() {
 		$BIN/v-restart-service ssh
 	fi
 
-	# Always restart the Hestia Control Panel service
+	# Always restart the QemuCP service
 	if [ "$DEBUG_MODE" = "true" ]; then
 		echo "      - hestia"
 	fi
