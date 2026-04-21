@@ -1,6 +1,7 @@
 #!/bin/bash
 # ============================================================
 # QemuCP - Importador de Backup Oficial cPanel
+# Version: 1.2
 # Uso: bash cpanel-import.sh /ruta/backup_cpanel.tar.gz [usuario_destino]
 # Importa: ficheros web, bases de datos MySQL, correo, DNS
 # ============================================================
@@ -87,7 +88,8 @@ else
     USER_PASS=$(openssl rand -base64 12 | tr -d '/+=')
     USER_EMAIL=$(cat "$BACKUP_PATH/cp/contactemail" 2>/dev/null ||                  cat "$BACKUP_PATH/cp/email" 2>/dev/null ||                  echo "")
     USER_EMAIL=$(echo "$USER_EMAIL" | tr -d ' 
-' | head -c 100)
+
+' | head -c 100)
 
     # Validar email - si no tiene formato valido usar uno generado
     if [[ -z "$USER_EMAIL" ]] || ! echo "$USER_EMAIL" | grep -qP '^[^@]+@[^@]+\.[^@]+$'; then
