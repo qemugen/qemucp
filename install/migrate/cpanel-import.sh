@@ -161,6 +161,11 @@ log "Subdominios: ${SUB_DOMAINS[*]:-ninguno}"
 # -- Crear dominios web -----------------------------------------
 header "Creando dominios web"
 
+# Obtener IP real del servidor registrada en QemuCP
+SERVER_IP=$($BIN/v-list-ips plain 2>/dev/null | awk '{print $1}' | grep -v "^$" | head -1)
+[[ -z "$SERVER_IP" ]] && SERVER_IP=$(hostname -I | awk '{print $1}')
+log "IP del servidor: $SERVER_IP"
+
 create_domain() {
     local user="$1"
     local domain="$2"
@@ -172,7 +177,7 @@ create_domain() {
     if $BIN/v-list-web-domain "$user" "$domain" &>/dev/null 2>&1; then
         warn "Dominio $domain ya existe"
     else
-        $BIN/v-add-web-domain "$user" "$domain" "0.0.0.0" "yes" \
+        $BIN/v-add-web-domain "$user" "$domain" "$SERVER_IP" "yes" \
             2>/dev/null && log "Dominio $domain creado" || \
             warn "No se pudo crear $domain"
     fi
@@ -340,7 +345,7 @@ if [[ -n "$DNS_BASE" ]]; then
         [[ -f "$ZONE_FILE" ]] || continue
         ZONE_DOMAIN=$(basename "$ZONE_FILE" .db)
         if ! $BIN/v-list-dns-domain "$CPANEL_USER" "$ZONE_DOMAIN" &>/dev/null 2>&1; then
-            $BIN/v-add-dns-domain "$CPANEL_USER" "$ZONE_DOMAIN" "0.0.0.0" \
+            $BIN/v-add-dns-domain "$CPANEL_USER" "$ZONE_DOMAIN" "$SERVER_IP" \
                 2>/dev/null && log "Zona DNS $ZONE_DOMAIN creada" || \
                 warn "No se pudo crear zona DNS $ZONE_DOMAIN"
         else
