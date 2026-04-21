@@ -1,17 +1,19 @@
 #!/bin/bash
 # ============================================================
 # QemuCP - Importador de Backup Oficial cPanel
-# Uso: bash cpanel-import.sh /ruta/backup_cpanel.tar.gz
-# Importa: ficheros web, bases de datos MySQL, correo
+# Uso: bash cpanel-import.sh /ruta/backup_cpanel.tar.gz [usuario_destino]
+# Importa: ficheros web, bases de datos MySQL, correo, DNS
 # ============================================================
 
 set -euo pipefail
 
 BACKUP="${1:-}"
+FORCE_USER="${2:-}"
 HESTIA="/usr/local/hestia"
 BIN="$HESTIA/bin"
 LOG="/var/log/qemucp-cpanel-import.log"
 WORK_DIR=""
+CREDS_FILE="/root/qemucp-import-credentials.txt"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -21,245 +23,284 @@ NC='\033[0m'
 
 log()    { echo -e "${GREEN}[OK]${NC} $1" | tee -a "$LOG"; }
 warn()   { echo -e "${YELLOW}[!]${NC} $1" | tee -a "$LOG"; }
-error()  { echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG"; exit 1; }
+error()  { echo -e "${RED}[ERROR]${NC} $1" | tee -a "$LOG"; [[ -n "$WORK_DIR" ]] && rm -rf "$WORK_DIR"; exit 1; }
 header() { echo -e "\n${BLUE}========================================${NC}" | tee -a "$LOG"
            echo -e "${BLUE} $1${NC}" | tee -a "$LOG"
            echo -e "${BLUE}========================================${NC}" | tee -a "$LOG"; }
-info()   { echo -e "  ${YELLOW}->$NC $1" | tee -a "$LOG"; }
+info()   { echo -e "  -> $1" | tee -a "$LOG"; }
 
-# -- Validaciones iniciales -----------------------------------
+# -- Validaciones ------------------------------------------------
 [[ $EUID -ne 0 ]] && error "Ejecuta como root"
-[[ -z "$BACKUP" ]] && error "Uso: bash cpanel-import.sh /ruta/backup.tar.gz"
+[[ -z "$BACKUP" ]] && error "Uso: bash cpanel-import.sh /ruta/backup.tar.gz [usuario_destino]"
 [[ ! -f "$BACKUP" ]] && error "Fichero no encontrado: $BACKUP"
 [[ ! -f "$HESTIA/conf/hestia.conf" ]] && error "QemuCP no instalado"
 
+echo "" >> "$CREDS_FILE"
+echo "=== Importacion $(date) ===" >> "$CREDS_FILE"
 echo "QemuCP cPanel Import - $(date)" > "$LOG"
 header "QemuCP - Importador de Backup cPanel"
-log "Backup: $BACKUP"
-log "Tamanio: $(du -sh "$BACKUP" | cut -f1)"
+log "Backup: $BACKUP ($(du -sh "$BACKUP" | cut -f1))"
 
-# -- Descomprimir ---------------------------------------------
+# -- Descomprimir ------------------------------------------------
 header "Descomprimiendo backup"
 WORK_DIR=$(mktemp -d /tmp/cpanel-import-XXXXXX)
-log "Directorio temporal: $WORK_DIR"
+tar -xzf "$BACKUP" -C "$WORK_DIR" 2>/dev/null || error "Error descomprimiendo backup"
 
-tar -xzf "$BACKUP" -C "$WORK_DIR" 2>/dev/null || \
-    error "No se pudo descomprimir. Verifica que sea un backup cPanel valido."
+# Detectar directorio raiz
+BACKUP_PATH="$WORK_DIR"
+FIRST=$(ls "$WORK_DIR" | head -1)
+[[ -d "$WORK_DIR/$FIRST" && $(ls "$WORK_DIR" | wc -l) -eq 1 ]] && BACKUP_PATH="$WORK_DIR/$FIRST"
+log "Raiz del backup: $BACKUP_PATH"
+log "Contenido: $(ls "$BACKUP_PATH" | tr '\n' ' ')"
 
-# Detectar directorio raiz del backup
-BACKUP_ROOT=$(ls "$WORK_DIR" | head -1)
-BACKUP_PATH="$WORK_DIR/$BACKUP_ROOT"
+# -- Detectar usuario cPanel ------------------------------------
+# Fuente 1: fichero cp/username
+CPANEL_USER=""
+[[ -f "$BACKUP_PATH/cp/username" ]] && \
+    CPANEL_USER=$(cat "$BACKUP_PATH/cp/username" | tr -d ' \n\r')
 
-# Si el tar extrae directamente sin subcarpeta
-if [[ ! -d "$BACKUP_PATH" ]]; then
-    BACKUP_PATH="$WORK_DIR"
+# Fuente 2: nombre del fichero backup-FECHA_HORA_USUARIO.tar.gz
+if [[ -z "$CPANEL_USER" ]]; then
+    CPANEL_USER=$(basename "$BACKUP" | sed 's/backup-[0-9._-]*_//' | sed 's/\.tar\.gz//')
 fi
 
-log "Estructura del backup detectada en: $BACKUP_PATH"
-
-# -- Detectar usuario del backup ------------------------------
-# En cPanel el backup se llama backup-FECHA_HORA_USUARIO.tar.gz
-CPANEL_USER=$(basename "$BACKUP" | grep -oP '(?<=_)[a-z0-9]+(?=\.tar)' || \
-              cat "$BACKUP_PATH/cp/username" 2>/dev/null || \
-              basename "$BACKUP_PATH")
+# Limpiar: solo alfanumerico minusculas, max 8 chars (limite cPanel)
 CPANEL_USER=$(echo "$CPANEL_USER" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')
+[[ -n "$FORCE_USER" ]] && CPANEL_USER="$FORCE_USER"
+[[ -z "$CPANEL_USER" ]] && error "No se pudo detectar el usuario. Usa: bash cpanel-import.sh backup.tar.gz usuario"
 
-log "Usuario cPanel detectado: $CPANEL_USER"
+log "Usuario detectado: $CPANEL_USER"
 
-# Verificar si el usuario ya existe en QemuCP
+# -- Crear usuario en QemuCP ------------------------------------
+header "Creando usuario en QemuCP"
+
 if $BIN/v-list-user "$CPANEL_USER" &>/dev/null 2>&1; then
-    warn "El usuario $CPANEL_USER ya existe en QemuCP"
-    echo ""
-    read -p "Continuar de todas formas? Los datos existentes podrian sobreescribirse. (s/N): " CONFIRM
-    [[ "$CONFIRM" != "s" && "$CONFIRM" != "S" ]] && exit 0
+    warn "Usuario $CPANEL_USER ya existe en QemuCP"
 else
-    # Crear usuario en QemuCP
-    header "Creando usuario"
     USER_PASS=$(openssl rand -base64 12 | tr -d '/+=')
-    USER_EMAIL=$(cat "$BACKUP_PATH/cp/email" 2>/dev/null || echo "${CPANEL_USER}@localhost")
-    USER_EMAIL=$(echo "$USER_EMAIL" | tr -d ' \n')
+    USER_EMAIL=$(cat "$BACKUP_PATH/cp/contactemail" 2>/dev/null || \
+                 cat "$BACKUP_PATH/cp/email" 2>/dev/null || \
+                 echo "${CPANEL_USER}@localhost")
+    USER_EMAIL=$(echo "$USER_EMAIL" | tr -d ' \n\r' | head -c 100)
 
     $BIN/v-add-user "$CPANEL_USER" "$USER_PASS" "$USER_EMAIL" "default" \
-        2>/dev/null && log "Usuario $CPANEL_USER creado (pass: $USER_PASS)" || \
-        warn "Error creando usuario - puede que ya exista"
+        2>/dev/null && log "Usuario $CPANEL_USER creado" || \
+        error "No se pudo crear el usuario $CPANEL_USER"
 
-    # Guardar credenciales
-    echo "Usuario: $CPANEL_USER" >> /root/qemucp-import-credentials.txt
-    echo "Password panel: $USER_PASS" >> /root/qemucp-import-credentials.txt
-    echo "Email: $USER_EMAIL" >> /root/qemucp-import-credentials.txt
-    echo "---" >> /root/qemucp-import-credentials.txt
+    echo "Usuario panel: $CPANEL_USER | Pass: $USER_PASS | Email: $USER_EMAIL" >> "$CREDS_FILE"
 fi
 
-# -- Dominios web ---------------------------------------------
-header "Importando dominios web"
+# -- Detectar dominios ------------------------------------------
+header "Detectando dominios"
 
-# Obtener dominio principal desde userdata
 MAIN_DOMAIN=""
-if [[ -f "$BACKUP_PATH/userdata/main" ]]; then
+ADDON_DOMAINS=()
+SUB_DOMAINS=()
+
+# Dominio principal desde cp/ o userdata/main
+if [[ -f "$BACKUP_PATH/cp/main_domain" ]]; then
+    MAIN_DOMAIN=$(cat "$BACKUP_PATH/cp/main_domain" | tr -d ' \n\r')
+elif [[ -f "$BACKUP_PATH/userdata/main" ]]; then
     MAIN_DOMAIN=$(grep "^main_domain:" "$BACKUP_PATH/userdata/main" 2>/dev/null | \
-        awk '{print $2}' | tr -d '"' || true)
+        awk '{print $2}' | tr -d '"' | tr -d ' \n\r' || true)
 fi
 
-# Fallback: buscar en cp/
-if [[ -z "$MAIN_DOMAIN" ]] && [[ -f "$BACKUP_PATH/cp/main_domain" ]]; then
-    MAIN_DOMAIN=$(cat "$BACKUP_PATH/cp/main_domain" 2>/dev/null | tr -d ' \n')
+log "Dominio principal: ${MAIN_DOMAIN:-no detectado}"
+
+# Addon domains desde addons/
+if [[ -d "$BACKUP_PATH/addons" ]]; then
+    while IFS='=' read -r addon_domain docroot; do
+        addon_domain=$(echo "$addon_domain" | tr -d ' \n\r')
+        [[ -n "$addon_domain" && "$addon_domain" =~ ^[a-z0-9] ]] && \
+            ADDON_DOMAINS+=("$addon_domain")
+    done < <(cat "$BACKUP_PATH/addons" 2>/dev/null || true)
 fi
 
-# Obtener todos los dominios (principal + addon)
-DOMAINS=()
-[[ -n "$MAIN_DOMAIN" ]] && DOMAINS+=("$MAIN_DOMAIN")
+# Addon domains desde userdata/ (ficheros individuales por dominio)
+if [[ -d "$BACKUP_PATH/userdata" ]]; then
+    for f in "$BACKUP_PATH/userdata"/*/; do
+        domain=$(basename "$f")
+        # Ignorar ficheros de metadatos
+        [[ "$domain" == "main" ]] && continue
+        [[ "$domain" =~ _SSL$ ]] && continue
+        [[ "$domain" == "$MAIN_DOMAIN" ]] && continue
+        # Validar formato de dominio
+        if [[ "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
+            ADDON_DOMAINS+=("$domain")
+        fi
+    done
+fi
 
-# Addon domains
-if [[ -f "$BACKUP_PATH/userdata/main" ]]; then
+# Subdominios
+if [[ -f "$BACKUP_PATH/sds" ]] || [[ -f "$BACKUP_PATH/sds2" ]]; then
     while IFS= read -r line; do
-        domain=$(echo "$line" | grep -oP '^[a-z0-9._-]+(?=:)' || true)
-        [[ -n "$domain" && "$domain" != "main_domain" && "$domain" != "$MAIN_DOMAIN" ]] && \
-            DOMAINS+=("$domain")
-    done < <(grep -E "^[a-z0-9._-]+:" "$BACKUP_PATH/userdata/main" 2>/dev/null || true)
+        sub=$(echo "$line" | awk -F= '{print $1}' | tr -d ' ')
+        [[ -n "$sub" && "$sub" =~ \. ]] && SUB_DOMAINS+=("$sub")
+    done < <(cat "$BACKUP_PATH/sds" "$BACKUP_PATH/sds2" 2>/dev/null || true)
 fi
 
-log "Dominios encontrados: ${DOMAINS[*]:-ninguno}"
+# Eliminar duplicados
+ADDON_DOMAINS=($(printf '%s\n' "${ADDON_DOMAINS[@]}" | sort -u))
+log "Addon domains: ${ADDON_DOMAINS[*]:-ninguno}"
+log "Subdominios: ${SUB_DOMAINS[*]:-ninguno}"
 
-for DOMAIN in "${DOMAINS[@]}"; do
-    [[ -z "$DOMAIN" ]] && continue
-    info "Procesando dominio: $DOMAIN"
+# -- Crear dominios web -----------------------------------------
+header "Creando dominios web"
 
-    if $BIN/v-list-web-domain "$CPANEL_USER" "$DOMAIN" &>/dev/null 2>&1; then
-        warn "  Dominio $DOMAIN ya existe, saltando creacion"
-    else
-        $BIN/v-add-web-domain "$CPANEL_USER" "$DOMAIN" "0.0.0.0" "yes" \
-            2>/dev/null && log "  Dominio $DOMAIN creado" || \
-            warn "  No se pudo crear $DOMAIN"
+create_domain() {
+    local user="$1"
+    local domain="$2"
+    # Validar formato
+    if [[ ! "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
+        warn "Formato invalido, saltando: $domain"
+        return
     fi
-done
+    if $BIN/v-list-web-domain "$user" "$domain" &>/dev/null 2>&1; then
+        warn "Dominio $domain ya existe"
+    else
+        $BIN/v-add-web-domain "$user" "$domain" "0.0.0.0" "yes" \
+            2>/dev/null && log "Dominio $domain creado" || \
+            warn "No se pudo crear $domain"
+    fi
+}
 
-# -- Ficheros web ---------------------------------------------
+[[ -n "$MAIN_DOMAIN" ]] && create_domain "$CPANEL_USER" "$MAIN_DOMAIN"
+for D in "${ADDON_DOMAINS[@]}"; do create_domain "$CPANEL_USER" "$D"; done
+for D in "${SUB_DOMAINS[@]}"; do create_domain "$CPANEL_USER" "$D"; done
+
+# -- Ficheros web -----------------------------------------------
 header "Importando ficheros web"
 
 HOMEDIR="$BACKUP_PATH/homedir"
 if [[ -d "$HOMEDIR" ]]; then
     DEST_HOME="/home/$CPANEL_USER"
 
-    # Copiar public_html
-    if [[ -d "$HOMEDIR/public_html" ]]; then
+    # public_html -> dominio principal
+    if [[ -n "$MAIN_DOMAIN" && -d "$HOMEDIR/public_html" ]]; then
         DEST_WEB="$DEST_HOME/web/$MAIN_DOMAIN/public_html"
-        if [[ -d "$DEST_WEB" ]]; then
-            log "Copiando ficheros web a $DEST_WEB"
-            rsync -a --exclude='*.log' \
-                "$HOMEDIR/public_html/" "$DEST_WEB/" 2>/dev/null && \
-                log "Ficheros web copiados" || \
-                warn "Error parcial copiando ficheros web"
-            chown -R "$CPANEL_USER:$CPANEL_USER" "$DEST_WEB" 2>/dev/null || true
-        else
-            warn "Directorio destino no existe: $DEST_WEB"
-        fi
+        mkdir -p "$DEST_WEB" 2>/dev/null || true
+        rsync -a --exclude='*.log' --exclude='.htaccess.bak' \
+            "$HOMEDIR/public_html/" "$DEST_WEB/" 2>/dev/null && \
+            log "public_html copiado a $DEST_WEB" || \
+            warn "Error parcial copiando public_html"
+        chown -R "$CPANEL_USER:$CPANEL_USER" "$DEST_WEB" 2>/dev/null || true
     fi
 
-    # Copiar subdominios / addon domains
-    for SUBDIR in "$HOMEDIR"/*/; do
-        SUBNAME=$(basename "$SUBDIR")
-        [[ "$SUBNAME" == "public_html" ]] && continue
-        [[ "$SUBNAME" == "mail" ]] && continue
-        [[ "$SUBNAME" == "etc" ]] && continue
-
-        DEST_ADDON="$DEST_HOME/web/$SUBNAME/public_html"
-        if [[ -d "$DEST_ADDON" ]]; then
-            rsync -a --exclude='*.log' \
-                "$SUBDIR" "$DEST_ADDON/" 2>/dev/null && \
-                log "Addon $SUBNAME copiado" || \
-                warn "Error copiando addon $SUBNAME"
-            chown -R "$CPANEL_USER:$CPANEL_USER" "$DEST_ADDON" 2>/dev/null || true
-        fi
+    # Carpetas de addon domains dentro de homedir
+    for ADDON in "${ADDON_DOMAINS[@]}"; do
+        # cPanel guarda addons como public_html/addon_subdir o directo en home
+        for POSSIBLE in \
+            "$HOMEDIR/$ADDON" \
+            "$HOMEDIR/public_html/$ADDON" \
+            "$HOMEDIR/${ADDON%%.*}"; do
+            if [[ -d "$POSSIBLE" ]]; then
+                DEST_ADDON="$DEST_HOME/web/$ADDON/public_html"
+                mkdir -p "$DEST_ADDON" 2>/dev/null || true
+                rsync -a --exclude='*.log' "$POSSIBLE/" "$DEST_ADDON/" 2>/dev/null && \
+                    log "Addon $ADDON copiado" || warn "Error copiando addon $ADDON"
+                chown -R "$CPANEL_USER:$CPANEL_USER" "$DEST_ADDON" 2>/dev/null || true
+                break
+            fi
+        done
     done
 else
     warn "No se encontro homedir/ en el backup"
 fi
 
-# -- Bases de datos MySQL --------------------------------------
+# -- Bases de datos MySQL ---------------------------------------
 header "Importando bases de datos MySQL"
 
-DB_DIR="$BACKUP_PATH/mysql"
-if [[ -d "$DB_DIR" ]]; then
-    for SQL_FILE in "$DB_DIR"/*.sql.gz "$DB_DIR"/*.sql; do
-        [[ -f "$SQL_FILE" ]] || continue
+# cPanel guarda los dumps en mysql/ con nombre usuario_dbname.sql o .sql.gz
+MYSQL_DIR=""
+for D in "mysql" "mysql_databases"; do
+    [[ -d "$BACKUP_PATH/$D" ]] && MYSQL_DIR="$BACKUP_PATH/$D" && break
+done
 
-        # Nombre de la DB
+# Tambien puede haber un mysql.sql unico
+if [[ -z "$MYSQL_DIR" && -f "$BACKUP_PATH/mysql.sql" ]]; then
+    MYSQL_DIR="$BACKUP_PATH"
+fi
+
+if [[ -n "$MYSQL_DIR" ]]; then
+    for SQL_FILE in "$MYSQL_DIR"/*.sql.gz "$MYSQL_DIR"/*.sql; do
+        [[ -f "$SQL_FILE" ]] || continue
+        # Ignorar mysql.sql-auth.json y similares
+        [[ "$SQL_FILE" == *"-auth"* ]] && continue
+        [[ "$SQL_FILE" == *"mysql.sql" && "$MYSQL_DIR" == "$BACKUP_PATH" ]] && continue
+
         DB_BASENAME=$(basename "$SQL_FILE" .sql.gz)
         DB_BASENAME=$(basename "$DB_BASENAME" .sql)
-
-        # En cPanel el nombre de DB tiene prefijo usuario_
         DB_CLEAN=$(echo "$DB_BASENAME" | sed "s/^${CPANEL_USER}_//")
         DB_FINAL="${CPANEL_USER}_${DB_CLEAN}"
-        DB_USER="${CPANEL_USER}_${DB_CLEAN}"
         DB_PASS=$(openssl rand -base64 12 | tr -d '/+=')
 
-        info "Procesando DB: $DB_BASENAME -> $DB_FINAL"
+        info "DB: $DB_BASENAME -> $DB_FINAL"
 
-        # Crear DB en QemuCP
-        if $BIN/v-list-database "$CPANEL_USER" "$DB_FINAL" &>/dev/null 2>&1; then
-            warn "  DB $DB_FINAL ya existe"
-        else
+        if ! $BIN/v-list-database "$CPANEL_USER" "$DB_FINAL" &>/dev/null 2>&1; then
             $BIN/v-add-database "$CPANEL_USER" "$DB_CLEAN" "$DB_CLEAN" \
                 "$DB_PASS" "mysql" "localhost" \
-                2>/dev/null && log "  DB $DB_FINAL creada (user: $DB_USER pass: $DB_PASS)" || \
+                2>/dev/null && log "  DB $DB_FINAL creada" || \
                 warn "  No se pudo crear DB $DB_FINAL"
-
-            echo "DB: $DB_FINAL | User: $DB_USER | Pass: $DB_PASS" >> \
-                /root/qemucp-import-credentials.txt
+            echo "DB: $DB_FINAL | User: ${CPANEL_USER}_${DB_CLEAN} | Pass: $DB_PASS" >> "$CREDS_FILE"
         fi
 
-        # Importar datos
         if [[ "$SQL_FILE" == *.gz ]]; then
             gunzip -c "$SQL_FILE" | mysql "$DB_FINAL" 2>/dev/null && \
-                log "  Datos importados en $DB_FINAL" || \
-                warn "  Error importando datos en $DB_FINAL"
+                log "  Datos importados en $DB_FINAL" || warn "  Error importando $DB_FINAL"
         else
             mysql "$DB_FINAL" < "$SQL_FILE" 2>/dev/null && \
-                log "  Datos importados en $DB_FINAL" || \
-                warn "  Error importando datos en $DB_FINAL"
+                log "  Datos importados en $DB_FINAL" || warn "  Error importando $DB_FINAL"
         fi
     done
 else
     warn "No se encontro directorio mysql/ en el backup"
 fi
 
-# -- Correo ----------------------------------------------------
-header "Importando cuentas de correo"
+# -- Correo -----------------------------------------------------
+header "Importando correo"
 
-MAIL_DIR="$BACKUP_PATH/mail"
-if [[ -d "$MAIL_DIR" ]]; then
-    for DOMAIN_DIR in "$MAIL_DIR"/*/; do
+# cPanel guarda el correo en homedir/mail/
+MAIL_BASE=""
+for D in "$BACKUP_PATH/homedir/mail" "$BACKUP_PATH/mail"; do
+    [[ -d "$D" ]] && MAIL_BASE="$D" && break
+done
+
+if [[ -n "$MAIL_BASE" ]]; then
+    log "Directorio de correo: $MAIL_BASE"
+    for DOMAIN_DIR in "$MAIL_BASE"/*/; do
+        [[ -d "$DOMAIN_DIR" ]] || continue
         MAIL_DOMAIN=$(basename "$DOMAIN_DIR")
-        [[ -z "$MAIL_DOMAIN" ]] && continue
+        # Ignorar directorios internos de cPanel
+        [[ "$MAIL_DOMAIN" == "etc" ]] && continue
+        [[ "$MAIL_DOMAIN" == "new" ]] && continue
+        [[ "$MAIL_DOMAIN" == "cur" ]] && continue
+        [[ "$MAIL_DOMAIN" == "tmp" ]] && continue
 
-        info "Dominio de correo: $MAIL_DOMAIN"
+        info "Dominio mail: $MAIL_DOMAIN"
 
-        # Crear dominio de correo si no existe
         if ! $BIN/v-list-mail-domain "$CPANEL_USER" "$MAIL_DOMAIN" &>/dev/null 2>&1; then
             $BIN/v-add-mail-domain "$CPANEL_USER" "$MAIL_DOMAIN" \
                 2>/dev/null && log "  Dominio mail $MAIL_DOMAIN creado" || \
                 warn "  No se pudo crear dominio mail $MAIL_DOMAIN"
         fi
 
-        # Crear cuentas de correo
+        # Cuentas de correo
         for ACCOUNT_DIR in "$DOMAIN_DIR"*/; do
             [[ -d "$ACCOUNT_DIR" ]] || continue
             ACCOUNT=$(basename "$ACCOUNT_DIR")
             [[ "$ACCOUNT" == "." || "$ACCOUNT" == ".." ]] && continue
+            [[ "$ACCOUNT" == "new" || "$ACCOUNT" == "cur" || "$ACCOUNT" == "tmp" ]] && continue
 
             MAIL_PASS=$(openssl rand -base64 10 | tr -d '/+=')
-
             $BIN/v-add-mail-account "$CPANEL_USER" "$MAIL_DOMAIN" \
                 "$ACCOUNT" "$MAIL_PASS" \
-                2>/dev/null && log "  Cuenta $ACCOUNT@$MAIL_DOMAIN creada (pass: $MAIL_PASS)" || \
+                2>/dev/null && log "  $ACCOUNT@$MAIL_DOMAIN creada (pass: $MAIL_PASS)" || \
                 warn "  No se pudo crear $ACCOUNT@$MAIL_DOMAIN"
+            echo "Mail: $ACCOUNT@$MAIL_DOMAIN | Pass: $MAIL_PASS" >> "$CREDS_FILE"
 
-            echo "Mail: $ACCOUNT@$MAIL_DOMAIN | Pass: $MAIL_PASS" >> \
-                /root/qemucp-import-credentials.txt
-
-            # Copiar correos existentes (Maildir)
+            # Copiar emails existentes
             DEST_MAIL="/home/$CPANEL_USER/mail/$MAIL_DOMAIN/$ACCOUNT"
-            if [[ -d "$DEST_MAIL" ]] && [[ -d "$ACCOUNT_DIR" ]]; then
+            if [[ -d "$DEST_MAIL" ]]; then
                 rsync -a "$ACCOUNT_DIR/" "$DEST_MAIL/" 2>/dev/null && \
                     log "  Correos de $ACCOUNT copiados" || \
                     warn "  Error copiando correos de $ACCOUNT"
@@ -268,18 +309,22 @@ if [[ -d "$MAIL_DIR" ]]; then
         done
     done
 else
-    warn "No se encontro directorio mail/ en el backup"
+    warn "No se encontro directorio de correo en el backup"
 fi
 
-# -- DNS -------------------------------------------------------
-header "Importando zonas DNS"
+# -- DNS --------------------------------------------------------
+header "Importando DNS"
 
-DNS_DIR="$BACKUP_PATH/dns"
-if [[ -d "$DNS_DIR" ]]; then
-    for ZONE_FILE in "$DNS_DIR"/*.db; do
+# cPanel usa dnszones/ no dns/
+DNS_BASE=""
+for D in "$BACKUP_PATH/dnszones" "$BACKUP_PATH/dns"; do
+    [[ -d "$D" ]] && DNS_BASE="$D" && break
+done
+
+if [[ -n "$DNS_BASE" ]]; then
+    for ZONE_FILE in "$DNS_BASE"/*.db; do
         [[ -f "$ZONE_FILE" ]] || continue
         ZONE_DOMAIN=$(basename "$ZONE_FILE" .db)
-
         if ! $BIN/v-list-dns-domain "$CPANEL_USER" "$ZONE_DOMAIN" &>/dev/null 2>&1; then
             $BIN/v-add-dns-domain "$CPANEL_USER" "$ZONE_DOMAIN" "0.0.0.0" \
                 2>/dev/null && log "Zona DNS $ZONE_DOMAIN creada" || \
@@ -289,35 +334,35 @@ if [[ -d "$DNS_DIR" ]]; then
         fi
     done
 else
-    warn "No se encontro directorio dns/ en el backup"
+    warn "No se encontro directorio dnszones/ en el backup"
 fi
 
-# -- SSL -------------------------------------------------------
+# -- SSL --------------------------------------------------------
 header "Configurando SSL"
 
-for DOMAIN in "${DOMAINS[@]}"; do
+ALL_DOMAINS=()
+[[ -n "$MAIN_DOMAIN" ]] && ALL_DOMAINS+=("$MAIN_DOMAIN")
+ALL_DOMAINS+=("${ADDON_DOMAINS[@]}")
+
+for DOMAIN in "${ALL_DOMAINS[@]}"; do
     [[ -z "$DOMAIN" ]] && continue
-    info "Intentando SSL Let's Encrypt para $DOMAIN"
     $BIN/v-add-letsencrypt-domain "$CPANEL_USER" "$DOMAIN" "" "yes" \
         2>/dev/null && log "SSL activado para $DOMAIN" || \
-        warn "SSL pendiente para $DOMAIN (asegurate de que el DNS apunta a este servidor)"
+        warn "SSL pendiente para $DOMAIN (DNS debe apuntar a este servidor)"
 done
 
-# -- Limpieza --------------------------------------------------
-header "Limpieza"
+# -- Limpieza ---------------------------------------------------
 rm -rf "$WORK_DIR"
-log "Directorio temporal eliminado"
 
-# -- Resumen ---------------------------------------------------
+# -- Resumen ----------------------------------------------------
 header "IMPORTACION COMPLETADA"
 echo ""
-echo "Usuario QemuCP:  $CPANEL_USER"
-echo "Dominios:        ${DOMAINS[*]:-ninguno}"
-echo ""
-log "Credenciales guardadas en: /root/qemucp-import-credentials.txt"
+log "Usuario: $CPANEL_USER"
+log "Dominio principal: ${MAIN_DOMAIN:-ninguno}"
+log "Addon domains: ${ADDON_DOMAINS[*]:-ninguno}"
+log "Credenciales en: $CREDS_FILE"
 log "Log completo en: $LOG"
 echo ""
-warn "IMPORTANTE: Revisa y actualiza las cadenas de conexion a DB en tus aplicaciones"
-warn "IMPORTANTE: Apunta los registros DNS de tus dominios a este servidor"
-warn "IMPORTANTE: Verifica que los correos se reciben correctamente"
+warn "Actualiza las cadenas de conexion a DB en tus aplicaciones"
+warn "Apunta los DNS de tus dominios a este servidor"
 echo ""
