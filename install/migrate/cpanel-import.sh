@@ -85,10 +85,15 @@ if $BIN/v-list-user "$CPANEL_USER" &>/dev/null 2>&1; then
     warn "Usuario $CPANEL_USER ya existe en QemuCP - se importaran datos sobre el existente"
 else
     USER_PASS=$(openssl rand -base64 12 | tr -d '/+=')
-    USER_EMAIL=$(cat "$BACKUP_PATH/cp/contactemail" 2>/dev/null || \
-                 cat "$BACKUP_PATH/cp/email" 2>/dev/null || \
-                 echo "${CPANEL_USER}@localhost")
-    USER_EMAIL=$(echo "$USER_EMAIL" | tr -d ' \n\r' | head -c 100)
+    USER_EMAIL=$(cat "$BACKUP_PATH/cp/contactemail" 2>/dev/null ||                  cat "$BACKUP_PATH/cp/email" 2>/dev/null ||                  echo "")
+    USER_EMAIL=$(echo "$USER_EMAIL" | tr -d ' 
+' | head -c 100)
+
+    # Validar email - si no tiene formato valido usar uno generado
+    if [[ -z "$USER_EMAIL" ]] || ! echo "$USER_EMAIL" | grep -qP '^[^@]+@[^@]+\.[^@]+$'; then
+        USER_EMAIL="${CPANEL_USER}@${MAIN_DOMAIN:-example.com}"
+        warn "Email no encontrado, usando: $USER_EMAIL"
+    fi
 
     $BIN/v-add-user "$CPANEL_USER" "$USER_PASS" "$USER_EMAIL" "default" \
         2>/dev/null && log "Usuario $CPANEL_USER creado" || \
