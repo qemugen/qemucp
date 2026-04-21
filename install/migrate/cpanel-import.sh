@@ -59,13 +59,20 @@ CPANEL_USER=""
 [[ -f "$BACKUP_PATH/cp/username" ]] && \
     CPANEL_USER=$(cat "$BACKUP_PATH/cp/username" | tr -d ' \n\r')
 
-# Fuente 2: nombre del fichero backup-FECHA_HORA_USUARIO.tar.gz
+# Fuente 2: nombre del fichero (varios formatos de cPanel)
 if [[ -z "$CPANEL_USER" ]]; then
-    CPANEL_USER=$(basename "$BACKUP" | sed 's/backup-[0-9._-]*_//' | sed 's/\.tar\.gz//')
+    FILENAME=$(basename "$BACKUP" .tar.gz)
+    # Formato cPanel estandar: backup-M.D.YYYY_HH-MM-SS_usuario
+    CPANEL_USER=$(echo "$FILENAME" | sed 's/^backup-[0-9.]*_[0-9-]*_//')
+    # Formato cpbackup: cpbackup-YYYY-MM-DD_usuario
+    [[ "$CPANEL_USER" == "$FILENAME" ]] &&         CPANEL_USER=$(echo "$FILENAME" | sed 's/^cpbackup-[0-9-]*_//')
+    # Si sigue sin cambiar, coger la ultima parte despues del ultimo _
+    [[ "$CPANEL_USER" == "$FILENAME" ]] &&         CPANEL_USER=$(echo "$FILENAME" | awk -F_ '{print $NF}')
 fi
 
-# Limpiar: solo alfanumerico minusculas, max 8 chars (limite cPanel)
-CPANEL_USER=$(echo "$CPANEL_USER" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')
+# Limpiar: minusculas, solo alfanumerico y guion bajo
+CPANEL_USER=$(echo "$CPANEL_USER" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_')
+CPANEL_USER=$(echo "$CPANEL_USER" | sed 's/^_*//;s/_*$//')
 [[ -n "$FORCE_USER" ]] && CPANEL_USER="$FORCE_USER"
 [[ -z "$CPANEL_USER" ]] && error "No se pudo detectar el usuario. Usa: bash cpanel-import.sh backup.tar.gz usuario"
 
@@ -75,7 +82,7 @@ log "Usuario detectado: $CPANEL_USER"
 header "Creando usuario en QemuCP"
 
 if $BIN/v-list-user "$CPANEL_USER" &>/dev/null 2>&1; then
-    warn "Usuario $CPANEL_USER ya existe en QemuCP"
+    warn "Usuario $CPANEL_USER ya existe en QemuCP - se importaran datos sobre el existente"
 else
     USER_PASS=$(openssl rand -base64 12 | tr -d '/+=')
     USER_EMAIL=$(cat "$BACKUP_PATH/cp/contactemail" 2>/dev/null || \
@@ -212,7 +219,7 @@ header "Importando bases de datos MySQL"
 
 # cPanel guarda los dumps en mysql/ con nombre usuario_dbname.sql o .sql.gz
 MYSQL_DIR=""
-for D in "mysql" "mysql_databases"; do
+for D in "mysql" "mysql_databases" "mysql_dump"; do
     [[ -d "$BACKUP_PATH/$D" ]] && MYSQL_DIR="$BACKUP_PATH/$D" && break
 done
 
