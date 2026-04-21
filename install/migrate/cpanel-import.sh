@@ -162,8 +162,10 @@ log "Subdominios: ${SUB_DOMAINS[*]:-ninguno}"
 header "Creando dominios web"
 
 # Obtener IP real del servidor registrada en QemuCP
-SERVER_IP=$($BIN/v-list-ips plain 2>/dev/null | awk '{print $1}' | grep -v "^$" | head -1)
-[[ -z "$SERVER_IP" ]] && SERVER_IP=$(hostname -I | awk '{print $1}')
+SERVER_IP=$($BIN/v-list-ips plain 2>/dev/null | awk '{print $1}' | grep -v "^$" | head -1 || true)
+[[ -z "$SERVER_IP" ]] && SERVER_IP=$(hostname -I | awk '{print $1}' || true)
+[[ -z "$SERVER_IP" ]] && SERVER_IP=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || true)
+[[ -z "$SERVER_IP" ]] && error "No se pudo detectar la IP del servidor"
 log "IP del servidor: $SERVER_IP"
 
 create_domain() {
