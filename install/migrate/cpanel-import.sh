@@ -339,21 +339,17 @@ if [[ -n "$MAIL_BASE" ]]; then
                 HASH="${SHADOW_HASHES[$ACCOUNT]}"
                 # Detectar tipo y anadir prefijo Dovecot
                 if [[ "$HASH" == '$6$'* ]]; then
-                    DOVECOT_HASH="{SHA512-CRYPT}$HASH"
+                    PREFIX="{SHA512-CRYPT}"
                 elif [[ "$HASH" == '$1$'* ]]; then
-                    DOVECOT_HASH="{MD5-CRYPT}$HASH"
+                    PREFIX="{MD5-CRYPT}"
                 elif [[ "$HASH" == '$5$'* ]]; then
-                    DOVECOT_HASH="{SHA256-CRYPT}$HASH"
+                    PREFIX="{SHA256-CRYPT}"
                 else
-                    DOVECOT_HASH="{CRYPT}$HASH"
+                    PREFIX="{CRYPT}"
                 fi
-                # Sobreescribir en passwd de HestiaCP con formato completo
-                # Formato: usuario:hash:owner:mail::/home/owner:0:userdb_quota_rule=*:storage=0M
+                # Sobreescribir solo el campo del hash - buscar {BLF-CRYPT} generado por v-add-mail-account
                 if [[ -f "$HESTIA_PASSWD" ]]; then
-                    sed -i "s|^${ACCOUNT}:.*|${ACCOUNT}:${DOVECOT_HASH}:${CPANEL_USER}:mail::/home/${CPANEL_USER}:0:userdb_quota_rule=*:storage=0M|" \
-                        "$HESTIA_PASSWD" 2>/dev/null && \
-                        log "  Password original restaurada para $ACCOUNT" || \
-                        warn "  No se pudo restaurar password de $ACCOUNT"
+                    sed -i "s|^${ACCOUNT}:{BLF-CRYPT}[^:]*:|${ACCOUNT}:${PREFIX}${HASH}:|"                         "$HESTIA_PASSWD" 2>/dev/null &&                         log "  Password original restaurada para $ACCOUNT" ||                         warn "  No se pudo restaurar password de $ACCOUNT"
                 fi
             else
                 # Sin hash original - guardar nueva password
