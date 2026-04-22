@@ -312,8 +312,11 @@ if [[ -n "$MAIL_BASE" ]]; then
         declare -A SHADOW_HASHES
         if [[ -f "$CPANEL_SHADOW" ]]; then
             while IFS=: read -r acc hash rest; do
-                [[ -n "$acc" && -n "$hash" && "$hash" != "!!" && "$hash" != "*" ]] &&                     SHADOW_HASHES["$acc"]="$hash"
-            done < "$CPANEL_SHADOW"
+                [[ -z "$acc" ]] && continue
+                [[ -z "$hash" ]] && continue
+                [[ "$hash" == "!!" || "$hash" == "*" ]] && continue
+                SHADOW_HASHES["$acc"]="$hash"
+            done < "$CPANEL_SHADOW" || true
             log "  Shadow leido: ${#SHADOW_HASHES[@]} hashes encontrados"
         fi
 
