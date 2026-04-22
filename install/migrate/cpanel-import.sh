@@ -308,7 +308,7 @@ if [[ -n "$MAIL_BASE" ]]; then
         # Leer shadow de cPanel para importar hashes sin resetear passwords
         # cPanel guarda hashes en homedir/etc/DOMINIO/shadow
         CPANEL_SHADOW="$BACKUP_PATH/homedir/etc/$MAIL_DOMAIN/shadow"
-        HESTIA_PASSWD="/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN/passwd"
+        HESTIA_PASSWD="/etc/exim4/domains/$MAIL_DOMAIN/passwd"
         declare -A SHADOW_HASHES
         if [[ -f "$CPANEL_SHADOW" ]]; then
             while IFS=: read -r acc hash rest; do
