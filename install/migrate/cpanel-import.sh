@@ -344,9 +344,10 @@ if [[ -n "$MAIL_BASE" ]]; then
                 else
                     DOVECOT_HASH="{CRYPT}$HASH"
                 fi
-                # Sobreescribir en passwd de HestiaCP
+                # Sobreescribir en passwd de HestiaCP con formato completo
+                # Formato: usuario:hash:owner:mail::/home/owner:0:userdb_quota_rule=*:storage=0M
                 if [[ -f "$HESTIA_PASSWD" ]]; then
-                    sed -i "s|^${ACCOUNT}:.*|${ACCOUNT}:${DOVECOT_HASH}::::::|" \
+                    sed -i "s|^${ACCOUNT}:.*|${ACCOUNT}:${DOVECOT_HASH}:${CPANEL_USER}:mail::/home/${CPANEL_USER}:0:userdb_quota_rule=*:storage=0M|" \
                         "$HESTIA_PASSWD" 2>/dev/null && \
                         log "  Password original restaurada para $ACCOUNT" || \
                         warn "  No se pudo restaurar password de $ACCOUNT"
