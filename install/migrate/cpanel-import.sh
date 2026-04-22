@@ -305,6 +305,18 @@ if [[ -n "$MAIL_BASE" ]]; then
                 warn "  No se pudo crear dominio mail $MAIL_DOMAIN"
         fi
 
+        # Leer shadow de cPanel para importar hashes sin resetear passwords
+        # cPanel guarda hashes en homedir/etc/DOMINIO/shadow
+        CPANEL_SHADOW="$BACKUP_PATH/homedir/etc/$MAIL_DOMAIN/shadow"
+        HESTIA_PASSWD="/etc/exim4/domains/$MAIL_DOMAIN/passwd"
+        declare -A SHADOW_HASHES
+        if [[ -f "$CPANEL_SHADOW" ]]; then
+            while IFS=: read -r acc hash rest; do
+                [[ -n "$acc" && -n "$hash" && "$hash" != "!!" && "$hash" != "*" ]] &&                     SHADOW_HASHES["$acc"]="$hash"
+            done < "$CPANEL_SHADOW"
+            log "  Shadow leido: ${#SHADOW_HASHES[@]} hashes encontrados"
+        fi
+
         # Cuentas de correo
         for ACCOUNT_DIR in "$DOMAIN_DIR"*/; do
             [[ -d "$ACCOUNT_DIR" ]] || continue
@@ -312,14 +324,40 @@ if [[ -n "$MAIL_BASE" ]]; then
             [[ "$ACCOUNT" == "." || "$ACCOUNT" == ".." ]] && continue
             [[ "$ACCOUNT" == "new" || "$ACCOUNT" == "cur" || "$ACCOUNT" == "tmp" ]] && continue
 
+            # Crear cuenta con password temporal
             MAIL_PASS=$(openssl rand -base64 10 | tr -d '/+=')
             $BIN/v-add-mail-account "$CPANEL_USER" "$MAIL_DOMAIN" \
                 "$ACCOUNT" "$MAIL_PASS" \
-                2>/dev/null && log "  $ACCOUNT@$MAIL_DOMAIN creada (pass: $MAIL_PASS)" || \
+                2>/dev/null && log "  $ACCOUNT@$MAIL_DOMAIN creada" || \
                 warn "  No se pudo crear $ACCOUNT@$MAIL_DOMAIN"
-            echo "Mail: $ACCOUNT@$MAIL_DOMAIN | Pass: $MAIL_PASS" >> "$CREDS_FILE"
 
-            # Copiar emails existentes
+            # Si tenemos hash original de cPanel, restaurarlo directamente
+            if [[ -n "${SHADOW_HASHES[$ACCOUNT]:-}" ]]; then
+                HASH="${SHADOW_HASHES[$ACCOUNT]}"
+                # Detectar tipo y anadir prefijo Dovecot
+                if [[ "$HASH" == '$6$'* ]]; then
+                    DOVECOT_HASH="{SHA512-CRYPT}$HASH"
+                elif [[ "$HASH" == '$1$'* ]]; then
+                    DOVECOT_HASH="{MD5-CRYPT}$HASH"
+                elif [[ "$HASH" == '$5$'* ]]; then
+                    DOVECOT_HASH="{SHA256-CRYPT}$HASH"
+                else
+                    DOVECOT_HASH="{CRYPT}$HASH"
+                fi
+                # Sobreescribir en passwd de HestiaCP
+                if [[ -f "$HESTIA_PASSWD" ]]; then
+                    sed -i "s|^${ACCOUNT}:.*|${ACCOUNT}:${DOVECOT_HASH}::::::|" \
+                        "$HESTIA_PASSWD" 2>/dev/null && \
+                        log "  Password original restaurada para $ACCOUNT" || \
+                        warn "  No se pudo restaurar password de $ACCOUNT"
+                fi
+            else
+                # Sin hash original - guardar nueva password
+                echo "Mail: $ACCOUNT@$MAIL_DOMAIN | Pass: $MAIL_PASS (nueva)" >> "$CREDS_FILE"
+                warn "  Sin hash para $ACCOUNT - password nueva: $MAIL_PASS"
+            fi
+
+            # Copiar correos existentes (Maildir)
             DEST_MAIL="/home/$CPANEL_USER/mail/$MAIL_DOMAIN/$ACCOUNT"
             if [[ -d "$DEST_MAIL" ]]; then
                 rsync -a "$ACCOUNT_DIR/" "$DEST_MAIL/" 2>/dev/null && \
@@ -328,6 +366,7 @@ if [[ -n "$MAIL_BASE" ]]; then
                 chown -R "$CPANEL_USER:mail" "$DEST_MAIL" 2>/dev/null || true
             fi
         done
+        unset SHADOW_HASHES
     done
 else
     warn "No se encontro directorio de correo en el backup"
