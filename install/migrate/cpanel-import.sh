@@ -205,6 +205,13 @@ if [[ -d "$HOMEDIR" ]]; then
             log "public_html copiado a $DEST_WEB" || \
             warn "Error parcial copiando public_html"
         chown -R "$CPANEL_USER:$CPANEL_USER" "$DEST_WEB" 2>/dev/null || true
+        chmod 755 "/home/$CPANEL_USER" 2>/dev/null || true
+        chmod 755 "/home/$CPANEL_USER/web" 2>/dev/null || true
+        chmod 755 "/home/$CPANEL_USER/web/$MAIN_DOMAIN" 2>/dev/null || true
+        chmod 755 "$DEST_WEB" 2>/dev/null || true
+        find "$DEST_WEB" -mindepth 0 -type d -exec chmod 755 {} + 2>/dev/null || true
+        find "$DEST_WEB" -type f -exec chmod 644 {} + 2>/dev/null || true
+        log "Permisos corregidos en $DEST_WEB"
     fi
 
     # Carpetas de addon domains dentro de homedir
@@ -220,6 +227,9 @@ if [[ -d "$HOMEDIR" ]]; then
                 rsync -a --exclude='*.log' "$POSSIBLE/" "$DEST_ADDON/" 2>/dev/null && \
                     log "Addon $ADDON copiado" || warn "Error copiando addon $ADDON"
                 chown -R "$CPANEL_USER:$CPANEL_USER" "$DEST_ADDON" 2>/dev/null || true
+                chmod 755 "$DEST_ADDON" 2>/dev/null || true
+                find "$DEST_ADDON" -mindepth 0 -type d -exec chmod 755 {} + 2>/dev/null || true
+                find "$DEST_ADDON" -type f -exec chmod 644 {} + 2>/dev/null || true
                 break
             fi
         done
@@ -397,18 +407,20 @@ else
     warn "No se encontro directorio dnszones/ en el backup"
 fi
 
-# -- SSL --------------------------------------------------------
-header "Configurando SSL"
+# -- Reconstruir configuracion de usuario -----------------------
+header "Reconstruyendo configuracion"
 
 ALL_DOMAINS=()
 [[ -n "$MAIN_DOMAIN" ]] && ALL_DOMAINS+=("$MAIN_DOMAIN")
 ALL_DOMAINS+=("${ADDON_DOMAINS[@]}")
 
+# Reconstruir configuracion del usuario para aplicar todos los cambios
+$BIN/v-rebuild-user "$CPANEL_USER" 2>/dev/null && log "Configuracion reconstruida" || true
+
+log "Para activar SSL cuando el DNS apunte al servidor ejecuta:"
 for DOMAIN in "${ALL_DOMAINS[@]}"; do
     [[ -z "$DOMAIN" ]] && continue
-    $BIN/v-add-letsencrypt-domain "$CPANEL_USER" "$DOMAIN" "" "yes" \
-        2>/dev/null && log "SSL activado para $DOMAIN" || \
-        warn "SSL pendiente para $DOMAIN (DNS debe apuntar a este servidor)"
+    echo "  /usr/local/hestia/bin/v-add-letsencrypt-domain $CPANEL_USER $DOMAIN www.$DOMAIN"
 done
 
 # -- Limpieza ---------------------------------------------------
