@@ -213,6 +213,12 @@ if [[ -d "$HOMEDIR" ]]; then
         find "$DEST_WEB" -mindepth 0 -type d -exec chmod 755 {} + 2>/dev/null || true
         find "$DEST_WEB" -type f -exec chmod 644 {} + 2>/dev/null || true
         log "Permisos corregidos en $DEST_WEB"
+
+        # Crear symlink /home/USER/public_html -> public_html
+        # Necesario para apps con rutas hardcodeadas desde cPanel
+        if [[ ! -e "/home/$CPANEL_USER/public_html" ]]; then
+            ln -s "$DEST_WEB" "/home/$CPANEL_USER/public_html" 2>/dev/null &&                 log "Symlink public_html creado" || true
+        fi
     fi
 
     # Carpetas de addon domains dentro de homedir
@@ -408,6 +414,23 @@ if [[ -n "$DNS_BASE" ]]; then
 else
     warn "No se encontro directorio dnszones/ en el backup"
 fi
+
+# -- Ajustar open_basedir para rutas fuera de public_html -------
+header "Ajustando open_basedir"
+
+# Algunas apps (Moodle, PrestaShop antiguo) necesitan acceder a rutas
+# fuera de public_html. Anadimos rutas comunes al open_basedir.
+PHP_POOL_DIR="/etc/php"
+for POOL_FILE in $(find "$PHP_POOL_DIR" -name "${CPANEL_USER}*" -o -name "*.conf" 2>/dev/null |     xargs grep -l "$CPANEL_USER" 2>/dev/null | head -5); do
+    if grep -q "open_basedir" "$POOL_FILE" 2>/dev/null; then
+        # Anadir home del usuario y tmp al open_basedir si no estan ya
+        EXTRA_PATHS="/home/$CPANEL_USER/web:/home/$CPANEL_USER/tmp"
+        if ! grep "open_basedir" "$POOL_FILE" | grep -q "/home/$CPANEL_USER/web"; then
+            sed -i "s|php_admin_value\[open_basedir\] = .*|&:$EXTRA_PATHS|" "$POOL_FILE" 2>/dev/null || true
+            log "open_basedir ampliado en $POOL_FILE"
+        fi
+    fi
+done
 
 # -- Reconstruir configuracion de usuario -----------------------
 header "Reconstruyendo configuracion"
