@@ -200,6 +200,7 @@ if [[ -d "$HOMEDIR" ]]; then
     if [[ -n "$MAIN_DOMAIN" && -d "$HOMEDIR/public_html" ]]; then
         DEST_WEB="$DEST_HOME/web/$MAIN_DOMAIN/public_html"
         mkdir -p "$DEST_WEB" 2>/dev/null || true
+        rm -f "$DEST_WEB/index.html" "$DEST_WEB/robots.txt" 2>/dev/null || true
         rsync -a --exclude='*.log' --exclude='.htaccess.bak' \
             "$HOMEDIR/public_html/" "$DEST_WEB/" 2>/dev/null && \
             log "public_html copiado a $DEST_WEB" || \
@@ -225,6 +226,7 @@ if [[ -d "$HOMEDIR" ]]; then
                 DEST_ADDON="$DEST_HOME/web/$ADDON/public_html"
                 mkdir -p "$DEST_ADDON" 2>/dev/null || true
                 rsync -a --exclude='*.log' "$POSSIBLE/" "$DEST_ADDON/" 2>/dev/null && \
+                rm -f "$DEST_ADDON/index.html" "$DEST_ADDON/robots.txt" 2>/dev/null || true
                     log "Addon $ADDON copiado" || warn "Error copiando addon $ADDON"
                 chown -R "$CPANEL_USER:$CPANEL_USER" "$DEST_ADDON" 2>/dev/null || true
                 chmod 755 "$DEST_ADDON" 2>/dev/null || true
