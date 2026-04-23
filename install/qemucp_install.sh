@@ -1470,8 +1470,8 @@ enabled  = true
 filter   = nginx-badbots
 port     = http,https
 logpath  = /var/log/nginx/access.log
-maxretry = 1
-bantime  = 86400
+maxretry = 3
+bantime  = 3600
 findtime = 3600
 
 [nginx-444]
@@ -1479,9 +1479,9 @@ enabled  = true
 filter   = nginx-444
 port     = http,https
 logpath  = /var/log/nginx/access_all.log
-maxretry = 3
-bantime  = 86400
-findtime = 600
+maxretry = 10
+bantime  = 3600
+findtime = 3600
 
 F2BEOF
 
