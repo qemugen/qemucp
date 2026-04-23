@@ -201,10 +201,10 @@ if [[ -d "$HOMEDIR" ]]; then
         DEST_WEB="$DEST_HOME/web/$MAIN_DOMAIN/public_html"
         mkdir -p "$DEST_WEB" 2>/dev/null || true
         rm -f "$DEST_WEB/index.html" "$DEST_WEB/robots.txt" 2>/dev/null || true
-        rsync -a --exclude='*.log' --exclude='.htaccess.bak' \
-            "$HOMEDIR/public_html/" "$DEST_WEB/" 2>/dev/null && \
-            log "public_html copiado a $DEST_WEB" || \
-            warn "Error parcial copiando public_html"
+        # Eliminar index.html por defecto de QemuCP antes del rsync
+        rm -f "$DEST_WEB/index.html" 2>/dev/null || true
+
+        rsync -a --exclude='*.log' --exclude='.htaccess.bak'             "$HOMEDIR/public_html/" "$DEST_WEB/" 2>/dev/null &&             log "public_html copiado a $DEST_WEB" ||             warn "Error parcial copiando public_html"
         chown -R "$CPANEL_USER:$CPANEL_USER" "$DEST_WEB" 2>/dev/null || true
         chmod 755 "/home/$CPANEL_USER" 2>/dev/null || true
         chmod 755 "/home/$CPANEL_USER/web" 2>/dev/null || true
