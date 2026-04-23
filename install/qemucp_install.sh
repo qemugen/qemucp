@@ -947,11 +947,11 @@ done
 # Instalar extensiones adicionales para todas las versiones disponibles
 apt-get update -qq
 for VER in "${PHP_VERSIONS[@]}"; do
-    EXTRA_EXTENSIONS="imagick redis apcu"
+    EXTRA_EXTENSIONS="imagick redis apcu mcrypt"
     for EXT in $EXTRA_EXTENSIONS; do
         apt-get install -y -qq "php${VER}-${EXT}" 2>/dev/null || true
     done
-    log "Extensiones adicionales PHP $VER: imagick, redis, apcu"
+    log "Extensiones adicionales PHP $VER: imagick, redis, apcu, mcrypt"
 done
 
 # ------ Calcular workers segun RAM ------------------------------------------------------------------------------------------------------------------------------------------
