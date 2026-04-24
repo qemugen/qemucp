@@ -6,28 +6,9 @@
 # Importa: ficheros web, bases de datos MySQL, correo, DNS
 # ============================================================
 
-# Verificacion de licencia
-QEMUCP_LICENSE_KEY="${1:-}"
-QEMUCP_VALID_KEY="QemuCP2024#Cloud"
-
-if [[ "$QEMUCP_LICENSE_KEY" != "$QEMUCP_VALID_KEY" ]]; then
-    echo ""
-    echo "  +-------------------------------------------+"
-    echo "  |      QemuCP - Acceso Restringido          |"
-    echo "  |  Contacta: soporte@qemugen.com            |"
-    echo "  +-------------------------------------------+"
-    echo ""
-    echo "  Uso: bash cpanel-import.sh CLAVE /ruta/backup.tar.gz"
-    echo ""
-    exit 1
-fi
-
-# Reajustar argumentos - el backup ahora es el segundo argumento
-BACKUP="${2:-}"
-
 set -euo pipefail
 
-# BACKUP se define arriba tras verificacion de licencia
+BACKUP="${1:-}"
 FORCE_USER="${2:-}"
 HESTIA="/usr/local/hestia"
 BIN="$HESTIA/bin"
