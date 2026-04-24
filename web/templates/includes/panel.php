@@ -358,9 +358,9 @@
 				<!-- WP Manager tab -->
                 <li class="main-menu-item">
                     <a class="main-menu-item-link <?php if ($TAB == "WP") {
-    echo "active"; } ?>" href="/list/wp/" title="<?= _("WordPress Manager") ?>">
+    echo "active"; } ?>" href="/list/wp/" title="<?= _("WP-TOOL - WordPress Manager") ?>">
                         <i class="fab fa-wordpress"></i>
-                        <p class="main-menu-item-label"><?= _("WP") ?> <i class="fab fa-wordpress" style="font-size:11px;vertical-align:middle;"></i></p>
+                        <p class="main-menu-item-label"><?= _("WP-TOOL") ?> <i class="fab fa-wordpress" style="font-size:11px;vertical-align:middle;"></i></p>
                         <p class="main-menu-stats"></p>
                     </a>
                 </li>
