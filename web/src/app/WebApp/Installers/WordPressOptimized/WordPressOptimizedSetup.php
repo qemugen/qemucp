@@ -192,9 +192,9 @@ class WordPressOptimizedSetup extends BaseSetup {
         exec("wp option update uploads_use_yearmonth_folders 1 --path=" . quoteshellarg($docroot) . " 2>/dev/null");
     }
 
-    public function getDocRoot(string $path = ""): string {
+    public function getDocRoot($append_relative_path = null): string {
         $homedir = $this->appcontext->user_home ?? "/home";
-        $docroot = $homedir . "/" . $this->appcontext->user() . "/web/" . $this->domain . "/public_html";
-        return empty($path) ? $docroot : $docroot . "/" . ltrim($path, "/");
+        $docroot = "/home/" . $this->appcontext->user() . "/web/" . $this->domain . "/public_html";
+        return empty($append_relative_path) ? $docroot : $docroot . "/" . ltrim($append_relative_path, "/");
     }
 }

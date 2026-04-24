@@ -157,9 +157,9 @@ class PrestaShopOptimizedSetup extends BaseSetup {
         exec("chmod 600 " . quoteshellarg($docroot . "/app/config/parameters.php") . " 2>/dev/null");
     }
 
-    public function getDocRoot(string $path = ""): string {
+    public function getDocRoot($append_relative_path = null): string {
         $homedir = $this->appcontext->user_home ?? "/home";
-        $docroot = $homedir . "/" . $this->appcontext->user() . "/web/" . $this->domain . "/public_html";
-        return empty($path) ? $docroot : $docroot . "/" . ltrim($path, "/");
+        $docroot = "/home/" . $this->appcontext->user() . "/web/" . $this->domain . "/public_html";
+        return empty($append_relative_path) ? $docroot : $docroot . "/" . ltrim($append_relative_path, "/");
     }
 }
