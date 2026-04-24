@@ -21,11 +21,9 @@
     <div class="u-mt20">
         <div class="alert alert-info">
             <i class="fas fa-info-circle"></i>
-            <?= _("No WordPress installations found. Install WordPress using Quick Install.") ?>
-        </div>
-        <div class="u-mt10">
-            <a class="button" href="/list/web/">
-                <i class="fas fa-plus"></i> <?= _("Go to Web Domains") ?>
+            <?= _("No se ha detectado ninguna instalacion de WordPress. Puedes instalar WordPress con el instalador de aplicaciones automatico o desde aqui:") ?>
+            <a href="/add/webapp/?domain=<?= $_SESSION['user'] ?>" style="margin-left:5px;">
+                <i class="fas fa-rocket"></i> <?= _("Instalador de aplicaciones") ?>
             </a>
         </div>
     </div>
