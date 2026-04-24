@@ -355,7 +355,17 @@
 					<?php } ?>
 				<?php } ?>
 
-				<!-- DNS tab -->
+				<!-- WP Manager tab -->
+                <li class="main-menu-item">
+                    <a class="main-menu-item-link <?php if ($TAB == "WP") {
+    echo "active"; } ?>" href="/list/wp/" title="<?= _("WordPress Manager") ?>">
+                        <i class="fab fa-wordpress"></i>
+                        <p class="main-menu-item-label"><?= _("WP") ?><i class="fab fa-wordpress"></i></p>
+                        <p class="main-menu-stats"></p>
+                    </a>
+                </li>
+
+                <!-- DNS tab -->
 				<?php if (isset($_SESSION["DNS_SYSTEM"]) && !empty($_SESSION["DNS_SYSTEM"])) { ?>
 					<?php if ($panel[$user]["DNS_DOMAINS"] != "0") { ?>
 						<li class="main-menu-item">
