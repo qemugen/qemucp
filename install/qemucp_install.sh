@@ -18,6 +18,26 @@ LANG="es"
 HESTIA_PORT="8083"
 PHP_VERSIONS=("7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4")
 
+# ============================================================
+# VERIFICACION DE LICENCIA QEMUCP
+# ============================================================
+QEMUCP_LICENSE_KEY="${1:-}"
+QEMUCP_VALID_KEY="QemuCP2024#Cloud"
+
+if [[ "$QEMUCP_LICENSE_KEY" != "$QEMUCP_VALID_KEY" ]]; then
+    echo ""
+    echo "  +-------------------------------------------+"
+    echo "  |      QemuCP - Acceso Restringido          |"
+    echo "  |                                           |"
+    echo "  |  Este software es propiedad de QemuGen.  |"
+    echo "  |  Contacta: soporte@qemugen.com            |"
+    echo "  +-------------------------------------------+"
+    echo ""
+    echo "  Uso: bash qemucp_install.sh TU-CLAVE-DE-LICENCIA"
+    echo ""
+    exit 1
+fi
+
 set -euo pipefail
 
 # Evitar ventanas interactivas durante apt (GRUB, sshd, etc)
