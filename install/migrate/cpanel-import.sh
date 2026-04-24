@@ -442,11 +442,26 @@ ALL_DOMAINS+=("${ADDON_DOMAINS[@]}")
 # Reconstruir configuracion del usuario para aplicar todos los cambios
 $BIN/v-rebuild-user "$CPANEL_USER" 2>/dev/null && log "Configuracion reconstruida" || true
 
-log "Para activar SSL cuando el DNS apunte al servidor ejecuta:"
+# Emitir SSL para todos los dominios (permisos ya corregidos antes de llegar aqui)
+header "Configurando SSL"
+SSL_OK=()
+SSL_FAIL=()
 for DOMAIN in "${ALL_DOMAINS[@]}"; do
     [[ -z "$DOMAIN" ]] && continue
-    echo "  /usr/local/hestia/bin/v-add-letsencrypt-domain $CPANEL_USER $DOMAIN www.$DOMAIN"
+    info "Emitiendo SSL para $DOMAIN"
+    $BIN/v-add-letsencrypt-domain "$CPANEL_USER" "$DOMAIN" "www.$DOMAIN" "yes"         2>/dev/null && SSL_OK+=("$DOMAIN") || SSL_FAIL+=("$DOMAIN")
 done
+
+if [[ ${#SSL_OK[@]} -gt 0 ]]; then
+    log "SSL emitido correctamente: ${SSL_OK[*]}"
+fi
+if [[ ${#SSL_FAIL[@]} -gt 0 ]]; then
+    warn "SSL pendiente (DNS no apunta aun): ${SSL_FAIL[*]}"
+    warn "Ejecuta manualmente cuando el DNS apunte:"
+    for DOMAIN in "${SSL_FAIL[@]}"; do
+        echo "  /usr/local/hestia/bin/v-add-letsencrypt-domain $CPANEL_USER $DOMAIN www.$DOMAIN"
+    done
+fi
 
 # -- Limpieza ---------------------------------------------------
 rm -rf "$WORK_DIR"
