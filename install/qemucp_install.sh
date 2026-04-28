@@ -1628,7 +1628,7 @@ fi
 FM_APPJS="$HESTIA/web/fm/dist/js/app.js"
 if [ -f "$FM_APPJS" ]; then
     cp "$FM_APPJS" "$FM_APPJS.bak" 2>/dev/null || true
-    python3 << 'FMEOF'
+    python3 << 'JSEOF'
 with open("/usr/local/hestia/web/fm/dist/js/app.js") as f:
     content = f.read()
 
@@ -1642,7 +1642,7 @@ if old in content:
     print("OK")
 else:
     print("SKIP - ya aplicado o version diferente")
-FMEOF
+JSEOF
     log "FIX #6: File Manager tar.gz support anadido"
 else
     warn "FIX #6: app.js no encontrado - File Manager puede no estar instalado"
