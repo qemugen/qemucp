@@ -1622,6 +1622,32 @@ else
     log "FIX #4: FileGator migrate() ya presente o fichero no encontrado"
 fi
 
+# FIX #6: File Manager - soporte tar.gz en descompresion
+# Por defecto FileGator solo permite descomprimir .zip
+# Parcheamos isArchive() en app.js para soportar .tar.gz, .tgz, .tar.bz2
+FM_APPJS="$HESTIA/web/fm/dist/js/app.js"
+if [ -f "$FM_APPJS" ]; then
+    cp "$FM_APPJS" "$FM_APPJS.bak" 2>/dev/null || true
+    python3 << 'FMEOF'
+with open("/usr/local/hestia/web/fm/dist/js/app.js") as f:
+    content = f.read()
+
+old = 'isArchive(e){return"file"==e.type&&"zip"==e.name.split(".").pop()}'
+new = 'isArchive(e){if("file"!=e.type)return false;var ext=e.name.split(".").pop().toLowerCase();var ext2=e.name.split(".").slice(-2).join(".").toLowerCase();return"zip"==ext||"tgz"==ext||"tar.gz"==ext2||"tar.bz2"==ext2}'
+
+if old in content:
+    content = content.replace(old, new)
+    with open("/usr/local/hestia/web/fm/dist/js/app.js", "w") as f:
+        f.write(content)
+    print("OK")
+else:
+    print("SKIP - ya aplicado o version diferente")
+FMEOF
+    log "FIX #6: File Manager tar.gz support anadido"
+else
+    warn "FIX #6: app.js no encontrado - File Manager puede no estar instalado"
+fi
+
 # FIX #5: Sudoers - hestiaweb necesita chmod para el File Manager
 # El File Manager ejecuta: sudo chmod o+x /home/USER/.ssh
 # hestiaweb solo tiene permiso para /usr/local/hestia/bin/* por defecto
