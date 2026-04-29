@@ -386,11 +386,11 @@ if [[ -n "$MAIL_BASE" ]]; then
         done
         unset SHADOW_HASHES
 
-        # Corregir permisos del directorio de correo para Dovecot
+        # Corregir permisos del directorio de correo para Dovecot y Exim
         chmod 755 "/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN" 2>/dev/null || true
         find "/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN" -type d             -exec chmod 755 {} + 2>/dev/null || true
-        find "/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN" -name "passwd"             -exec chmod 644 {} + 2>/dev/null || true
-        log "  Permisos mail $MAIL_DOMAIN corregidos para Dovecot"
+        find "/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN" -type f             -exec chmod 644 {} + 2>/dev/null || true
+        log "  Permisos mail $MAIL_DOMAIN corregidos para Dovecot y Exim"
     done
 else
     warn "No se encontro directorio de correo en el backup"
