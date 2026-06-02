@@ -220,18 +220,6 @@
 							}
 						}
 						?>
-<<<<<<< HEAD
-						<a href="/edit/web/?domain=<?= $key ?>&token=<?= $_SESSION['token'] ?>" title="<?= _("Edit Domain") ?>: <?= $key ?>">
-							<?= $web_engine_badge ?>
-							<?= $key ?>
-							<?php
-								if (!empty($alias_new) && !empty($data[$key]['ALIAS'])) {
-									$aliases = implode(', ', $alias_new);
-									echo "<p class='hint u-max-width300 u-text-truncate'>($aliases)</p>";
-								}
-							?>
-						</a>
-					<?php } ?>
 =======
 						<a href="/edit/web/?<?= tohtml(http_build_query(["domain" => $key, "token" => $_SESSION['token']])) ?>" title="<?= tohtml( _("Edit Domain")) ?>: <?= tohtml($key) ?>">
 							<?= tohtml($key) ?>
@@ -243,7 +231,6 @@
 								?>
 							</a>
 						<?php } ?>
->>>>>>> upstream/release
 				</div>
 				<div class="units-table-cell">
 					<ul class="units-table-row-actions">

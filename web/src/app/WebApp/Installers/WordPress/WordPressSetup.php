@@ -14,16 +14,6 @@ use Hestia\WebApp\Installers\BaseSetup;
 
 class WordPressSetup extends BaseSetup {
 
-<<<<<<< HEAD
-    protected $appInfo = [
-        'name'      => 'WordPress',
-        'group'     => 'cms',
-        'enabled'   => true,
-        'version'   => 'latest',
-        'thumbnail' => 'wp-logo.png',
-    ];
-
-    protected $appcontext;
 =======
 	protected $config = [
 		"form" => [
@@ -108,12 +98,6 @@ class WordPressSetup extends BaseSetup {
         $db_host = defined('DB_HOST') ? DB_HOST : 'localhost';
         exec("wp config create --path={$docroot} --dbname={$dbname} --dbuser={$dbuser} --dbpass={$dbpass} --dbhost={$db_host} --dbprefix={$prefix} 2>/dev/null");
 
-<<<<<<< HEAD
-        // Añadir constantes de seguridad y rendimiento al wp-config
-        $this->applyWpConfigOptimizations($docroot);
-
-        // Instalar WP
-        exec("wp core install --path={$docroot} --url=https://{$domain} --title='{$title}' --admin_user={$user} --admin_password={$pass} --admin_email={$email} --skip-email 2>/dev/null", $out, $rc);
 =======
 		$this->appcontext->runUser("v-list-web-domain", [$this->domain, "json"], $status);
 >>>>>>> upstream/release
