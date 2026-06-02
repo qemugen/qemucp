@@ -1,9 +1,8 @@
 name: Sync with HestiaCP upstream
 
 on:
-  schedule:
-    - cron: '0 3 * * *'
   workflow_dispatch:
+    # Sincronizacion MANUAL solamente - ejecutar desde GitHub Actions
     inputs:
       dry_run:
         description: 'Dry run (no push, solo ver cambios)'
