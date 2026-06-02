@@ -14,6 +14,7 @@ use Hestia\WebApp\Installers\BaseSetup;
 
 class WordPressSetup extends BaseSetup {
 
+<<<<<<< HEAD
     protected $appInfo = [
         'name'      => 'WordPress',
         'group'     => 'cms',
@@ -23,6 +24,54 @@ class WordPressSetup extends BaseSetup {
     ];
 
     protected $appcontext;
+=======
+	protected $config = [
+		"form" => [
+			"site_name" => ["type" => "text", "value" => "WordPress Blog"],
+			"username" => ["value" => "wpadmin"],
+			"email" => "text",
+			"password" => "password",
+			"install_directory" => ["type" => "text", "value" => "/", "placeholder" => "/"],
+			"language" => [
+				"type" => "select",
+				"value" => "en_US",
+				"options" => [
+					"cs_CZ" => "Czech",
+					"de_DE" => "German",
+					"es_ES" => "Spanish",
+					"en_US" => "English",
+					"fr_FR" => "French",
+					"hu_HU" => "Hungarian",
+					"it_IT" => "Italian",
+					"ja" => "Japanese",
+					"nl_NL" => "Dutch",
+					"pt_PT" => "Portuguese",
+					"pt_BR" => "Portuguese (Brazil)",
+					"sk_SK" => "Slovak",
+					"sr_RS" => "Serbian",
+					"sv_SE" => "Swedish",
+					"tr_TR" => "Turkish",
+					"ru_RU" => "Russian",
+					"uk" => "Ukrainian",
+					"zh-CN" => "Simplified Chinese (China)",
+					"zh_TW" => "Traditional Chinese",
+				],
+			],
+		],
+		"database" => true,
+		"resources" => [
+			"wp" => ["src" => "https://wordpress.org/latest.tar.gz"],
+		],
+		"server" => [
+			"nginx" => [
+				"template" => "wordpress",
+			],
+			"php" => [
+				"supported" => ["7.4", "8.0", "8.1", "8.2", "8.3", "8.4", "8.5"],
+			],
+		],
+	];
+>>>>>>> upstream/release
 
     public function install(array $options = []): bool {
         // 1. Descargar WordPress via WP-CLI si esta disponible, sino wget
@@ -59,11 +108,15 @@ class WordPressSetup extends BaseSetup {
         $db_host = defined('DB_HOST') ? DB_HOST : 'localhost';
         exec("wp config create --path={$docroot} --dbname={$dbname} --dbuser={$dbuser} --dbpass={$dbpass} --dbhost={$db_host} --dbprefix={$prefix} 2>/dev/null");
 
+<<<<<<< HEAD
         // Añadir constantes de seguridad y rendimiento al wp-config
         $this->applyWpConfigOptimizations($docroot);
 
         // Instalar WP
         exec("wp core install --path={$docroot} --url=https://{$domain} --title='{$title}' --admin_user={$user} --admin_password={$pass} --admin_email={$email} --skip-email 2>/dev/null", $out, $rc);
+=======
+		$this->appcontext->runUser("v-list-web-domain", [$this->domain, "json"], $status);
+>>>>>>> upstream/release
 
         // Post-instalacion
         if ($rc === 0) {

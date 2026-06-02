@@ -1,7 +1,9 @@
 <?php
 use function Hestiacp\quoteshellarg\quoteshellarg;
+if (session_status() === PHP_SESSION_ACTIVE) {
+	session_write_close();
+}
 $dist_config = require __DIR__ . "/configuration_sample.php";
-session_start();
 $dist_config["public_path"] = "/fm/";
 $dist_config["frontend_config"]["app_name"] = "File Manager - Hestia Control Panel";
 $dist_config["frontend_config"]["logo"] = "../images/logo.svg";
@@ -162,7 +164,7 @@ $dist_config["services"]["Filegator\Services\Storage\Filesystem"]["config"][
 	} else {
 		echo '<meta http-equiv="refresh" content="0; url=/">';
 	}
-	$v_user = $_SESSION["user"] ?? $_SESSION["USER"] ?? "";
+	$v_user = $_SESSION["user"] ?? ($_SESSION["USER"] ?? "");
 	if (!empty($_SESSION["look"])) {
 		if (isset($_SESSION["look"]) && $_SESSION["userContext"] === "admin") {
 			$v_user = $_SESSION["look"];
