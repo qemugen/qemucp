@@ -15,6 +15,9 @@ jobs:
   sync:
     name: Sync upstream HestiaCP -> QemuCP
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
 
     steps:
       - name: Checkout QemuCP fork
