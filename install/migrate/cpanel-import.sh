@@ -337,7 +337,7 @@ if [[ -n "$MAIL_BASE" ]]; then
         # cPanel guarda hashes en homedir/etc/DOMINIO/shadow
         CPANEL_SHADOW="$BACKUP_PATH/homedir/etc/$MAIL_DOMAIN/shadow"
         HESTIA_PASSWD="/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN/passwd"
-        declare -A SHADOW_HASHES
+        declare -A SHADOW_HASHES=()
         if [[ -f "$CPANEL_SHADOW" ]]; then
             while IFS=: read -r acc hash rest; do
                 [[ -z "$acc" ]] && continue
@@ -394,7 +394,7 @@ if [[ -n "$MAIL_BASE" ]]; then
                 chown -R "$CPANEL_USER:mail" "$DEST_MAIL" 2>/dev/null || true
             fi
         done
-        unset SHADOW_HASHES
+        SHADOW_HASHES=()
 
         # Corregir permisos del directorio de correo para Dovecot y Exim
         chmod 755 "/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN" 2>/dev/null || true
