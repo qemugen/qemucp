@@ -283,6 +283,14 @@ if [[ -n "$MYSQL_DIR" ]]; then
                 warn "  No se pudo crear DB $DB_FINAL"
             echo "DB: $DB_FINAL | User: ${CPANEL_USER}_${DB_CLEAN} | Pass: $DB_PASS" >> "$CREDS_FILE"
             DB_CREATED+=("${DB_FINAL}:${CPANEL_USER}_${DB_CLEAN}:${DB_PASS}")
+        else
+            # DB ya existe (re-migracion) - regenerar password para poder actualizar el CMS
+            warn "  DB $DB_FINAL ya existe - regenerando password"
+            $BIN/v-change-database-password "$CPANEL_USER" "$DB_FINAL" "$DB_PASS" \
+                2>/dev/null && log "  Password de $DB_FINAL regenerada" || \
+                warn "  No se pudo regenerar password de $DB_FINAL"
+            echo "DB: $DB_FINAL | User: ${CPANEL_USER}_${DB_CLEAN} | Pass: $DB_PASS (regenerada)" >> "$CREDS_FILE"
+            DB_CREATED+=("${DB_FINAL}:${CPANEL_USER}_${DB_CLEAN}:${DB_PASS}")
         fi
 
         if [[ "$SQL_FILE" == *.gz ]]; then
