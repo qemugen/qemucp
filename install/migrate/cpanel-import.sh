@@ -451,170 +451,166 @@ done
 # -- Detectar y actualizar credenciales de CMS ----------------
 header "Actualizando credenciales de CMS"
 
-# Funcion para detectar credenciales de DB en ficheros de configuracion
-update_cms_config() {
-    local DOCROOT="$1"
-    local DB_OLD="$2"
-    local DB_NEW="$3"
-    local DB_USER_NEW="$4"
-    local DB_PASS_NEW="$5"
-
-    # WordPress - wp-config.php
-    WP_CONFIG="$DOCROOT/wp-config.php"
-    if [[ -f "$WP_CONFIG" ]]; then
-        DB_OLD_NAME=$(grep "DB_NAME" "$WP_CONFIG" | grep -oP "(?<=')[^']+(?=')" | head -1)
-        DB_OLD_USER=$(grep "DB_USER" "$WP_CONFIG" | grep -oP "(?<=')[^']+(?=')" | head -1)
-        DB_OLD_PASS=$(grep "DB_PASSWORD" "$WP_CONFIG" | grep -oP "(?<=')[^']+(?=')" | head -1)
-        if [[ -n "$DB_OLD_NAME" ]]; then
-            sed -i "s|define.*DB_NAME.*|define('DB_NAME', '$DB_NEW');|" "$WP_CONFIG" 2>/dev/null
-            sed -i "s|define.*DB_USER.*|define('DB_USER', '$DB_USER_NEW');|" "$WP_CONFIG" 2>/dev/null
-            sed -i "s|define.*DB_PASSWORD.*|define('DB_PASSWORD', '$DB_PASS_NEW');|" "$WP_CONFIG" 2>/dev/null
-            log "  WordPress config actualizado: $WP_CONFIG"
-        fi
-    fi
-
-    # PrestaShop 1.7+ - app/config/parameters.php
-    PS_CONFIG="$DOCROOT/app/config/parameters.php"
-    if [[ -f "$PS_CONFIG" ]]; then
-        sed -i "s|database_name:.*|database_name: $DB_NEW|" "$PS_CONFIG" 2>/dev/null
-        sed -i "s|database_user:.*|database_user: $DB_USER_NEW|" "$PS_CONFIG" 2>/dev/null
-        sed -i "s|database_password:.*|database_password: $DB_PASS_NEW|" "$PS_CONFIG" 2>/dev/null
-        log "  PrestaShop 1.7+ config actualizado: $PS_CONFIG"
-    fi
-
-    # PrestaShop 1.6 - config/settings.inc.php
-    PS16_CONFIG="$DOCROOT/config/settings.inc.php"
-    if [[ -f "$PS16_CONFIG" ]]; then
-        sed -i "s|define.*_DB_NAME_.*|define('_DB_NAME_', '$DB_NEW');|" "$PS16_CONFIG" 2>/dev/null
-        sed -i "s|define.*_DB_USER_.*|define('_DB_USER_', '$DB_USER_NEW');|" "$PS16_CONFIG" 2>/dev/null
-        sed -i "s|define.*_DB_PASSWD_.*|define('_DB_PASSWD_', '$DB_PASS_NEW');|" "$PS16_CONFIG" 2>/dev/null
-        log "  PrestaShop 1.6 config actualizado: $PS16_CONFIG"
-    fi
-
-    # Joomla - configuration.php
-    JOOMLA_CONFIG="$DOCROOT/configuration.php"
-    if [[ -f "$JOOMLA_CONFIG" ]]; then
-        sed -i "s|public \$db =.*|public \$db = '$DB_NEW';|" "$JOOMLA_CONFIG" 2>/dev/null
-        sed -i "s|public \$user =.*|public \$user = '$DB_USER_NEW';|" "$JOOMLA_CONFIG" 2>/dev/null
-        sed -i "s|public \$password =.*|public \$password = '$DB_PASS_NEW';|" "$JOOMLA_CONFIG" 2>/dev/null
-        log "  Joomla config actualizado: $JOOMLA_CONFIG"
-    fi
-
-    # OpenCart - config.php y admin/config.php
-    for OC_CONFIG in "$DOCROOT/config.php" "$DOCROOT/admin/config.php"; do
-        if [[ -f "$OC_CONFIG" ]]; then
-            sed -i "s|define.*DB_DATABASE.*|define('DB_DATABASE', '$DB_NEW');|" "$OC_CONFIG" 2>/dev/null
-            sed -i "s|define.*DB_USERNAME.*|define('DB_USERNAME', '$DB_USER_NEW');|" "$OC_CONFIG" 2>/dev/null
-            sed -i "s|define.*DB_PASSWORD.*|define('DB_PASSWORD', '$DB_PASS_NEW');|" "$OC_CONFIG" 2>/dev/null
-            log "  OpenCart config actualizado: $OC_CONFIG"
-        fi
-    done
-
-    # Drupal 8+ - sites/default/settings.php
-    DRUPAL_CONFIG="$DOCROOT/sites/default/settings.php"
-    if [[ -f "$DRUPAL_CONFIG" ]]; then
-        python3 -c "
-import re
-with open('$DRUPAL_CONFIG') as f:
-    c = f.read()
-c = re.sub(r"'database'\s*=>\s*'[^']*'", "'database' => '$DB_NEW'", c)
-c = re.sub(r"'username'\s*=>\s*'[^']*'", "'username' => '$DB_USER_NEW'", c)
-c = re.sub(r"'password'\s*=>\s*'[^']*'", "'password' => '$DB_PASS_NEW'", c)
-with open('$DRUPAL_CONFIG', 'w') as f:
-    f.write(c)
-" 2>/dev/null && log "  Drupal config actualizado: $DRUPAL_CONFIG" || true
-    fi
-
-    # Magento 2 - app/etc/env.php
-    MAGENTO_CONFIG="$DOCROOT/app/etc/env.php"
-    if [[ -f "$MAGENTO_CONFIG" ]]; then
-        python3 -c "
-import re
-with open('$MAGENTO_CONFIG') as f:
-    c = f.read()
-c = re.sub(r"'dbname'\s*=>\s*'[^']*'", "'dbname' => '$DB_NEW'", c)
-c = re.sub(r"'username'\s*=>\s*'[^']*'", "'username' => '$DB_USER_NEW'", c)
-c = re.sub(r"'password'\s*=>\s*'[^']*'", "'password' => '$DB_PASS_NEW'", c)
-with open('$MAGENTO_CONFIG', 'w') as f:
-    f.write(c)
-" 2>/dev/null && log "  Magento 2 config actualizado: $MAGENTO_CONFIG" || true
-    fi
-
-    # Magento 1 - app/etc/local.xml
-    MAGENTO1_CONFIG="$DOCROOT/app/etc/local.xml"
-    if [[ -f "$MAGENTO1_CONFIG" ]]; then
-        sed -i "s|<dbname><!\[CDATA\[[^\]]*\]\]></dbname>|<dbname><![CDATA[$DB_NEW]]></dbname>|" "$MAGENTO1_CONFIG" 2>/dev/null
-        sed -i "s|<username><!\[CDATA\[[^\]]*\]\]></username>|<username><![CDATA[$DB_USER_NEW]]></username>|" "$MAGENTO1_CONFIG" 2>/dev/null
-        sed -i "s|<password><!\[CDATA\[[^\]]*\]\]></password>|<password><![CDATA[$DB_PASS_NEW]]></password>|" "$MAGENTO1_CONFIG" 2>/dev/null
-        log "  Magento 1 config actualizado: $MAGENTO1_CONFIG"
-    fi
-
-    # WooCommerce usa wp-config.php (ya cubierto por WordPress)
-
-    # Moodle - config.php
-    MOODLE_CONFIG="$DOCROOT/config.php"
-    if [[ -f "$MOODLE_CONFIG" ]] && grep -q "CFG->dbname" "$MOODLE_CONFIG" 2>/dev/null; then
-        sed -i "s|\\$CFG->dbname.*|\\$CFG->dbname   = '$DB_NEW';|" "$MOODLE_CONFIG" 2>/dev/null
-        sed -i "s|\\$CFG->dbuser.*|\\$CFG->dbuser   = '$DB_USER_NEW';|" "$MOODLE_CONFIG" 2>/dev/null
-        sed -i "s|\\$CFG->dbpass.*|\\$CFG->dbpass   = '$DB_PASS_NEW';|" "$MOODLE_CONFIG" 2>/dev/null
-        log "  Moodle config actualizado: $MOODLE_CONFIG"
-    fi
-
-    # WHMCS - configuration.php
-    WHMCS_CONFIG="$DOCROOT/configuration.php"
-    if [[ -f "$WHMCS_CONFIG" ]] && grep -q "db_host" "$WHMCS_CONFIG" 2>/dev/null; then
-        sed -i "s|\\$db_name.*|\\$db_name = "$DB_NEW";|" "$WHMCS_CONFIG" 2>/dev/null
-        sed -i "s|\\$db_username.*|\\$db_username = "$DB_USER_NEW";|" "$WHMCS_CONFIG" 2>/dev/null
-        sed -i "s|\\$db_password.*|\\$db_password = "$DB_PASS_NEW";|" "$WHMCS_CONFIG" 2>/dev/null
-        log "  WHMCS config actualizado: $WHMCS_CONFIG"
-    fi
-
-    # Laravel - .env
-    LARAVEL_ENV="$DOCROOT/.env"
-    if [[ -f "$LARAVEL_ENV" ]] && grep -q "DB_DATABASE" "$LARAVEL_ENV" 2>/dev/null; then
-        sed -i "s|^DB_DATABASE=.*|DB_DATABASE=$DB_NEW|" "$LARAVEL_ENV" 2>/dev/null
-        sed -i "s|^DB_USERNAME=.*|DB_USERNAME=$DB_USER_NEW|" "$LARAVEL_ENV" 2>/dev/null
-        sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=$DB_PASS_NEW|" "$LARAVEL_ENV" 2>/dev/null
-        log "  Laravel .env actualizado: $LARAVEL_ENV"
-    fi
-
-    # CodeIgniter - application/config/database.php
-    CI_CONFIG="$DOCROOT/application/config/database.php"
-    if [[ -f "$CI_CONFIG" ]]; then
-        sed -i "s|'database'.*=>.*|'database' => '$DB_NEW',|" "$CI_CONFIG" 2>/dev/null
-        sed -i "s|'username'.*=>.*|'username' => '$DB_USER_NEW',|" "$CI_CONFIG" 2>/dev/null
-        sed -i "s|'password'.*=>.*|'password' => '$DB_PASS_NEW',|" "$CI_CONFIG" 2>/dev/null
-        log "  CodeIgniter config actualizado: $CI_CONFIG"
-    fi
-
-    # Symfony - .env o config/packages/doctrine.yaml
-    SYMFONY_ENV="$DOCROOT/.env"
-    if [[ -f "$SYMFONY_ENV" ]] && grep -q "DATABASE_URL" "$SYMFONY_ENV" 2>/dev/null; then
-        sed -i "s|DATABASE_URL=.*|DATABASE_URL=mysql://$DB_USER_NEW:$DB_PASS_NEW@127.0.0.1:3306/$DB_NEW|"             "$SYMFONY_ENV" 2>/dev/null
-        log "  Symfony .env actualizado: $SYMFONY_ENV"
-    fi
+# Extrae el nombre de DB configurado en un fichero de config de CMS
+get_config_dbname() {
+    local FILE="$1"
+    local TYPE="$2"
+    case "$TYPE" in
+        wordpress)  grep "DB_NAME" "$FILE" 2>/dev/null | grep -oP "define\(\s*['\"]DB_NAME['\"]\s*,\s*['\"]\K[^'\"]+" | head -1 ;;
+        ps16)       grep "_DB_NAME_" "$FILE" 2>/dev/null | grep -oP "define\('_DB_NAME_',\s*'\K[^']+" | head -1 ;;
+        ps17)       grep "database_name:" "$FILE" 2>/dev/null | awk -F: '{print $2}' | tr -d " '\"" | head -1 ;;
+        joomla)     grep 'public \$db ' "$FILE" 2>/dev/null | grep -oP "=\s*'\K[^']+" | head -1 ;;
+        whmcs)      grep '\$db_name' "$FILE" 2>/dev/null | grep -oP '=\s*["'"'"']\K[^"'"'"']+' | head -1 ;;
+        opencart)   grep "DB_DATABASE" "$FILE" 2>/dev/null | grep -oP "'\K[^']+" | tail -1 ;;
+        moodle)     grep 'CFG->dbname' "$FILE" 2>/dev/null | grep -oP "=\s*'\K[^']+" | head -1 ;;
+        drupal)     grep -oP "'database'\s*=>\s*'\K[^']+" "$FILE" 2>/dev/null | head -1 ;;
+        magento2)   grep -oP "'dbname'\s*=>\s*'\K[^']+" "$FILE" 2>/dev/null | head -1 ;;
+        magento1)   grep -oP "<dbname><!\[CDATA\[\K[^\]]+" "$FILE" 2>/dev/null | head -1 ;;
+        laravel)    grep "^DB_DATABASE=" "$FILE" 2>/dev/null | cut -d= -f2 | tr -d ' ' | head -1 ;;
+        codeigniter) grep -oP "'database'\s*=>\s*'\K[^']+" "$FILE" 2>/dev/null | head -1 ;;
+    esac
 }
 
-# Aplicar actualizacion de credenciales para cada DB importada
-if [[ -n "$MAIN_DOMAIN" ]] && [[ ${#DB_CREATED[@]} -gt 0 ]]; then
-    DEST_WEB_DIR="/home/$CPANEL_USER/web/$MAIN_DOMAIN/public_html"
-    log "DBs a actualizar en CMS: ${#DB_CREATED[@]}"
-    for DB_ENTRY in "${DB_CREATED[@]}"; do
-        DB_FINAL=$(echo "$DB_ENTRY" | cut -d: -f1)
-        DB_USER=$(echo "$DB_ENTRY" | cut -d: -f2)
-        DB_PASS=$(echo "$DB_ENTRY" | cut -d: -f3-)
-        if [[ -n "$DB_FINAL" && -n "$DB_USER" && -n "$DB_PASS" ]]; then
-            info "Actualizando CMS para DB: $DB_FINAL"
-            update_cms_config "$DEST_WEB_DIR" "" "$DB_FINAL" "$DB_USER" "$DB_PASS"
-            # Tambien buscar en addon domains
-            for ADDON in "${ADDON_DOMAINS[@]}"; do
-                ADDON_WEB="/home/$CPANEL_USER/web/$ADDON/public_html"
-                [[ -d "$ADDON_WEB" ]] &&                     update_cms_config "$ADDON_WEB" "" "$DB_FINAL" "$DB_USER" "$DB_PASS"
-            done
+# Actualiza UN fichero de config concreto con las credenciales dadas
+update_one_config() {
+    local FILE="$1"
+    local TYPE="$2"
+    local DB="$3"
+    local USER="$4"
+    local PASS="$5"
+    case "$TYPE" in
+        wordpress)
+            sed -i "s|define(\s*['\"]DB_NAME['\"].*|define('DB_NAME', '$DB');|" "$FILE" 2>/dev/null
+            sed -i "s|define(\s*['\"]DB_USER['\"].*|define('DB_USER', '$USER');|" "$FILE" 2>/dev/null
+            sed -i "s|define(\s*['\"]DB_PASSWORD['\"].*|define('DB_PASSWORD', '$PASS');|" "$FILE" 2>/dev/null ;;
+        ps16)
+            sed -i "s|define('_DB_NAME_'.*|define('_DB_NAME_', '$DB');|" "$FILE" 2>/dev/null
+            sed -i "s|define('_DB_USER_'.*|define('_DB_USER_', '$USER');|" "$FILE" 2>/dev/null
+            sed -i "s|define('_DB_PASSWD_'.*|define('_DB_PASSWD_', '$PASS');|" "$FILE" 2>/dev/null ;;
+        ps17)
+            sed -i "s|database_name:.*|database_name: $DB|" "$FILE" 2>/dev/null
+            sed -i "s|database_user:.*|database_user: $USER|" "$FILE" 2>/dev/null
+            sed -i "s|database_password:.*|database_password: $PASS|" "$FILE" 2>/dev/null ;;
+        joomla)
+            sed -i "s|public \$db =.*|public \$db = '$DB';|" "$FILE" 2>/dev/null
+            sed -i "s|public \$user =.*|public \$user = '$USER';|" "$FILE" 2>/dev/null
+            sed -i "s|public \$password =.*|public \$password = '$PASS';|" "$FILE" 2>/dev/null ;;
+        whmcs)
+            sed -i "s|\$db_name.*|\$db_name = \"$DB\";|" "$FILE" 2>/dev/null
+            sed -i "s|\$db_username.*|\$db_username = \"$USER\";|" "$FILE" 2>/dev/null
+            sed -i "s|\$db_password.*|\$db_password = \"$PASS\";|" "$FILE" 2>/dev/null ;;
+        opencart)
+            sed -i "s|define('DB_DATABASE'.*|define('DB_DATABASE', '$DB');|" "$FILE" 2>/dev/null
+            sed -i "s|define('DB_USERNAME'.*|define('DB_USERNAME', '$USER');|" "$FILE" 2>/dev/null
+            sed -i "s|define('DB_PASSWORD'.*|define('DB_PASSWORD', '$PASS');|" "$FILE" 2>/dev/null ;;
+        moodle)
+            sed -i "s|\$CFG->dbname.*|\$CFG->dbname   = '$DB';|" "$FILE" 2>/dev/null
+            sed -i "s|\$CFG->dbuser.*|\$CFG->dbuser   = '$USER';|" "$FILE" 2>/dev/null
+            sed -i "s|\$CFG->dbpass.*|\$CFG->dbpass   = '$PASS';|" "$FILE" 2>/dev/null ;;
+        drupal|magento2|codeigniter)
+            python3 -c "
+import re
+with open('$FILE') as f: c = f.read()
+c = re.sub(r\"'(database|dbname)'(\s*)=>(\s*)'[^']*'\", r\"'\1'\2=>\3'$DB'\", c)
+c = re.sub(r\"'username'(\s*)=>(\s*)'[^']*'\", r\"'username'\1=>\2'$USER'\", c)
+c = re.sub(r\"'password'(\s*)=>(\s*)'[^']*'\", r\"'password'\1=>\2'$PASS'\", c)
+with open('$FILE', 'w') as f: f.write(c)
+" 2>/dev/null ;;
+        magento1)
+            sed -i "s|<dbname><!\[CDATA\[[^]]*\]\]></dbname>|<dbname><![CDATA[$DB]]></dbname>|" "$FILE" 2>/dev/null
+            sed -i "s|<username><!\[CDATA\[[^]]*\]\]></username>|<username><![CDATA[$USER]]></username>|" "$FILE" 2>/dev/null
+            sed -i "s|<password><!\[CDATA\[[^]]*\]\]></password>|<password><![CDATA[$PASS]]></password>|" "$FILE" 2>/dev/null ;;
+        laravel)
+            sed -i "s|^DB_DATABASE=.*|DB_DATABASE=$DB|" "$FILE" 2>/dev/null
+            sed -i "s|^DB_USERNAME=.*|DB_USERNAME=$USER|" "$FILE" 2>/dev/null
+            sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=$PASS|" "$FILE" 2>/dev/null ;;
+    esac
+}
+
+# Busca configs de CMS (hasta 4 niveles - soporta blog/, tienda/, etc.)
+# y los empareja con su DB por el nombre que YA tienen configurado
+process_domain_configs() {
+    local WEBROOT="$1"
+    [[ -d "$WEBROOT" ]] || return 0
+
+    # Lista de "patron_fichero:tipo" a buscar
+    local FOUND_CONFIG FOUND_TYPE CONFIG_DB MATCHED
+    while IFS= read -r FOUND_CONFIG; do
+        [[ -z "$FOUND_CONFIG" ]] && continue
+        FOUND_TYPE=""
+        case "$FOUND_CONFIG" in
+            */wp-config.php) FOUND_TYPE="wordpress" ;;
+            */config/settings.inc.php) FOUND_TYPE="ps16" ;;
+            */app/config/parameters.php) FOUND_TYPE="ps17" ;;
+            */sites/default/settings.php) FOUND_TYPE="drupal" ;;
+            */app/etc/env.php) FOUND_TYPE="magento2" ;;
+            */app/etc/local.xml) FOUND_TYPE="magento1" ;;
+            */application/config/database.php) FOUND_TYPE="codeigniter" ;;
+            */configuration.php)
+                if grep -q '\$db_host' "$FOUND_CONFIG" 2>/dev/null; then
+                    FOUND_TYPE="whmcs"
+                elif grep -q 'public \$db' "$FOUND_CONFIG" 2>/dev/null; then
+                    FOUND_TYPE="joomla"
+                fi ;;
+            */config.php)
+                if grep -q 'CFG->dbname' "$FOUND_CONFIG" 2>/dev/null; then
+                    FOUND_TYPE="moodle"
+                elif grep -q "DB_DATABASE" "$FOUND_CONFIG" 2>/dev/null; then
+                    FOUND_TYPE="opencart"
+                fi ;;
+            */.env)
+                grep -q "^DB_DATABASE=" "$FOUND_CONFIG" 2>/dev/null && FOUND_TYPE="laravel" ;;
+        esac
+        [[ -z "$FOUND_TYPE" ]] && continue
+
+        CONFIG_DB=$(get_config_dbname "$FOUND_CONFIG" "$FOUND_TYPE")
+        [[ -z "$CONFIG_DB" ]] && continue
+        info "CMS detectado ($FOUND_TYPE): $FOUND_CONFIG [DB configurada: $CONFIG_DB]"
+
+        # Buscar la DB migrada cuyo nombre coincida con la configurada
+        MATCHED=""
+        for DB_ENTRY in "${DB_CREATED[@]}"; do
+            DB_FINAL=$(echo "$DB_ENTRY" | cut -d: -f1)
+            DB_USER=$(echo "$DB_ENTRY" | cut -d: -f2)
+            DB_PASS=$(echo "$DB_ENTRY" | cut -d: -f3-)
+            if [[ "$DB_FINAL" == "$CONFIG_DB" ]]; then
+                update_one_config "$FOUND_CONFIG" "$FOUND_TYPE" "$DB_FINAL" "$DB_USER" "$DB_PASS"
+                log "  Config actualizado con DB $DB_FINAL (match exacto)"
+                MATCHED="yes"
+                break
+            fi
+        done
+
+        # Sin match exacto: si solo hay 1 DB migrada, usarla como fallback
+        if [[ -z "$MATCHED" ]]; then
+            if [[ ${#DB_CREATED[@]} -eq 1 ]]; then
+                DB_ENTRY="${DB_CREATED[0]}"
+                DB_FINAL=$(echo "$DB_ENTRY" | cut -d: -f1)
+                DB_USER=$(echo "$DB_ENTRY" | cut -d: -f2)
+                DB_PASS=$(echo "$DB_ENTRY" | cut -d: -f3-)
+                update_one_config "$FOUND_CONFIG" "$FOUND_TYPE" "$DB_FINAL" "$DB_USER" "$DB_PASS"
+                log "  Config actualizado con DB $DB_FINAL (unica DB migrada)"
+            else
+                warn "  Sin DB coincidente para $CONFIG_DB - revisar manualmente"
+                echo "CMS sin match: $FOUND_CONFIG (esperaba DB: $CONFIG_DB)" >> "$CREDS_FILE"
+            fi
         fi
+    done < <(find "$WEBROOT" -maxdepth 4 \
+        \( -name "wp-config.php" -o -name "settings.inc.php" -o -name "parameters.php" \
+           -o -name "configuration.php" -o -name "config.php" -o -name "settings.php" \
+           -o -name "env.php" -o -name "local.xml" -o -name "database.php" -o -name ".env" \) \
+        -type f 2>/dev/null)
+}
+
+if [[ ${#DB_CREATED[@]} -gt 0 ]]; then
+    log "DBs migradas en esta ejecucion: ${#DB_CREATED[@]}"
+    [[ -n "$MAIN_DOMAIN" ]] && \
+        process_domain_configs "/home/$CPANEL_USER/web/$MAIN_DOMAIN/public_html"
+    for ADDON in "${ADDON_DOMAINS[@]}"; do
+        process_domain_configs "/home/$CPANEL_USER/web/$ADDON/public_html"
     done
-elif [[ ${#DB_CREATED[@]} -eq 0 ]]; then
-    warn "No se crearon DBs en esta ejecucion - saltando actualizacion de CMS"
+else
+    warn "No hay DBs migradas en esta ejecucion - saltando actualizacion de CMS"
 fi
 
 # -- Reconstruir configuracion de usuario -----------------------
