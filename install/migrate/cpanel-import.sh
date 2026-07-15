@@ -14,6 +14,7 @@ HESTIA="/usr/local/hestia"
 BIN="$HESTIA/bin"
 LOG="/var/log/qemucp-cpanel-import.log"
 WORK_DIR=""
+DB_CREATED=()  # Array de "DB_FINAL:DB_USER:DB_PASS" creadas en esta ejecucion
 CREDS_FILE="/root/qemucp-import-credentials.txt"
 
 RED='\033[0;31m'
@@ -281,6 +282,7 @@ if [[ -n "$MYSQL_DIR" ]]; then
                 2>/dev/null && log "  DB $DB_FINAL creada" || \
                 warn "  No se pudo crear DB $DB_FINAL"
             echo "DB: $DB_FINAL | User: ${CPANEL_USER}_${DB_CLEAN} | Pass: $DB_PASS" >> "$CREDS_FILE"
+            DB_CREATED+=("${DB_FINAL}:${CPANEL_USER}_${DB_CLEAN}:${DB_PASS}")
         fi
 
         if [[ "$SQL_FILE" == *.gz ]]; then
@@ -586,25 +588,25 @@ with open('$MAGENTO_CONFIG', 'w') as f:
 }
 
 # Aplicar actualizacion de credenciales para cada DB importada
-if [[ -n "$MAIN_DOMAIN" ]]; then
+if [[ -n "$MAIN_DOMAIN" ]] && [[ ${#DB_CREATED[@]} -gt 0 ]]; then
     DEST_WEB_DIR="/home/$CPANEL_USER/web/$MAIN_DOMAIN/public_html"
-    # Formato de linea: "DB: NOMBRE | User: USUARIO | Pass: PASSWORD"
-    while IFS= read -r line; do
-        if [[ "$line" == DB:* ]]; then
-            DB_FINAL=$(echo "$line" | grep -oP '(?<=DB: )[^|]+' | tr -d ' ')
-            DB_USER=$(echo "$line" | grep -oP '(?<=User: )[^|]+' | tr -d ' ')
-            DB_PASS=$(echo "$line" | grep -oP '(?<=Pass: ).*' | tr -d ' ')
-            if [[ -n "$DB_FINAL" && -n "$DB_USER" && -n "$DB_PASS" ]]; then
-                info "Actualizando CMS para DB: $DB_FINAL"
-                update_cms_config "$DEST_WEB_DIR" "" "$DB_FINAL" "$DB_USER" "$DB_PASS"
-                # Tambien buscar en addon domains
-                for ADDON in "${ADDON_DOMAINS[@]}"; do
-                    ADDON_WEB="/home/$CPANEL_USER/web/$ADDON/public_html"
-                    [[ -d "$ADDON_WEB" ]] &&                         update_cms_config "$ADDON_WEB" "" "$DB_FINAL" "$DB_USER" "$DB_PASS"
-                done
-            fi
+    log "DBs a actualizar en CMS: ${#DB_CREATED[@]}"
+    for DB_ENTRY in "${DB_CREATED[@]}"; do
+        DB_FINAL=$(echo "$DB_ENTRY" | cut -d: -f1)
+        DB_USER=$(echo "$DB_ENTRY" | cut -d: -f2)
+        DB_PASS=$(echo "$DB_ENTRY" | cut -d: -f3-)
+        if [[ -n "$DB_FINAL" && -n "$DB_USER" && -n "$DB_PASS" ]]; then
+            info "Actualizando CMS para DB: $DB_FINAL"
+            update_cms_config "$DEST_WEB_DIR" "" "$DB_FINAL" "$DB_USER" "$DB_PASS"
+            # Tambien buscar en addon domains
+            for ADDON in "${ADDON_DOMAINS[@]}"; do
+                ADDON_WEB="/home/$CPANEL_USER/web/$ADDON/public_html"
+                [[ -d "$ADDON_WEB" ]] &&                     update_cms_config "$ADDON_WEB" "" "$DB_FINAL" "$DB_USER" "$DB_PASS"
+            done
         fi
-    done < "$CREDS_FILE"
+    done
+elif [[ ${#DB_CREATED[@]} -eq 0 ]]; then
+    warn "No se crearon DBs en esta ejecucion - saltando actualizacion de CMS"
 fi
 
 # -- Reconstruir configuracion de usuario -----------------------
