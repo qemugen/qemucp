@@ -438,6 +438,86 @@ for POOL_FILE in $(find "$PHP_POOL_DIR" -name "${CPANEL_USER}*" -o -name "*.conf
     fi
 done
 
+# -- Detectar y actualizar credenciales de CMS ----------------
+header "Actualizando credenciales de CMS"
+
+# Funcion para detectar credenciales de DB en ficheros de configuracion
+update_cms_config() {
+    local DOCROOT="$1"
+    local DB_OLD="$2"
+    local DB_NEW="$3"
+    local DB_USER_NEW="$4"
+    local DB_PASS_NEW="$5"
+
+    # WordPress - wp-config.php
+    WP_CONFIG="$DOCROOT/wp-config.php"
+    if [[ -f "$WP_CONFIG" ]]; then
+        DB_OLD_NAME=$(grep "DB_NAME" "$WP_CONFIG" | grep -oP "(?<=')[^']+(?=')" | head -1)
+        DB_OLD_USER=$(grep "DB_USER" "$WP_CONFIG" | grep -oP "(?<=')[^']+(?=')" | head -1)
+        DB_OLD_PASS=$(grep "DB_PASSWORD" "$WP_CONFIG" | grep -oP "(?<=')[^']+(?=')" | head -1)
+        if [[ -n "$DB_OLD_NAME" ]]; then
+            sed -i "s|define.*DB_NAME.*|define('DB_NAME', '$DB_NEW');|" "$WP_CONFIG" 2>/dev/null
+            sed -i "s|define.*DB_USER.*|define('DB_USER', '$DB_USER_NEW');|" "$WP_CONFIG" 2>/dev/null
+            sed -i "s|define.*DB_PASSWORD.*|define('DB_PASSWORD', '$DB_PASS_NEW');|" "$WP_CONFIG" 2>/dev/null
+            log "  WordPress config actualizado: $WP_CONFIG"
+        fi
+    fi
+
+    # PrestaShop 1.7+ - app/config/parameters.php
+    PS_CONFIG="$DOCROOT/app/config/parameters.php"
+    if [[ -f "$PS_CONFIG" ]]; then
+        sed -i "s|database_name:.*|database_name: $DB_NEW|" "$PS_CONFIG" 2>/dev/null
+        sed -i "s|database_user:.*|database_user: $DB_USER_NEW|" "$PS_CONFIG" 2>/dev/null
+        sed -i "s|database_password:.*|database_password: $DB_PASS_NEW|" "$PS_CONFIG" 2>/dev/null
+        log "  PrestaShop 1.7+ config actualizado: $PS_CONFIG"
+    fi
+
+    # PrestaShop 1.6 - config/settings.inc.php
+    PS16_CONFIG="$DOCROOT/config/settings.inc.php"
+    if [[ -f "$PS16_CONFIG" ]]; then
+        sed -i "s|define.*_DB_NAME_.*|define('_DB_NAME_', '$DB_NEW');|" "$PS16_CONFIG" 2>/dev/null
+        sed -i "s|define.*_DB_USER_.*|define('_DB_USER_', '$DB_USER_NEW');|" "$PS16_CONFIG" 2>/dev/null
+        sed -i "s|define.*_DB_PASSWD_.*|define('_DB_PASSWD_', '$DB_PASS_NEW');|" "$PS16_CONFIG" 2>/dev/null
+        log "  PrestaShop 1.6 config actualizado: $PS16_CONFIG"
+    fi
+
+    # Joomla - configuration.php
+    JOOMLA_CONFIG="$DOCROOT/configuration.php"
+    if [[ -f "$JOOMLA_CONFIG" ]]; then
+        sed -i "s|public \$db =.*|public \$db = '$DB_NEW';|" "$JOOMLA_CONFIG" 2>/dev/null
+        sed -i "s|public \$user =.*|public \$user = '$DB_USER_NEW';|" "$JOOMLA_CONFIG" 2>/dev/null
+        sed -i "s|public \$password =.*|public \$password = '$DB_PASS_NEW';|" "$JOOMLA_CONFIG" 2>/dev/null
+        log "  Joomla config actualizado: $JOOMLA_CONFIG"
+    fi
+
+    # OpenCart - config.php
+    OC_CONFIG="$DOCROOT/config.php"
+    if [[ -f "$OC_CONFIG" ]]; then
+        sed -i "s|define.*DB_DATABASE.*|define('DB_DATABASE', '$DB_NEW');|" "$OC_CONFIG" 2>/dev/null
+        sed -i "s|define.*DB_USERNAME.*|define('DB_USERNAME', '$DB_USER_NEW');|" "$OC_CONFIG" 2>/dev/null
+        sed -i "s|define.*DB_PASSWORD.*|define('DB_PASSWORD', '$DB_PASS_NEW');|" "$OC_CONFIG" 2>/dev/null
+        log "  OpenCart config actualizado: $OC_CONFIG"
+    fi
+}
+
+# Aplicar actualizacion de credenciales para cada DB importada
+if [[ -n "$MAIN_DOMAIN" ]]; then
+    DEST_WEB_DIR="/home/$CPANEL_USER/web/$MAIN_DOMAIN/public_html"
+    # Leer el fichero de credenciales generado durante la importacion de DBs
+    while IFS='|' read -r label db_info; do
+        label=$(echo "$label" | tr -d ' ')
+        if [[ "$label" == "DB" ]]; then
+            DB_FINAL=$(echo "$db_info" | grep -oP '(?<=DB: )[^ ]+')
+            DB_USER=$(echo "$db_info" | grep -oP '(?<=User: )[^ ]+')
+            DB_PASS=$(echo "$db_info" | grep -oP '(?<=Pass: )[^ ]+')
+            if [[ -n "$DB_FINAL" && -n "$DB_USER" && -n "$DB_PASS" ]]; then
+                info "Actualizando CMS para DB: $DB_FINAL"
+                update_cms_config "$DEST_WEB_DIR" "" "$DB_FINAL" "$DB_USER" "$DB_PASS"
+            fi
+        fi
+    done < "$CREDS_FILE"
+fi
+
 # -- Reconstruir configuracion de usuario -----------------------
 header "Reconstruyendo configuracion"
 
