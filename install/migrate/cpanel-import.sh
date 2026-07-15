@@ -490,13 +490,98 @@ update_cms_config() {
         log "  Joomla config actualizado: $JOOMLA_CONFIG"
     fi
 
-    # OpenCart - config.php
-    OC_CONFIG="$DOCROOT/config.php"
-    if [[ -f "$OC_CONFIG" ]]; then
-        sed -i "s|define.*DB_DATABASE.*|define('DB_DATABASE', '$DB_NEW');|" "$OC_CONFIG" 2>/dev/null
-        sed -i "s|define.*DB_USERNAME.*|define('DB_USERNAME', '$DB_USER_NEW');|" "$OC_CONFIG" 2>/dev/null
-        sed -i "s|define.*DB_PASSWORD.*|define('DB_PASSWORD', '$DB_PASS_NEW');|" "$OC_CONFIG" 2>/dev/null
-        log "  OpenCart config actualizado: $OC_CONFIG"
+    # OpenCart - config.php y admin/config.php
+    for OC_CONFIG in "$DOCROOT/config.php" "$DOCROOT/admin/config.php"; do
+        if [[ -f "$OC_CONFIG" ]]; then
+            sed -i "s|define.*DB_DATABASE.*|define('DB_DATABASE', '$DB_NEW');|" "$OC_CONFIG" 2>/dev/null
+            sed -i "s|define.*DB_USERNAME.*|define('DB_USERNAME', '$DB_USER_NEW');|" "$OC_CONFIG" 2>/dev/null
+            sed -i "s|define.*DB_PASSWORD.*|define('DB_PASSWORD', '$DB_PASS_NEW');|" "$OC_CONFIG" 2>/dev/null
+            log "  OpenCart config actualizado: $OC_CONFIG"
+        fi
+    done
+
+    # Drupal 8+ - sites/default/settings.php
+    DRUPAL_CONFIG="$DOCROOT/sites/default/settings.php"
+    if [[ -f "$DRUPAL_CONFIG" ]]; then
+        python3 -c "
+import re
+with open('$DRUPAL_CONFIG') as f:
+    c = f.read()
+c = re.sub(r"'database'\s*=>\s*'[^']*'", "'database' => '$DB_NEW'", c)
+c = re.sub(r"'username'\s*=>\s*'[^']*'", "'username' => '$DB_USER_NEW'", c)
+c = re.sub(r"'password'\s*=>\s*'[^']*'", "'password' => '$DB_PASS_NEW'", c)
+with open('$DRUPAL_CONFIG', 'w') as f:
+    f.write(c)
+" 2>/dev/null && log "  Drupal config actualizado: $DRUPAL_CONFIG" || true
+    fi
+
+    # Magento 2 - app/etc/env.php
+    MAGENTO_CONFIG="$DOCROOT/app/etc/env.php"
+    if [[ -f "$MAGENTO_CONFIG" ]]; then
+        python3 -c "
+import re
+with open('$MAGENTO_CONFIG') as f:
+    c = f.read()
+c = re.sub(r"'dbname'\s*=>\s*'[^']*'", "'dbname' => '$DB_NEW'", c)
+c = re.sub(r"'username'\s*=>\s*'[^']*'", "'username' => '$DB_USER_NEW'", c)
+c = re.sub(r"'password'\s*=>\s*'[^']*'", "'password' => '$DB_PASS_NEW'", c)
+with open('$MAGENTO_CONFIG', 'w') as f:
+    f.write(c)
+" 2>/dev/null && log "  Magento 2 config actualizado: $MAGENTO_CONFIG" || true
+    fi
+
+    # Magento 1 - app/etc/local.xml
+    MAGENTO1_CONFIG="$DOCROOT/app/etc/local.xml"
+    if [[ -f "$MAGENTO1_CONFIG" ]]; then
+        sed -i "s|<dbname><!\[CDATA\[[^\]]*\]\]></dbname>|<dbname><![CDATA[$DB_NEW]]></dbname>|" "$MAGENTO1_CONFIG" 2>/dev/null
+        sed -i "s|<username><!\[CDATA\[[^\]]*\]\]></username>|<username><![CDATA[$DB_USER_NEW]]></username>|" "$MAGENTO1_CONFIG" 2>/dev/null
+        sed -i "s|<password><!\[CDATA\[[^\]]*\]\]></password>|<password><![CDATA[$DB_PASS_NEW]]></password>|" "$MAGENTO1_CONFIG" 2>/dev/null
+        log "  Magento 1 config actualizado: $MAGENTO1_CONFIG"
+    fi
+
+    # WooCommerce usa wp-config.php (ya cubierto por WordPress)
+
+    # Moodle - config.php
+    MOODLE_CONFIG="$DOCROOT/config.php"
+    if [[ -f "$MOODLE_CONFIG" ]] && grep -q "CFG->dbname" "$MOODLE_CONFIG" 2>/dev/null; then
+        sed -i "s|\\$CFG->dbname.*|\\$CFG->dbname   = '$DB_NEW';|" "$MOODLE_CONFIG" 2>/dev/null
+        sed -i "s|\\$CFG->dbuser.*|\\$CFG->dbuser   = '$DB_USER_NEW';|" "$MOODLE_CONFIG" 2>/dev/null
+        sed -i "s|\\$CFG->dbpass.*|\\$CFG->dbpass   = '$DB_PASS_NEW';|" "$MOODLE_CONFIG" 2>/dev/null
+        log "  Moodle config actualizado: $MOODLE_CONFIG"
+    fi
+
+    # WHMCS - configuration.php
+    WHMCS_CONFIG="$DOCROOT/configuration.php"
+    if [[ -f "$WHMCS_CONFIG" ]] && grep -q "db_host" "$WHMCS_CONFIG" 2>/dev/null; then
+        sed -i "s|\\$db_name.*|\\$db_name = "$DB_NEW";|" "$WHMCS_CONFIG" 2>/dev/null
+        sed -i "s|\\$db_username.*|\\$db_username = "$DB_USER_NEW";|" "$WHMCS_CONFIG" 2>/dev/null
+        sed -i "s|\\$db_password.*|\\$db_password = "$DB_PASS_NEW";|" "$WHMCS_CONFIG" 2>/dev/null
+        log "  WHMCS config actualizado: $WHMCS_CONFIG"
+    fi
+
+    # Laravel - .env
+    LARAVEL_ENV="$DOCROOT/.env"
+    if [[ -f "$LARAVEL_ENV" ]] && grep -q "DB_DATABASE" "$LARAVEL_ENV" 2>/dev/null; then
+        sed -i "s|^DB_DATABASE=.*|DB_DATABASE=$DB_NEW|" "$LARAVEL_ENV" 2>/dev/null
+        sed -i "s|^DB_USERNAME=.*|DB_USERNAME=$DB_USER_NEW|" "$LARAVEL_ENV" 2>/dev/null
+        sed -i "s|^DB_PASSWORD=.*|DB_PASSWORD=$DB_PASS_NEW|" "$LARAVEL_ENV" 2>/dev/null
+        log "  Laravel .env actualizado: $LARAVEL_ENV"
+    fi
+
+    # CodeIgniter - application/config/database.php
+    CI_CONFIG="$DOCROOT/application/config/database.php"
+    if [[ -f "$CI_CONFIG" ]]; then
+        sed -i "s|'database'.*=>.*|'database' => '$DB_NEW',|" "$CI_CONFIG" 2>/dev/null
+        sed -i "s|'username'.*=>.*|'username' => '$DB_USER_NEW',|" "$CI_CONFIG" 2>/dev/null
+        sed -i "s|'password'.*=>.*|'password' => '$DB_PASS_NEW',|" "$CI_CONFIG" 2>/dev/null
+        log "  CodeIgniter config actualizado: $CI_CONFIG"
+    fi
+
+    # Symfony - .env o config/packages/doctrine.yaml
+    SYMFONY_ENV="$DOCROOT/.env"
+    if [[ -f "$SYMFONY_ENV" ]] && grep -q "DATABASE_URL" "$SYMFONY_ENV" 2>/dev/null; then
+        sed -i "s|DATABASE_URL=.*|DATABASE_URL=mysql://$DB_USER_NEW:$DB_PASS_NEW@127.0.0.1:3306/$DB_NEW|"             "$SYMFONY_ENV" 2>/dev/null
+        log "  Symfony .env actualizado: $SYMFONY_ENV"
     fi
 }
 
