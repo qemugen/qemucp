@@ -448,6 +448,71 @@ for POOL_FILE in $(find "$PHP_POOL_DIR" -name "${CPANEL_USER}*" -o -name "*.conf
     fi
 done
 
+# -- Detectar y asignar version PHP por dominio ---------------
+header "Detectando version PHP de cada dominio"
+
+# Detecta la version PHP de un dominio desde varias fuentes del backup cPanel
+detect_php_version() {
+    local DOMAIN="$1"
+    local WEBROOT="$2"
+    local VERSION=""
+
+    # Fuente 1: .htaccess del dominio (AddHandler/AddType/SetHandler)
+    if [[ -f "$WEBROOT/.htaccess" ]]; then
+        # ea-php74, php74, php-74 -> 74
+        VERSION=$(grep -iP "x-httpd-(ea-)?php[0-9]{2}" "$WEBROOT/.htaccess" 2>/dev/null |             grep -oP "php[0-9]{2}" | grep -oP "[0-9]{2}" | head -1)
+    fi
+
+    # Fuente 2: .user.ini o php.ini con referencia de version
+    if [[ -z "$VERSION" && -f "$WEBROOT/.user.ini" ]]; then
+        VERSION=$(grep -oP "php[0-9]{2}" "$WEBROOT/.user.ini" 2>/dev/null | grep -oP "[0-9]{2}" | head -1)
+    fi
+
+    # Fuente 3: userdata del backup (formato cPanel EA4)
+    for UD in "$BACKUP_PATH/userdata/$DOMAIN" "$BACKUP_PATH/userdata/${DOMAIN}.json"; do
+        if [[ -z "$VERSION" && -f "$UD" ]]; then
+            # phpversion: "ea-php74" o "ea-php81"
+            VERSION=$(grep -iP "phpversion" "$UD" 2>/dev/null |                 grep -oP "php[0-9]{2}" | grep -oP "[0-9]{2}" | head -1)
+        fi
+    done
+
+    # Fuente 4: fichero cp/ del usuario
+    if [[ -z "$VERSION" && -f "$BACKUP_PATH/cp/$CPANEL_USER" ]]; then
+        VERSION=$(grep -iP "phpversion|php_version" "$BACKUP_PATH/cp/$CPANEL_USER" 2>/dev/null |             grep -oP "php[0-9]{2}" | grep -oP "[0-9]{2}" | head -1)
+    fi
+
+    # Convertir 74 -> 7_4, 81 -> 8_1
+    if [[ -n "$VERSION" && ${#VERSION} -eq 2 ]]; then
+        echo "PHP-${VERSION:0:1}_${VERSION:1:1}"
+    else
+        echo ""
+    fi
+}
+
+# Aplicar version PHP a cada dominio
+assign_php_version() {
+    local DOMAIN="$1"
+    local WEBROOT="/home/$CPANEL_USER/web/$DOMAIN/public_html"
+    local PHP_TPL
+    PHP_TPL=$(detect_php_version "$DOMAIN" "$WEBROOT")
+
+    if [[ -n "$PHP_TPL" ]]; then
+        # Verificar que la version existe en el sistema
+        if [[ -d "/etc/php/${PHP_TPL#PHP-}" ]] ||            ls "$HESTIA/data/templates/web/php-fpm/${PHP_TPL}.tpl" &>/dev/null 2>&1; then
+            $BIN/v-change-web-domain-backend-tpl "$CPANEL_USER" "$DOMAIN" "$PHP_TPL" "no"                 2>/dev/null && log "  $DOMAIN -> $PHP_TPL" ||                 warn "  No se pudo asignar $PHP_TPL a $DOMAIN"
+        else
+            warn "  $DOMAIN necesita $PHP_TPL pero no esta instalada - usando por defecto"
+        fi
+    else
+        info "  $DOMAIN: version PHP no detectada, usando por defecto"
+    fi
+}
+
+[[ -n "$MAIN_DOMAIN" ]] && assign_php_version "$MAIN_DOMAIN"
+for ADDON in "${ADDON_DOMAINS[@]}"; do
+    assign_php_version "$ADDON"
+done
+
 # -- Detectar y actualizar credenciales de CMS ----------------
 header "Actualizando credenciales de CMS"
 
