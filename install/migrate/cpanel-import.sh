@@ -503,16 +503,20 @@ update_cms_config() {
 # Aplicar actualizacion de credenciales para cada DB importada
 if [[ -n "$MAIN_DOMAIN" ]]; then
     DEST_WEB_DIR="/home/$CPANEL_USER/web/$MAIN_DOMAIN/public_html"
-    # Leer el fichero de credenciales generado durante la importacion de DBs
-    while IFS='|' read -r label db_info; do
-        label=$(echo "$label" | tr -d ' ')
-        if [[ "$label" == "DB" ]]; then
-            DB_FINAL=$(echo "$db_info" | grep -oP '(?<=DB: )[^ ]+')
-            DB_USER=$(echo "$db_info" | grep -oP '(?<=User: )[^ ]+')
-            DB_PASS=$(echo "$db_info" | grep -oP '(?<=Pass: )[^ ]+')
+    # Formato de linea: "DB: NOMBRE | User: USUARIO | Pass: PASSWORD"
+    while IFS= read -r line; do
+        if [[ "$line" == DB:* ]]; then
+            DB_FINAL=$(echo "$line" | grep -oP '(?<=DB: )[^|]+' | tr -d ' ')
+            DB_USER=$(echo "$line" | grep -oP '(?<=User: )[^|]+' | tr -d ' ')
+            DB_PASS=$(echo "$line" | grep -oP '(?<=Pass: ).*' | tr -d ' ')
             if [[ -n "$DB_FINAL" && -n "$DB_USER" && -n "$DB_PASS" ]]; then
                 info "Actualizando CMS para DB: $DB_FINAL"
                 update_cms_config "$DEST_WEB_DIR" "" "$DB_FINAL" "$DB_USER" "$DB_PASS"
+                # Tambien buscar en addon domains
+                for ADDON in "${ADDON_DOMAINS[@]}"; do
+                    ADDON_WEB="/home/$CPANEL_USER/web/$ADDON/public_html"
+                    [[ -d "$ADDON_WEB" ]] &&                         update_cms_config "$ADDON_WEB" "" "$DB_FINAL" "$DB_USER" "$DB_PASS"
+                done
             fi
         fi
     done < "$CREDS_FILE"
