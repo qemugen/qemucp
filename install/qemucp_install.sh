@@ -10,7 +10,9 @@
 #  VARIABLES DE CONFIGURACION
 # ---------------------------------------------
 BRAND_NAME="QemuCP"
-BRAND_LOGO="https://qemugen.com/assets/img/logo.png"
+# Logo desde el fork de GitHub (fiable). qemugen.com puede estar caido.
+BRAND_LOGO="https://raw.githubusercontent.com/qemugen/qemucp/release/web/images/logo.png"
+BRAND_LOGO_FALLBACK="https://qemugen.com/assets/img/logo.png"
 ADMIN_EMAIL="soporte@qemugen.com"
 ADMIN_PASS=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24 || true)
 TIMEZONE="Europe/Madrid"
@@ -357,8 +359,13 @@ WEB_DIR="$HESTIA/web"
 cp "$THEME_DIR/custom-brand.css" "$THEME_DIR/custom-brand.css.qemucp" 2>/dev/null || true
 
 mkdir -p "$WEB_DIR/images/custom"
-wget -q --timeout=30 "$BRAND_LOGO" -O "$WEB_DIR/images/custom/brand-logo.png"
-log "Logo descargado: $BRAND_LOGO"
+if wget -q --timeout=30 "$BRAND_LOGO" -O "$WEB_DIR/images/custom/brand-logo.png" 2>/dev/null; then
+    log "Logo descargado desde el fork"
+elif wget -q --timeout=30 "$BRAND_LOGO_FALLBACK" -O "$WEB_DIR/images/custom/brand-logo.png" 2>/dev/null; then
+    log "Logo descargado desde qemugen.com (fallback)"
+else
+    warn "No se pudo descargar el logo - se usara el logo por defecto"
+fi
 
 if command -v convert &>/dev/null; then
     convert "$WEB_DIR/images/custom/brand-logo.png" \
@@ -498,47 +505,59 @@ apt-get install -y -qq \
     build-essential libpcre3-dev zlib1g-dev libssl-dev \
     libgd-dev libgeoip-dev || warn "Algunas dependencias GeoIP2 no se instalaron"
 
-# Compilar el modulo dinamico ngx_http_geoip2
-rm -rf /root/tmp_geoip && mkdir -p /root/tmp_geoip
-cd /root/tmp_geoip || error "No se puede acceder al directorio de compilacion GeoIP"
+# Compilar el modulo dinamico ngx_http_geoip2 (OPCIONAL - no aborta si falla)
+# GEOIP2_MODULE controla si despues se carga en nginx.conf
+GEOIP2_MODULE="no"
+NGINX_VER_DETECTED=$(nginx -v 2>&1 | grep -oP 'nginx/\K[0-9.]+' || echo "$NGINX_VER")
+[ -n "$NGINX_VER_DETECTED" ] && NGINX_VER="$NGINX_VER_DETECTED"
 
-wget -q --timeout=30 "http://nginx.org/download/nginx-${NGINX_VER}.tar.gz" || warn "No se pudo descargar nginx para GeoIP2 (se omite modulo)"
-tar -xzf "nginx-${NGINX_VER}.tar.gz" 2>/dev/null || warn "No se pudo extraer nginx"
+if rm -rf /root/tmp_geoip && mkdir -p /root/tmp_geoip && cd /root/tmp_geoip \
+   && wget -q --timeout=30 "http://nginx.org/download/nginx-${NGINX_VER}.tar.gz" 2>/dev/null \
+   && tar -xzf "nginx-${NGINX_VER}.tar.gz" 2>/dev/null \
+   && git clone --depth 1 https://github.com/leev/ngx_http_geoip2_module.git 2>/dev/null; then
 
-git clone --depth 1 https://github.com/leev/ngx_http_geoip2_module.git
-
-# Obtener los mismos configure args que usa el Nginx instalado
-CONFARGS=$(nginx -V 2>&1 | grep "configure arguments:" | sed 's/configure arguments: //')
-
-cd "nginx-${NGINX_VER}" || error "No se encontro el directorio de fuentes nginx ${NGINX_VER}"
-eval "./configure --with-compat ${CONFARGS} --add-dynamic-module=/root/tmp_geoip/ngx_http_geoip2_module"
-make -j$(nproc) modules
-
-# Instalar el modulo
-mkdir -p /etc/nginx/modules
-cp objs/ngx_http_geoip2_module.so /etc/nginx/modules/ || error "Error copiando modulo GeoIP2"
-chmod 644 /etc/nginx/modules/ngx_http_geoip2_module.so 2>/dev/null || true
-log "Modulo ngx_http_geoip2_module.so instalado"
+    CONFARGS=$(nginx -V 2>&1 | grep "configure arguments:" | sed 's/configure arguments: //')
+    if cd "/root/tmp_geoip/nginx-${NGINX_VER}" 2>/dev/null \
+       && eval "./configure --with-compat ${CONFARGS} --add-dynamic-module=/root/tmp_geoip/ngx_http_geoip2_module" >/dev/null 2>&1 \
+       && make -j$(nproc) modules >/dev/null 2>&1 \
+       && mkdir -p /etc/nginx/modules \
+       && cp objs/ngx_http_geoip2_module.so /etc/nginx/modules/ 2>/dev/null; then
+        chmod 644 /etc/nginx/modules/ngx_http_geoip2_module.so 2>/dev/null || true
+        GEOIP2_MODULE="yes"
+        log "Modulo ngx_http_geoip2_module.so compilado e instalado"
+    else
+        warn "No se pudo compilar el modulo GeoIP2 - se instalara SIN bloqueo por pais"
+    fi
+else
+    warn "No se pudieron obtener las fuentes para GeoIP2 - se instalara SIN bloqueo por pais"
+fi
 
 # El modulo se carga directamente en nginx.conf (ver PASO 5)
 # No creamos 50-geoip2.conf para evitar carga duplicada
 log "Modulo GeoIP2 se cargara desde nginx.conf"
 
-# Base de datos GeoIP2 (descarga desde tu servidor + fallback MaxMind libre)
+# Base de datos GeoIP2 (opcional - solo para bloqueo por pais)
+# NUNCA aborta la instalacion; si falla, GeoIP queda deshabilitado y se avisa.
 mkdir -p /usr/share/GeoIP
 log "Descargando base de datos GeoIP2-Country..."
-if wget -q --timeout=30 "https://qemugen.com/scripts/nginx/GeoIP2-Country.mmdb" \
-        -O /usr/share/GeoIP/GeoIP2-Country.mmdb 2>/dev/null; then
-    log "GeoIP2-Country.mmdb descargada desde qemugen.com"
-else
-    warn "No se pudo descargar desde qemugen.com. Intentando alternativa..."
-    # Alternativa: base de datos publica de DB-IP (formato compatible MaxMind)
-    wget -q --timeout=30 "https://download.db-ip.com/free/dbip-country-lite-$(date +%Y-%m).mmdb.gz" \
-        -O /tmp/dbip-country.mmdb.gz 2>/dev/null && \
-        gunzip -f /tmp/dbip-country.mmdb.gz && \
-        mv /tmp/dbip-country.mmdb /usr/share/GeoIP/GeoIP2-Country.mmdb && \
-        log "GeoIP2-Country.mmdb instalada desde DB-IP (alternativa)" || \
-        warn "GeoIP no pudo descargarse. Coloca manualmente en /usr/share/GeoIP/GeoIP2-Country.mmdb"
+GEOIP_OK="no"
+UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
+# Intentar varios meses de db-ip (usa user-agent de navegador para evitar 403)
+for M in "$(date +%Y-%m)" "$(date -d '1 month ago' +%Y-%m 2>/dev/null || date +%Y-%m)"; do
+    if wget -q --timeout=30 --user-agent="$UA" \
+            "https://download.db-ip.com/free/dbip-country-lite-${M}.mmdb.gz" \
+            -O /tmp/dbip-country.mmdb.gz 2>/dev/null \
+        && gunzip -f /tmp/dbip-country.mmdb.gz 2>/dev/null \
+        && mv /tmp/dbip-country.mmdb /usr/share/GeoIP/GeoIP2-Country.mmdb 2>/dev/null; then
+        log "GeoIP2-Country.mmdb instalada desde DB-IP (${M})"
+        GEOIP_OK="yes"
+        break
+    fi
+done
+if [ "$GEOIP_OK" = "no" ]; then
+    warn "GeoIP2 no se pudo descargar automaticamente."
+    warn "El panel funciona igual; el bloqueo por pais quedara inactivo hasta"
+    warn "colocar manualmente /usr/share/GeoIP/GeoIP2-Country.mmdb"
 fi
 
 # ---------------------------------------------
@@ -550,6 +569,9 @@ mkdir -p /etc/nginx/conf.d/lists
 mkdir -p /etc/nginx/conf.d/server-includes
 
 # -- 00-init.conf: variables GeoIP2 -------------------------------------------
+# El bloque 'geoip2' referencia el .mmdb. Si ese fichero NO existe, nginx NO
+# arranca y el panel/webs quedan caidos. Por eso el bloque geoip2 solo se
+# escribe si la base de datos se descargo correctamente.
 cat > /etc/nginx/conf.d/00-init.conf << 'EOF'
 # QemuCP - GeoIP2 Init
 # Detecta la IP real detras de proxies/CDN
@@ -557,6 +579,10 @@ map $http_x_forwarded_for $realip {
     ~^(\d+\.\d+\.\d+\.\d+) $1;
     default $remote_addr;
 }
+EOF
+
+if [ -s /usr/share/GeoIP/GeoIP2-Country.mmdb ]; then
+    cat >> /etc/nginx/conf.d/00-init.conf << 'EOF'
 
 geoip2 /usr/share/GeoIP/GeoIP2-Country.mmdb {
     auto_reload 5m;
@@ -564,7 +590,20 @@ geoip2 /usr/share/GeoIP/GeoIP2-Country.mmdb {
     $geoip2_data_country_name source=$realip country names en;
 }
 EOF
-log "00-init.conf creado"
+    log "00-init.conf creado (con GeoIP2 activo)"
+else
+    # Sin base de datos: definir la variable con valor por defecto para que
+    # los 'map' que la usan mas abajo no fallen (nginx exige que exista).
+    cat >> /etc/nginx/conf.d/00-init.conf << 'EOF'
+
+# GeoIP2 no disponible - variable con valor por defecto para no romper los maps
+map $realip $geoip2_data_country_code {
+    default "ES";
+}
+EOF
+    warn "00-init.conf creado SIN GeoIP2 (base de datos no disponible)"
+    warn "El bloqueo por pais quedara inactivo (todo el trafico se trata como ES)"
+fi
 
 # -- 01-maps.conf: logica de bloqueo ------------------------------------------
 cat > /etc/nginx/conf.d/01-maps.conf << 'EOF'
@@ -784,14 +823,19 @@ header "PASO 5: Optimizando Nginx de QemuCP"
 # Backup del nginx.conf original de HestiaCP
 cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak.$(date +%Y%m%d) 2>/dev/null || true
 
-# Anadir load_module GeoIP2 al inicio si no existe (metodo portable)
-if ! grep -q "ngx_http_geoip2_module" /etc/nginx/nginx.conf 2>/dev/null; then
-    { echo "load_module modules/ngx_http_geoip2_module.so;"; cat /etc/nginx/nginx.conf; } > /tmp/nginx_geoip_tmp.conf && \
-    mv /tmp/nginx_geoip_tmp.conf /etc/nginx/nginx.conf && \
-    log "GeoIP2 load_module anadido" || \
-    warn "No se pudo anadir GeoIP2 load_module"
+# Anadir load_module GeoIP2 SOLO si el modulo se compilo (GEOIP2_MODULE=yes)
+# Cargar un .so inexistente impediria que nginx arranque.
+if [ "${GEOIP2_MODULE:-no}" = "yes" ] && [ -f /etc/nginx/modules/ngx_http_geoip2_module.so ]; then
+    if ! grep -q "ngx_http_geoip2_module" /etc/nginx/nginx.conf 2>/dev/null; then
+        { echo "load_module modules/ngx_http_geoip2_module.so;"; cat /etc/nginx/nginx.conf; } > /tmp/nginx_geoip_tmp.conf && \
+        mv /tmp/nginx_geoip_tmp.conf /etc/nginx/nginx.conf && \
+        log "GeoIP2 load_module anadido" || \
+        warn "No se pudo anadir GeoIP2 load_module"
+    else
+        log "GeoIP2 load_module ya presente en nginx.conf"
+    fi
 else
-    log "GeoIP2 load_module ya presente en nginx.conf"
+    warn "GeoIP2 no compilado - se omite load_module (nginx arrancara sin GeoIP2)"
 fi
 
 # Crear fichero de optimizaciones en conf.d
@@ -1264,42 +1308,51 @@ log "FastCGI cache integrado en templates de vhost"
 # ---------------------------------------------
 header "PASO 7D: Instalando modulo Brotli para Nginx"
 
-# Compilar modulo Brotli dinamico para la version de Nginx instalada
+# Compilar modulo Brotli dinamico (OPCIONAL - no aborta si falla)
+BROTLI_MODULE="no"
 NGINX_VER_BROTLI=$(nginx -v 2>&1 | grep -oP '[\d.]+$')
-
 apt-get install -y -qq libbrotli-dev 2>/dev/null || true
 
-rm -rf /root/tmp_brotli && mkdir -p /root/tmp_brotli
-cd /root/tmp_brotli || error "No se puede acceder al directorio de compilacion Brotli"
+if rm -rf /root/tmp_brotli && mkdir -p /root/tmp_brotli && cd /root/tmp_brotli \
+   && wget -q --timeout=30 "http://nginx.org/download/nginx-${NGINX_VER_BROTLI}.tar.gz" 2>/dev/null \
+   && tar -xzf "nginx-${NGINX_VER_BROTLI}.tar.gz" 2>/dev/null \
+   && git clone --depth 1 --recurse-submodules https://github.com/google/ngx_brotli.git 2>/dev/null; then
 
-# Descargar fuentes de Nginx (misma version que GeoIP2)
-if [[ ! -f "/root/tmp_brotli/nginx-${NGINX_VER_BROTLI}.tar.gz" ]]; then
-    wget -q --timeout=30 "http://nginx.org/download/nginx-${NGINX_VER_BROTLI}.tar.gz"
-    tar -xzf "nginx-${NGINX_VER_BROTLI}.tar.gz"
+    CONFARGS_BROTLI=$(nginx -V 2>&1 | grep "configure arguments:" | sed 's/configure arguments: //')
+    if cd "/root/tmp_brotli/nginx-${NGINX_VER_BROTLI}" 2>/dev/null \
+       && eval "./configure --with-compat ${CONFARGS_BROTLI} --add-dynamic-module=/root/tmp_brotli/ngx_brotli" >/dev/null 2>&1 \
+       && make -j$(nproc) modules >/dev/null 2>&1 \
+       && cp objs/ngx_http_brotli_filter_module.so /etc/nginx/modules/ 2>/dev/null \
+       && cp objs/ngx_http_brotli_static_module.so /etc/nginx/modules/ 2>/dev/null; then
+        chmod 644 /etc/nginx/modules/ngx_http_brotli_*.so 2>/dev/null || true
+        BROTLI_MODULE="yes"
+        log "Modulos Brotli compilados e instalados"
+    else
+        warn "No se pudo compilar Brotli - se instalara sin compresion Brotli"
+    fi
+else
+    warn "No se pudieron obtener fuentes para Brotli - se omite"
+fi
+rm -rf /root/tmp_brotli 2>/dev/null || true
+
+# Anadir load_module de Brotli SOLO si se compilo
+if [ "${BROTLI_MODULE:-no}" = "yes" ] && [ -f /etc/nginx/modules/ngx_http_brotli_filter_module.so ]; then
+    if grep -q "ngx_http_geoip2_module" /etc/nginx/nginx.conf 2>/dev/null; then
+        sed -i 's|load_module modules/ngx_http_geoip2_module.so;|load_module modules/ngx_http_geoip2_module.so;\nload_module modules/ngx_http_brotli_filter_module.so;\nload_module modules/ngx_http_brotli_static_module.so;|' \
+            /etc/nginx/nginx.conf
+    else
+        # No hay geoip2 - anadir brotli al inicio del fichero
+        { echo "load_module modules/ngx_http_brotli_filter_module.so;"; echo "load_module modules/ngx_http_brotli_static_module.so;"; cat /etc/nginx/nginx.conf; } > /tmp/nginx_brotli_tmp.conf && \
+        mv /tmp/nginx_brotli_tmp.conf /etc/nginx/nginx.conf
+    fi
+    log "Brotli load_module anadido"
+else
+    warn "Brotli no compilado - se omite load_module"
 fi
 
-git clone --depth 1 --recurse-submodules https://github.com/google/ngx_brotli.git
-
-CONFARGS_BROTLI=$(nginx -V 2>&1 | grep "configure arguments:" | sed 's/configure arguments: //')
-
-cd "nginx-${NGINX_VER_BROTLI}" || error "No se encontro el directorio de fuentes nginx ${NGINX_VER_BROTLI}"
-eval "./configure --with-compat ${CONFARGS_BROTLI} --add-dynamic-module=/root/tmp_brotli/ngx_brotli"
-make -j$(nproc) modules
-
-cp objs/ngx_http_brotli_filter_module.so /etc/nginx/modules/ 2>/dev/null || true
-cp objs/ngx_http_brotli_static_module.so /etc/nginx/modules/ 2>/dev/null || true
-chmod 644 /etc/nginx/modules/ngx_http_brotli_*.so 2>/dev/null || true
-log "Modulos Brotli compilados e instalados"
-
-rm -rf /root/tmp_brotli
-log "Archivos temporales Brotli eliminados"
-
-# Anadir load_module de Brotli al nginx.conf (justo despues del de GeoIP2)
-sed -i 's|load_module modules/ngx_http_geoip2_module.so;|load_module modules/ngx_http_geoip2_module.so;\nload_module modules/ngx_http_brotli_filter_module.so;\nload_module modules/ngx_http_brotli_static_module.so;|' \
-    /etc/nginx/nginx.conf
-
-# Anadir configuracion Brotli en el bloque http{} (tras el bloque gzip)
-sed -i '/gzip_types/a\
+# Anadir configuracion Brotli en el bloque http{} SOLO si el modulo se cargo
+if [ "${BROTLI_MODULE:-no}" = "yes" ]; then
+    sed -i '/gzip_types/a\
 \
     # Brotli (mejor compresion que Gzip, ~15-20% mas)\
     brotli on;\
@@ -1311,9 +1364,11 @@ sed -i '/gzip_types/a\
         application/json application/javascript application/xml\
         application/rss+xml application/atom+xml\
         image/svg+xml font/ttf font/otf font/woff font/woff2;' \
-    /etc/nginx/nginx.conf
-
-log "Brotli activado en Nginx (nivel 6 * tipos: CSS, JS, HTML, JSON, SVG, fonts)"
+        /etc/nginx/nginx.conf
+    log "Brotli activado en Nginx (nivel 6)"
+else
+    warn "Brotli no disponible - nginx usara solo Gzip"
+fi
 
 # ---------------------------------------------
 #  PASO 8: OPTIMIZACION MARIADB 10.11
@@ -1799,8 +1854,38 @@ fi
 header "PASO 11: Verificando configuracion y reiniciando servicios"
 
 # Test de configuracion Nginx antes de reiniciar
-nginx -t 2>&1 && log "nginx -t: configuracion valida" || \
-    error "nginx -t fallo. Revisa los logs: journalctl -u nginx"
+# Si falla, avisamos con el detalle pero NO abortamos: intentamos arreglar
+# desactivando GeoIP2 (causa mas comun) y reintentamos.
+if nginx -t 2>/tmp/nginx_test.log; then
+    log "nginx -t: configuracion valida"
+else
+    warn "nginx -t fallo. Detalle:"
+    cat /tmp/nginx_test.log | sed 's/^/    /'
+    # Intento de auto-reparacion: si el fallo es por GeoIP2, desactivarlo
+    if grep -qi "geoip2\|GeoIP2-Country.mmdb" /tmp/nginx_test.log; then
+        warn "Desactivando GeoIP2 para que nginx arranque..."
+        sed -i 's|^geoip2 |#geoip2 |; /^geoip2 /,/^}/s|^|#|' /etc/nginx/conf.d/00-init.conf 2>/dev/null || true
+        # Recrear 00-init sin geoip2, con variable por defecto
+        cat > /etc/nginx/conf.d/00-init.conf << 'GEOOFF'
+map $http_x_forwarded_for $realip {
+    ~^(\d+\.\d+\.\d+\.\d+) $1;
+    default $remote_addr;
+}
+map $realip $geoip2_data_country_code {
+    default "ES";
+}
+GEOOFF
+    fi
+    # Reintentar
+    if nginx -t 2>/tmp/nginx_test2.log; then
+        log "nginx -t: valido tras auto-reparacion (GeoIP2 desactivado)"
+    else
+        warn "nginx sigue con errores. Detalle:"
+        cat /tmp/nginx_test2.log | sed 's/^/    /'
+        warn "El panel puede seguir accesible via su propio nginx (hestia-nginx)."
+        warn "Revisa /etc/nginx/conf.d/ manualmente. La instalacion continua."
+    fi
+fi
 
 systemctl restart mariadb 2>/dev/null && log "MariaDB reiniciado" || warn "MariaDB: reinicia manualmente con: systemctl restart mariadb"
 systemctl restart redis-server 2>/dev/null && log "Redis reiniciado"
