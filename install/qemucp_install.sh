@@ -1915,6 +1915,24 @@ else
     log "BACKUP_SYSTEM presente (OK)"
 fi
 
+# --- FIREWALL_SYSTEM (icono Firewall + Fail2ban) ---
+if ! grep -q "^FIREWALL_SYSTEM=" "$HCONF" 2>/dev/null; then
+    warn "FIREWALL_SYSTEM no encontrado - reparando..."
+    if command -v iptables >/dev/null 2>&1; then
+        echo "FIREWALL_SYSTEM='iptables'" >> "$HCONF"
+        log "FIREWALL_SYSTEM reparado: iptables registrado"
+        # Si fail2ban esta activo, registrarlo como extension del firewall
+        if systemctl is-active --quiet fail2ban 2>/dev/null; then
+            grep -q "^FIREWALL_EXTENSION=" "$HCONF" || echo "FIREWALL_EXTENSION='fail2ban'" >> "$HCONF"
+            log "FIREWALL_EXTENSION reparado: fail2ban registrado"
+        fi
+    else
+        warn "iptables no disponible - el icono Firewall no aparecera"
+    fi
+else
+    log "FIREWALL_SYSTEM presente (OK)"
+fi
+
 
 # Test de configuracion Nginx antes de reiniciar
 # Si falla, avisamos con el detalle pero NO abortamos: intentamos arreglar
