@@ -16,9 +16,13 @@ BRAND_LOGO_FALLBACK="https://zonasdnsprivadas.com/scripts/assets/img/logo.png"
 ADMIN_EMAIL="soporte@qemugen.com"
 ADMIN_PASS=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24 || true)
 TIMEZONE="Europe/Madrid"
-LANG="es"
+HESTIA_LANG="es"  # Idioma del panel HestiaCP (NO confundir con locale del SO)
 HESTIA_PORT="8083"
 PHP_VERSIONS=("7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4" "8.5")
+# Permitir PHP legacy (5.6/7.0/7.1) si el cliente lo necesita para webs antiguas.
+# ADVERTENCIA: estas versiones estan EOL y son un riesgo de seguridad.
+# Para activar: ALLOW_LEGACY_PHP="yes" bash qemucp_install.sh CLAVE
+ALLOW_LEGACY_PHP="${ALLOW_LEGACY_PHP:-no}"
 
 # ============================================================
 # VERIFICACION DE LICENCIA QEMUCP
@@ -45,9 +49,21 @@ set -euo pipefail
 # Evitar ventanas interactivas durante apt (GRUB, sshd, etc)
 export DEBIAN_FRONTEND=noninteractive
 export DEBCONF_NONINTERACTIVE_SEEN=true
-export LANG=es_ES.UTF-8
-export LC_ALL=es_ES.UTF-8
-export LANGUAGE=es_ES.UTF-8
+# Generar el locale es_ES.UTF-8 ANTES de exportarlo (si no, apt/perl dan
+# warnings "locale not supported" y aparece el LC_MESSAGES undefined).
+if ! locale -a 2>/dev/null | grep -qi "es_ES.utf8\|es_ES.UTF-8"; then
+    apt-get install -y -qq locales 2>/dev/null || true
+    locale-gen es_ES.UTF-8 2>/dev/null || true
+fi
+# Exportar solo si el locale existe; si no, usar C.UTF-8 (siempre disponible)
+if locale -a 2>/dev/null | grep -qi "es_ES.utf8\|es_ES.UTF-8"; then
+    export LANG=es_ES.UTF-8
+    export LC_ALL=es_ES.UTF-8
+    export LANGUAGE=es_ES.UTF-8
+else
+    export LANG=C.UTF-8
+    export LC_ALL=C.UTF-8
+fi
 
 # Colores
 RED='\033[0;31m'
@@ -114,9 +130,9 @@ header "PASO 1: Preparando sistema base"
 timedatectl set-timezone "$TIMEZONE"
 log "Timezone: $TIMEZONE"
 
-locale-gen es_ES.UTF-8 || true
-update-locale LANG=es_ES.UTF-8 LC_ALL=es_ES.UTF-8 || true
-log "Locale: es_ES.UTF-8"
+# El locale ya se genero al inicio; solo persistir la config del sistema
+update-locale LANG=es_ES.UTF-8 LC_ALL=es_ES.UTF-8 2>/dev/null || true
+log "Locale: es_ES.UTF-8 (o C.UTF-8 si no disponible)"
 
 hostnamectl set-hostname "$HOSTNAME"
 echo "127.0.0.1 $HOSTNAME" >> /etc/hosts
@@ -139,6 +155,7 @@ apt-get update -qq
 
 # Bloquear instalacion de versiones PHP EOL (5.6, 7.0, 7.1)
 # HestiaCP con MultiPHP las instala automaticamente sin este bloqueo
+if [ "$ALLOW_LEGACY_PHP" != "yes" ]; then
 cat > /etc/apt/preferences.d/block-old-php << 'PINEOF'
 Package: php5.6 php5.6-* libapache2-mod-php5.6
 Pin: release *
@@ -152,6 +169,9 @@ Package: php7.1 php7.1-* libapache2-mod-php7.1
 Pin: release *
 Pin-Priority: -1
 PINEOF
+else
+    warn "ALLOW_LEGACY_PHP=yes: PHP 5.6/7.0/7.1 NO bloqueadas (riesgo seguridad)"
+fi
 log "Versiones PHP obsoletas bloqueadas (5.6, 7.0, 7.1)"
 
 # ---------------------------------------------
@@ -227,7 +247,7 @@ bash hst-install.sh \
     -b yes \
     -q no \
     -d yes \
-    -l "$LANG" \
+    -l "$HESTIA_LANG" \
     -r "$HESTIA_PORT" \
     -f
 
@@ -338,7 +358,19 @@ if ! grep -q "^Subsystem sftp internal-sftp" /etc/ssh/sshd_config 2>/dev/null; t
     echo "$(date '+%Y-%m-%d %H:%M:%S') - SSH fix re-aplicado" >> "$LOG"
 fi
 
-# 7. Recargar servicios afectados
+# 7. Re-aplicar TODAS las personalizaciones QemuCP (WP-TOOL, Performance,
+#    pestanas del panel, list_services, paginas de login, instaladores).
+#    Descarga el rebrand del fork y lo ejecuta (idempotente).
+REBRAND_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/qemucp-rebrand.sh"
+if wget -q --timeout=30 "${REBRAND_URL}?cb=$(date +%s)" -O /tmp/qemucp-rebrand.sh 2>/dev/null; then
+    bash /tmp/qemucp-rebrand.sh >> "$LOG" 2>&1 || true
+    rm -f /tmp/qemucp-rebrand.sh 2>/dev/null || true
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - Rebrand completo re-aplicado" >> "$LOG"
+else
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - AVISO: no se pudo descargar rebrand" >> "$LOG"
+fi
+
+# 8. Recargar servicios afectados
 nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
 systemctl reload php*-fpm 2>/dev/null || true
 
@@ -1032,15 +1064,20 @@ log "Apache optimizado como backend"
 header "PASO 7: Registrando versiones PHP en QemuCP y optimizando"
 
 # Eliminar versiones PHP obsoletas y sin soporte instaladas por MultiPHP
-# PHP 5.6, 7.0, 7.1 estan EOL y son un riesgo de seguridad
-PHP_OBSOLETE=("5.6" "7.0" "7.1")
-for VER in "${PHP_OBSOLETE[@]}"; do
-    if [[ -f "/usr/bin/php${VER}" ]] || [[ -d "/etc/php/${VER}" ]]; then
-        $HESTIA/bin/v-delete-web-php "$VER" 2>/dev/null || true
-        apt-get purge -y -qq "php${VER}*" 2>/dev/null || true
-        log "PHP $VER (EOL) eliminado por seguridad"
-    fi
-done
+# PHP 5.6, 7.0, 7.1 estan EOL y son un riesgo de seguridad.
+# Si ALLOW_LEGACY_PHP=yes, NO se eliminan (cliente las necesita para webs antiguas).
+if [ "$ALLOW_LEGACY_PHP" != "yes" ]; then
+    PHP_OBSOLETE=("5.6" "7.0" "7.1")
+    for VER in "${PHP_OBSOLETE[@]}"; do
+        if [[ -f "/usr/bin/php${VER}" ]] || [[ -d "/etc/php/${VER}" ]]; then
+            $HESTIA/bin/v-delete-web-php "$VER" 2>/dev/null || true
+            apt-get purge -y -qq "php${VER}*" 2>/dev/null || true
+            log "PHP $VER (EOL) eliminado por seguridad"
+        fi
+    done
+else
+    warn "ALLOW_LEGACY_PHP=yes: PHP 5.6/7.0/7.1 conservadas (bajo tu responsabilidad)"
+fi
 
 # Confirmar versiones disponibles en el panel
 PHP_EXTRA_VERSIONS=("7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4" "8.5")
@@ -1396,12 +1433,12 @@ fi
 # ---------------------------------------------
 header "PASO 8: Optimizando MariaDB"
 
+# Buffer pool = 50% de la RAM (si RAM_MB es 0 por algun fallo, minimo 256M)
+[[ -z "$RAM_MB" || "$RAM_MB" -lt 512 ]] && RAM_MB=512
 INNODB_BUFFER=$(( RAM_MB / 2 ))
-# Instancias de buffer pool: 1 por cada GB, minimo 1, maximo 8
+[[ $INNODB_BUFFER -lt 128 ]] && INNODB_BUFFER=128
+# Instancias de buffer pool: 1 por cada GB de buffer, minimo 1, maximo 8
 INNODB_INSTANCES=$(( INNODB_BUFFER / 1024 ))
-# Minimo 1 instancia, maximo 64
-[[ $INNODB_INSTANCES -lt 1 ]] && INNODB_INSTANCES=1
-[[ $INNODB_INSTANCES -gt 64 ]] && INNODB_INSTANCES=64
 [[ $INNODB_INSTANCES -lt 1 ]] && INNODB_INSTANCES=1
 [[ $INNODB_INSTANCES -gt 8 ]] && INNODB_INSTANCES=8
 
