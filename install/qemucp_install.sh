@@ -12,7 +12,7 @@
 BRAND_NAME="QemuCP"
 # Logo desde el fork de GitHub (fiable). Fallback: zonasdnsprivadas.com
 BRAND_LOGO="https://raw.githubusercontent.com/qemugen/qemucp/release/web/images/logo.png"
-BRAND_LOGO_FALLBACK="https://zonasdnsprivadas.com/scripts/assets/logo.png"
+BRAND_LOGO_FALLBACK="https://zonasdnsprivadas.com/scripts/assets/img/logo.png"
 ADMIN_EMAIL="soporte@qemugen.com"
 ADMIN_PASS=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24 || true)
 TIMEZONE="Europe/Madrid"
