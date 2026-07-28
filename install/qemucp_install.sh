@@ -1076,10 +1076,15 @@ PHP_MAX_SPARE=$(( PHP_MAX_CHILDREN / 2 ))
 # HestiaCP genera los pools PHP-FPM desde sus templates cuando crea dominios.
 # Modificamos los templates para que TODOS los sitios hereden las optimizaciones.
 HESTIA_PHP_TPL="$HESTIA/data/templates/web/php-fpm"
+# Los backups van a un directorio SEPARADO, NO dentro del dir de templates.
+# Si se guardan como *.tpl.bak junto a los .tpl, v-list-web-templates-backend
+# los cuenta como versiones PHP instaladas (aparecen versiones fantasma).
+TPL_BACKUP_DIR="$HESTIA/data/templates/web/php-fpm-backups"
+mkdir -p "$TPL_BACKUP_DIR"
 
 for TPL_FILE in "$HESTIA_PHP_TPL"/*.tpl; do
     [[ -f "$TPL_FILE" ]] || continue
-cp "$TPL_FILE" "$TPL_FILE.bak" 2>/dev/null || true
+cp "$TPL_FILE" "$TPL_BACKUP_DIR/$(basename "$TPL_FILE").bak" 2>/dev/null || true
 
     # Insertar optimizaciones si no estan ya
     if ! grep -q "memory_limit = 512M" "$TPL_FILE" 2>/dev/null; then
