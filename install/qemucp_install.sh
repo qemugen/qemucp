@@ -173,7 +173,36 @@ sed -i \
     -e "s|raw.githubusercontent.com/hestiacp/hestiacp/release/install|raw.githubusercontent.com/qemugen/qemucp/release/install|g" \
     hst-install.sh 2>/dev/null || true
 
-log "Instalador modificado: apunta al fork qemugen/qemucp"
+# DEFENSA: forzar que hst-install.sh use el ubuntu.sh LOCAL ya parcheado
+# en lugar de descargarlo (evita cache de GitHub Raw con version antigua).
+# Descargamos ubuntu.sh nosotros con cache-buster y neutralizamos el version check.
+detect_os_type() {
+    if [ -f /etc/debian_version ]; then
+        if grep -qi ubuntu /etc/os-release 2>/dev/null; then echo "ubuntu"; else echo "debian"; fi
+    else
+        echo "ubuntu"
+    fi
+}
+OS_TYPE=$(detect_os_type)
+CACHE_BUST=$(date +%s)
+wget -q --timeout=30 "https://raw.githubusercontent.com/qemugen/qemucp/release/install/hst-install-${OS_TYPE}.sh?cb=${CACHE_BUST}" \
+    -O "hst-install-${OS_TYPE}.sh" || error "No se pudo descargar hst-install-${OS_TYPE}.sh"
+
+# Neutralizar CUALQUIER version check que quede (defensa multi-capa)
+# 1. Desactivar el bloque if del release_branch_ver
+sed -i 's|if \[ "\$HESTIA_INSTALL_VER" != "\$release_branch_ver" \]; then|if false; then|g' \
+    "hst-install-${OS_TYPE}.sh" 2>/dev/null || true
+# 2. Por si acaso, forzar release_branch_ver = HESTIA_INSTALL_VER (nunca difieren)
+sed -i 's|release_branch_ver=\$(curl.*|release_branch_ver="$HESTIA_INSTALL_VER"|g' \
+    "hst-install-${OS_TYPE}.sh" 2>/dev/null || true
+
+# Modificar hst-install.sh para que NO vuelva a descargar el ubuntu.sh (ya lo tenemos parcheado)
+sed -i "s|wget -q https://raw.githubusercontent.com/qemugen/qemucp/release/install/hst-install-\$type.sh -O hst-install-\$type.sh|echo 'QemuCP: usando hst-install-'\$type'.sh local ya parcheado'|g" \
+    hst-install.sh 2>/dev/null || true
+sed -i "s|curl -s -O https://raw.githubusercontent.com/qemugen/qemucp/release/install/hst-install-\$type.sh|echo 'QemuCP: usando local'|g" \
+    hst-install.sh 2>/dev/null || true
+
+log "Instalador modificado: apunta al fork qemugen/qemucp (version check neutralizado)"
 
 bash hst-install.sh \
     -y no \
