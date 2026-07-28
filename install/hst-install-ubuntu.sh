@@ -525,7 +525,8 @@ fi
 
 # QemuCP: Version check deshabilitado (fork propio)
 # El check original compara contra el repo oficial de HestiaCP y abortaria
-if false && [ -z "$withdebs" ] || [ ! -d "$withdebs" ]; then
+# NOTA: 'if false; then' desactiva TODO el bloque (el fix anterior con && || tenia bug de precedencia)
+if false; then
 	release_branch_ver=$(curl -s https://raw.githubusercontent.com/hestiacp/hestiacp/release/src/deb/hestia/control | grep "Version:" | awk '{print $2}')
 	if [ "$HESTIA_INSTALL_VER" != "$release_branch_ver" ]; then
 		echo
