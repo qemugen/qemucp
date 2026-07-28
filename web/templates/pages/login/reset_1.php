@@ -1,10 +1,6 @@
 <div class="login">
 	<a href="/" class="u-block u-mb40">
-<<<<<<< HEAD
 		<img src="/images/logo.svg" alt="<?= htmlentities($_SESSION["APP_NAME"]) ?>" width="320" height="68">
-=======
-		<img src="/images/logo.svg" alt="<?= tohtml($_SESSION["APP_NAME"]) ?>" width="100" height="120">
->>>>>>> upstream/release
 	</a>
 	<form method="post" action="/reset/">
 		<input type="hidden" name="token" value="<?= tohtml($_SESSION["token"]) ?>">

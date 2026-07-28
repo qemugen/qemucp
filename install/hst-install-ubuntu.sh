@@ -33,12 +33,8 @@ VERBOSE='no'
 # Define software versions
 HESTIA_INSTALL_VER='1.9.6'
 # Supported PHP versions
-<<<<<<< HEAD
 # QemuCP: PHP 5.6, 7.0, 7.1 removed (EOL - security risk)
 multiphp_v=("7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4")
-=======
-multiphp_v=("5.6" "7.0" "7.1" "7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4" "8.5")
->>>>>>> upstream/release
 # One of the following PHP versions is required for Roundcube / phpmyadmin
 # QemuCP: minimum supported PHP is 7.2
 multiphp_required=("7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3")

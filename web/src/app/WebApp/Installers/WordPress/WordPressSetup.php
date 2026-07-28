@@ -14,7 +14,6 @@ use Hestia\WebApp\Installers\BaseSetup;
 
 class WordPressSetup extends BaseSetup {
 
-=======
 	protected $config = [
 		"form" => [
 			"site_name" => ["type" => "text", "value" => "WordPress Blog"],
@@ -61,7 +60,6 @@ class WordPressSetup extends BaseSetup {
 			],
 		],
 	];
->>>>>>> upstream/release
 
     public function install(array $options = []): bool {
         // 1. Descargar WordPress via WP-CLI si esta disponible, sino wget
@@ -98,9 +96,7 @@ class WordPressSetup extends BaseSetup {
         $db_host = defined('DB_HOST') ? DB_HOST : 'localhost';
         exec("wp config create --path={$docroot} --dbname={$dbname} --dbuser={$dbuser} --dbpass={$dbpass} --dbhost={$db_host} --dbprefix={$prefix} 2>/dev/null");
 
-=======
 		$this->appcontext->runUser("v-list-web-domain", [$this->domain, "json"], $status);
->>>>>>> upstream/release
 
         // Post-instalacion
         if ($rc === 0) {
