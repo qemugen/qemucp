@@ -42,6 +42,12 @@ curl -s "$FORK/web/src/app/WebApp/Installers/WordPressOptimized/WordPressOptimiz
 curl -s "$FORK/web/src/app/WebApp/Installers/PrestaShopOptimized/PrestaShopOptimizedSetup.php$CB" \
     -o "$HESTIA/web/src/app/WebApp/Installers/PrestaShopOptimized/PrestaShopOptimizedSetup.php"
 
+# 8. Performance Dashboard
+mkdir -p "$HESTIA/web/list/performance" "$HESTIA/web/api/performance-stats"
+curl -s "$FORK/web/list/performance/index.php$CB"          -o "$HESTIA/web/list/performance/index.php"
+curl -s "$FORK/web/templates/pages/list_performance.php$CB" -o "$HESTIA/web/templates/pages/list_performance.php"
+curl -s "$FORK/web/api/performance-stats/index.php$CB"      -o "$HESTIA/web/api/performance-stats/index.php"
+
 # Reiniciar panel
 systemctl restart hestia
 
