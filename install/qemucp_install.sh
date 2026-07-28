@@ -1933,6 +1933,59 @@ else
     log "FIREWALL_SYSTEM presente (OK)"
 fi
 
+# --- IMAP_SYSTEM (correo IMAP) ---
+if ! grep -q "^IMAP_SYSTEM=" "$HCONF" 2>/dev/null; then
+    if systemctl is-active --quiet dovecot 2>/dev/null; then
+        echo "IMAP_SYSTEM='dovecot'" >> "$HCONF"
+        log "IMAP_SYSTEM reparado: dovecot registrado"
+    fi
+else
+    log "IMAP_SYSTEM presente (OK)"
+fi
+
+# --- SIEVE_SYSTEM (filtros de correo) ---
+if ! grep -q "^SIEVE_SYSTEM=" "$HCONF" 2>/dev/null; then
+    if systemctl is-active --quiet dovecot 2>/dev/null; then
+        echo "SIEVE_SYSTEM='yes'" >> "$HCONF"
+        log "SIEVE_SYSTEM reparado: sieve activado"
+    fi
+else
+    log "SIEVE_SYSTEM presente (OK)"
+fi
+
+# --- ANTISPAM_SYSTEM (antispam correo) ---
+if ! grep -q "^ANTISPAM_SYSTEM=" "$HCONF" 2>/dev/null; then
+    if systemctl is-active --quiet spamassassin 2>/dev/null || systemctl is-active --quiet spamd 2>/dev/null; then
+        echo "ANTISPAM_SYSTEM='spamassassin'" >> "$HCONF"
+        log "ANTISPAM_SYSTEM reparado: spamassassin registrado"
+    fi
+else
+    log "ANTISPAM_SYSTEM presente (OK)"
+fi
+
+# --- ANTIVIRUS_SYSTEM (antivirus correo) ---
+if ! grep -q "^ANTIVIRUS_SYSTEM=" "$HCONF" 2>/dev/null; then
+    if systemctl is-active --quiet clamav-daemon 2>/dev/null; then
+        echo "ANTIVIRUS_SYSTEM='clamav'" >> "$HCONF"
+        log "ANTIVIRUS_SYSTEM reparado: clamav registrado"
+    fi
+else
+    log "ANTIVIRUS_SYSTEM presente (OK)"
+fi
+
+# --- FTP_SYSTEM (acceso FTP) ---
+if ! grep -q "^FTP_SYSTEM=" "$HCONF" 2>/dev/null; then
+    if systemctl is-active --quiet vsftpd 2>/dev/null; then
+        echo "FTP_SYSTEM='vsftpd'" >> "$HCONF"
+        log "FTP_SYSTEM reparado: vsftpd registrado"
+    elif systemctl is-active --quiet proftpd 2>/dev/null; then
+        echo "FTP_SYSTEM='proftpd'" >> "$HCONF"
+        log "FTP_SYSTEM reparado: proftpd registrado"
+    fi
+else
+    log "FTP_SYSTEM presente (OK)"
+fi
+
 
 # Test de configuracion Nginx antes de reiniciar
 # Si falla, avisamos con el detalle pero NO abortamos: intentamos arreglar
