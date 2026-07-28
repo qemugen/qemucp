@@ -220,7 +220,6 @@
 							}
 						}
 						?>
-=======
 						<a href="/edit/web/?<?= tohtml(http_build_query(["domain" => $key, "token" => $_SESSION['token']])) ?>" title="<?= tohtml( _("Edit Domain")) ?>: <?= tohtml($key) ?>">
 							<?= tohtml($key) ?>
 								<?php

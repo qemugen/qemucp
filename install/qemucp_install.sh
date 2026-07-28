@@ -127,7 +127,7 @@ apt-get install -y -qq -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="
     apt-transport-https ca-certificates gnupg lsb-release \
     htop iotop net-tools dnsutils bc imagemagick \
     build-essential libpcre3-dev zlib1g-dev libssl-dev \
-    libmaxminddb-dev libmaxminddb0 mmdb-bin
+    libmaxminddb-dev libmaxminddb0 mmdb-bin || error "Fallo al instalar dependencias base del sistema"
 log "Paquetes base instalados"
 
 # PHP sera instalado y gestionado por HestiaCP en el PASO 2
@@ -202,10 +202,9 @@ bash hst-install.sh \
 
 log "QemuCP instalado correctamente"
 
-# Eliminar instalador tras la instalacion
+# Eliminar instalador base tras la instalacion (el autoborrado del script va al final)
 rm -f /tmp/hst-install.sh 2>/dev/null || true
-rm -f "$0" 2>/dev/null || true
-log "Instalador eliminado"
+log "Instalador base eliminado"
 
 source /etc/hestia/hestia.conf 2>/dev/null || true
 HESTIA=/usr/local/hestia
@@ -468,14 +467,14 @@ log "Nginx detectado: $NGINX_VER"
 apt-get install -y -qq \
     libmaxminddb-dev libmaxminddb0 mmdb-bin \
     build-essential libpcre3-dev zlib1g-dev libssl-dev \
-    libgd-dev libgeoip-dev
+    libgd-dev libgeoip-dev || warn "Algunas dependencias GeoIP2 no se instalaron"
 
 # Compilar el modulo dinamico ngx_http_geoip2
 rm -rf /root/tmp_geoip && mkdir -p /root/tmp_geoip
 cd /root/tmp_geoip || error "No se puede acceder al directorio de compilacion GeoIP"
 
-wget -q --timeout=30 "http://nginx.org/download/nginx-${NGINX_VER}.tar.gz"
-tar -xzf "nginx-${NGINX_VER}.tar.gz"
+wget -q --timeout=30 "http://nginx.org/download/nginx-${NGINX_VER}.tar.gz" || warn "No se pudo descargar nginx para GeoIP2 (se omite modulo)"
+tar -xzf "nginx-${NGINX_VER}.tar.gz" 2>/dev/null || warn "No se pudo extraer nginx"
 
 git clone --depth 1 https://github.com/leev/ngx_http_geoip2_module.git
 
@@ -1861,3 +1860,6 @@ echo -e "  ? Elimina /root/qemucp-credentials.txt tras anotar la contrasena"
 echo -e "  ? Para anadir/quitar paises edita countries.list y recarga nginx"
 echo ""
 echo -e "${GREEN}==========================================================${NC}"
+
+# Autoborrado del script de instalacion (al final, tras completar todos los pasos)
+rm -f "$0" 2>/dev/null || true
