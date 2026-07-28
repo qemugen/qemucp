@@ -67,8 +67,10 @@ csv_list() {
 
 # Parsing backend templates
 if [ -n "$WEB_BACKEND" ]; then
+	# QemuCP: solo ficheros .tpl exactos (evita contar .tpl.bak como templates activos)
 	templates=$(ls -t $WEBTPL/$WEB_BACKEND \
-		| cut -f1 -d . \
+		| grep '\.tpl$' \
+		| sed 's/\.tpl$//' \
 		| grep -v proxy_ip \
 		| sort -u)
 fi
