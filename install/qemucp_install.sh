@@ -1866,6 +1866,24 @@ fi
 # ---------------------------------------------
 header "PASO 11: Verificando configuracion y reiniciando servicios"
 
+# VERIFICACION CRITICA: DB_SYSTEM debe estar en hestia.conf
+# Si la instalacion de MariaDB se interrumpio, DB_SYSTEM puede faltar y el
+# panel no muestra la pestana BBDD ni monitoriza la base de datos.
+if ! grep -q "^DB_SYSTEM=" /usr/local/hestia/conf/hestia.conf 2>/dev/null; then
+    warn "DB_SYSTEM no encontrado en hestia.conf - reparando..."
+    if systemctl is-active --quiet mariadb 2>/dev/null || systemctl is-active --quiet mysql 2>/dev/null; then
+        echo "DB_SYSTEM='mysql'" >> /usr/local/hestia/conf/hestia.conf
+        # Registrar el host de DB si no existe (root local via unix_socket)
+        $HESTIA/bin/v-add-database-host mysql localhost root '' 2>/dev/null || true
+        log "DB_SYSTEM reparado: MariaDB registrado en el panel"
+    else
+        warn "MariaDB/MySQL no esta activo - revisa: systemctl status mariadb"
+    fi
+else
+    log "DB_SYSTEM presente en hestia.conf (OK)"
+fi
+
+
 # Test de configuracion Nginx antes de reiniciar
 # Si falla, avisamos con el detalle pero NO abortamos: intentamos arreglar
 # desactivando GeoIP2 (causa mas comun) y reintentamos.
