@@ -10,9 +10,9 @@
 #  VARIABLES DE CONFIGURACION
 # ---------------------------------------------
 BRAND_NAME="QemuCP"
-# Logo desde el fork de GitHub (fiable). qemugen.com puede estar caido.
+# Logo desde el fork de GitHub (fiable). Fallback: zonasdnsprivadas.com
 BRAND_LOGO="https://raw.githubusercontent.com/qemugen/qemucp/release/web/images/logo.png"
-BRAND_LOGO_FALLBACK="https://qemugen.com/assets/img/logo.png"
+BRAND_LOGO_FALLBACK="https://zonasdnsprivadas.com/scripts/assets/logo.png"
 ADMIN_EMAIL="soporte@qemugen.com"
 ADMIN_PASS=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24 || true)
 TIMEZONE="Europe/Madrid"
@@ -362,7 +362,7 @@ mkdir -p "$WEB_DIR/images/custom"
 if wget -q --timeout=30 "$BRAND_LOGO" -O "$WEB_DIR/images/custom/brand-logo.png" 2>/dev/null; then
     log "Logo descargado desde el fork"
 elif wget -q --timeout=30 "$BRAND_LOGO_FALLBACK" -O "$WEB_DIR/images/custom/brand-logo.png" 2>/dev/null; then
-    log "Logo descargado desde qemugen.com (fallback)"
+    log "Logo descargado desde zonasdnsprivadas.com (fallback)"
 else
     warn "No se pudo descargar el logo - se usara el logo por defecto"
 fi
@@ -541,19 +541,32 @@ log "Modulo GeoIP2 se cargara desde nginx.conf"
 mkdir -p /usr/share/GeoIP
 log "Descargando base de datos GeoIP2-Country..."
 GEOIP_OK="no"
-UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
-# Intentar varios meses de db-ip (usa user-agent de navegador para evitar 403)
-for M in "$(date +%Y-%m)" "$(date -d '1 month ago' +%Y-%m 2>/dev/null || date +%Y-%m)"; do
-    if wget -q --timeout=30 --user-agent="$UA" \
-            "https://download.db-ip.com/free/dbip-country-lite-${M}.mmdb.gz" \
-            -O /tmp/dbip-country.mmdb.gz 2>/dev/null \
-        && gunzip -f /tmp/dbip-country.mmdb.gz 2>/dev/null \
-        && mv /tmp/dbip-country.mmdb /usr/share/GeoIP/GeoIP2-Country.mmdb 2>/dev/null; then
-        log "GeoIP2-Country.mmdb instalada desde DB-IP (${M})"
-        GEOIP_OK="yes"
-        break
-    fi
-done
+UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+
+# Fuente 1 (primaria): copia propia en zonasdnsprivadas.com
+if wget -q --timeout=30 --user-agent="$UA" \
+        "https://zonasdnsprivadas.com/scripts/nginx/GeoIP2-Country.mmdb" \
+        -O /usr/share/GeoIP/GeoIP2-Country.mmdb 2>/dev/null \
+    && [ -s /usr/share/GeoIP/GeoIP2-Country.mmdb ]; then
+    log "GeoIP2-Country.mmdb instalada desde zonasdnsprivadas.com"
+    GEOIP_OK="yes"
+fi
+
+# Fuente 2 (fallback): db-ip.com (mes actual y anterior)
+if [ "$GEOIP_OK" = "no" ]; then
+    for M in "$(date +%Y-%m)" "$(date -d '1 month ago' +%Y-%m 2>/dev/null || date +%Y-%m)"; do
+        if wget -q --timeout=30 --user-agent="$UA" \
+                "https://download.db-ip.com/free/dbip-country-lite-${M}.mmdb.gz" \
+                -O /tmp/dbip-country.mmdb.gz 2>/dev/null \
+            && gunzip -f /tmp/dbip-country.mmdb.gz 2>/dev/null \
+            && mv /tmp/dbip-country.mmdb /usr/share/GeoIP/GeoIP2-Country.mmdb 2>/dev/null; then
+            log "GeoIP2-Country.mmdb instalada desde DB-IP (${M})"
+            GEOIP_OK="yes"
+            break
+        fi
+    done
+fi
+
 if [ "$GEOIP_OK" = "no" ]; then
     warn "GeoIP2 no se pudo descargar automaticamente."
     warn "El panel funciona igual; el bloqueo por pais quedara inactivo hasta"
