@@ -18,7 +18,7 @@ ADMIN_PASS=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24 || true)
 TIMEZONE="Europe/Madrid"
 LANG="es"
 HESTIA_PORT="8083"
-PHP_VERSIONS=("7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4")
+PHP_VERSIONS=("7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4" "8.5")
 
 # ============================================================
 # VERIFICACION DE LICENCIA QEMUCP
@@ -1043,7 +1043,7 @@ for VER in "${PHP_OBSOLETE[@]}"; do
 done
 
 # Confirmar versiones disponibles en el panel
-PHP_EXTRA_VERSIONS=("7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.4")
+PHP_EXTRA_VERSIONS=("7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4" "8.5")
 for VER in "${PHP_EXTRA_VERSIONS[@]}"; do
     $HESTIA/bin/v-add-web-php "$VER" 2>/dev/null || true
     log "PHP $VER disponible en el panel"
@@ -1052,11 +1052,14 @@ done
 # Instalar extensiones adicionales para todas las versiones disponibles
 apt-get update -qq
 for VER in "${PHP_VERSIONS[@]}"; do
+    # Extensiones ESENCIALES (CMS/WordPress las necesitan) + optimizacion
+    # mysql=mysqli (WordPress/PrestaShop), gd (imagenes), curl, mbstring, xml, zip, intl, bcmath, soap
+    ESSENTIAL_EXTENSIONS="mysql gd curl mbstring xml zip intl bcmath soap"
     EXTRA_EXTENSIONS="imagick redis apcu mcrypt"
-    for EXT in $EXTRA_EXTENSIONS; do
+    for EXT in $ESSENTIAL_EXTENSIONS $EXTRA_EXTENSIONS; do
         apt-get install -y -qq "php${VER}-${EXT}" 2>/dev/null || true
     done
-    log "Extensiones adicionales PHP $VER: imagick, redis, apcu, mcrypt"
+    log "Extensiones PHP $VER: mysql, gd, curl, mbstring, xml, zip, intl, bcmath, soap, imagick, redis, apcu, mcrypt"
 done
 
 # ------ Calcular workers segun RAM ------------------------------------------------------------------------------------------------------------------------------------------
