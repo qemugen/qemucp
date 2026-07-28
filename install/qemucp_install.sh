@@ -1869,21 +1869,45 @@ fi
 # ---------------------------------------------
 header "PASO 11: Verificando configuracion y reiniciando servicios"
 
-# VERIFICACION CRITICA: DB_SYSTEM debe estar en hestia.conf
-# Si la instalacion de MariaDB se interrumpio, DB_SYSTEM puede faltar y el
-# panel no muestra la pestana BBDD ni monitoriza la base de datos.
-if ! grep -q "^DB_SYSTEM=" /usr/local/hestia/conf/hestia.conf 2>/dev/null; then
-    warn "DB_SYSTEM no encontrado en hestia.conf - reparando..."
+# VERIFICACION CRITICA: valores *_SYSTEM en hestia.conf
+# Si la instalacion se interrumpio, DB_SYSTEM / DNS_SYSTEM / BACKUP_SYSTEM
+# pueden faltar y el panel no muestra las pestanas BBDD / DNS / RESPALDOS.
+HCONF="/usr/local/hestia/conf/hestia.conf"
+
+# --- DB_SYSTEM (pestana BBDD) ---
+if ! grep -q "^DB_SYSTEM=" "$HCONF" 2>/dev/null; then
+    warn "DB_SYSTEM no encontrado - reparando..."
     if systemctl is-active --quiet mariadb 2>/dev/null || systemctl is-active --quiet mysql 2>/dev/null; then
-        echo "DB_SYSTEM='mysql'" >> /usr/local/hestia/conf/hestia.conf
-        # Registrar el host de DB si no existe (root local via unix_socket)
+        echo "DB_SYSTEM='mysql'" >> "$HCONF"
         $HESTIA/bin/v-add-database-host mysql localhost root '' 2>/dev/null || true
-        log "DB_SYSTEM reparado: MariaDB registrado en el panel"
+        log "DB_SYSTEM reparado: MariaDB registrado"
     else
-        warn "MariaDB/MySQL no esta activo - revisa: systemctl status mariadb"
+        warn "MariaDB/MySQL no activo - revisa: systemctl status mariadb"
     fi
 else
-    log "DB_SYSTEM presente en hestia.conf (OK)"
+    log "DB_SYSTEM presente (OK)"
+fi
+
+# --- DNS_SYSTEM (pestana DNS) ---
+if ! grep -q "^DNS_SYSTEM=" "$HCONF" 2>/dev/null; then
+    warn "DNS_SYSTEM no encontrado - reparando..."
+    if systemctl is-active --quiet named 2>/dev/null || systemctl is-active --quiet bind9 2>/dev/null; then
+        echo "DNS_SYSTEM='bind9'" >> "$HCONF"
+        log "DNS_SYSTEM reparado: BIND registrado"
+    else
+        warn "BIND/named no activo - la pestana DNS no aparecera"
+    fi
+else
+    log "DNS_SYSTEM presente (OK)"
+fi
+
+# --- BACKUP_SYSTEM (pestana RESPALDOS) ---
+if ! grep -q "^BACKUP_SYSTEM=" "$HCONF" 2>/dev/null; then
+    warn "BACKUP_SYSTEM no encontrado - reparando..."
+    echo "BACKUP_SYSTEM='local'" >> "$HCONF"
+    log "BACKUP_SYSTEM reparado: backup local activado"
+else
+    log "BACKUP_SYSTEM presente (OK)"
 fi
 
 
