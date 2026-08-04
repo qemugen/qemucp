@@ -351,11 +351,23 @@ for TPL in "$NGINX_TPL_DIR"/*.tpl "$NGINX_TPL_DIR"/*.stpl; do
     fi
 done
 
-# 6. Re-aplicar FIX SSH para File Manager
+# 6. Re-aplicar FIX SSH para File Manager (con validacion para no romper SSH)
 if ! grep -q "^Subsystem sftp internal-sftp" /etc/ssh/sshd_config 2>/dev/null; then
-    sed -i "s|Subsystem sftp.*|Subsystem sftp internal-sftp|" /etc/ssh/sshd_config
-    systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - SSH fix re-aplicado" >> "$LOG"
+    # Eliminar duplicados y reinsertar fuera de Match (mismo metodo robusto)
+    sed -i '/^[[:space:]]*Subsystem[[:space:]]\+sftp/d' /etc/ssh/sshd_config
+    if grep -q "^Match \|^# Hestia SFTP" /etc/ssh/sshd_config; then
+        FML=$(grep -n "^Match \|^# Hestia SFTP" /etc/ssh/sshd_config | head -1 | cut -d: -f1)
+        sed -i "${FML}i Subsystem sftp internal-sftp" /etc/ssh/sshd_config
+    else
+        echo "Subsystem sftp internal-sftp" >> /etc/ssh/sshd_config
+    fi
+    mkdir -p /run/sshd && chmod 0755 /run/sshd 2>/dev/null || true
+    if sshd -t 2>/dev/null; then
+        systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - SSH fix re-aplicado" >> "$LOG"
+    else
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - AVISO: sshd -t fallo, SSH no reiniciado" >> "$LOG"
+    fi
 fi
 
 # 7. Re-aplicar TODAS las personalizaciones QemuCP (WP-TOOL, Performance,
@@ -1677,17 +1689,36 @@ sed -i 's/^#*LoginGraceTime.*/LoginGraceTime 30/' "$SSHD"
 # que HestiaCP necesita para que el File Manager y SFTP funcionen.
 
 # FIX #1: File Manager SFTP - Subsystem sftp internal-sftp
-# El File Manager (FileGator) usa SFTP interno. En Ubuntu 24.04 con
-# OpenSSH 9.x el binario sftp-server ya no existe en la ruta esperada.
-# HestiaCP lo configura durante la instalacion, pero nuestro bloque SSH
-# sobreescribe sshd_config. Hay que asegurarse de que quede correcto.
-# Ref: https://hestiacp.com/docs/server-administration/file-manager
-if grep -q "internal-sftp-server" "$SSHD" 2>/dev/null; then
-    sed -i 's|Subsystem sftp internal-sftp-server|Subsystem sftp internal-sftp|' "$SSHD"
-elif ! grep -q "Subsystem sftp internal-sftp" "$SSHD" 2>/dev/null; then
+# El File Manager (FileGator) usa SFTP interno. CRITICO: la directiva
+# 'Subsystem' debe ir FUERA de cualquier bloque 'Match' y solo puede
+# aparecer UNA vez. En Ubuntu 22.04 el sshd es estricto y falla si hay
+# un Subsystem dentro de un Match (rompe SSH = perdida de acceso).
+# Estrategia robusta: eliminar TODAS las lineas Subsystem sftp existentes
+# y reinsertar una sola, antes de cualquier bloque Match.
+# 1. Eliminar todas las definiciones Subsystem sftp (por defecto y las nuestras)
+sed -i '/^[[:space:]]*Subsystem[[:space:]]\+sftp/d' "$SSHD"
+# 2. Insertar el Subsystem correcto ANTES del primer bloque Match (o al final si no hay)
+if grep -q "^Match " "$SSHD" 2>/dev/null; then
+    # Insertar justo antes de la primera linea "Match" (y antes de comentarios previos tipo "# Hestia SFTP")
+    FIRST_MATCH_LINE=$(grep -n "^Match \|^# Hestia SFTP" "$SSHD" | head -1 | cut -d: -f1)
+    if [ -n "$FIRST_MATCH_LINE" ]; then
+        sed -i "${FIRST_MATCH_LINE}i Subsystem sftp internal-sftp\n" "$SSHD"
+    else
+        echo "Subsystem sftp internal-sftp" >> "$SSHD"
+    fi
+else
     echo "Subsystem sftp internal-sftp" >> "$SSHD"
 fi
-log "FIX #1: Subsystem sftp internal-sftp verificado (File Manager)"
+log "FIX #1: Subsystem sftp internal-sftp (fuera de Match, sin duplicados)"
+
+# FIX #1B: crear /run/sshd (privilege separation dir).
+# En /run (tmpfs) puede no existir tras la instalacion y sshd -t falla con
+# "Missing privilege separation directory". Crearlo y asegurar que systemd
+# lo recree en cada arranque.
+mkdir -p /run/sshd && chmod 0755 /run/sshd
+# Persistir via tmpfiles para que sobreviva reinicios
+echo "d /run/sshd 0755 root root -" > /etc/tmpfiles.d/sshd.conf 2>/dev/null || true
+log "FIX #1B: /run/sshd creado y persistido"
 
 # FIX #2: PubkeyAuthentication requerida por el File Manager
 # El File Manager autentica internamente con clave SSH publica.
@@ -1730,8 +1761,24 @@ $HESTIA/bin/v-add-user-sftp-key admin 2>/dev/null && \
     log "Clave SFTP admin registrada correctamente" || \
     warn "Clave SFTP: ejecuta manualmente v-add-user-sftp-key admin si el File Manager falla"
 
-systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
-log "SSH configurado"
+# CRITICO: validar la config ANTES de reiniciar. Si sshd_config tiene un
+# error, reiniciar dejaria el servidor SIN ACCESO SSH. Si falla, avisamos
+# y NO reiniciamos (SSH sigue corriendo con la config anterior valida).
+mkdir -p /run/sshd && chmod 0755 /run/sshd 2>/dev/null || true
+if sshd -t 2>/tmp/sshd_test.log; then
+    systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+    log "SSH configurado y reiniciado (config valida)"
+else
+    warn "sshd -t fallo - NO se reinicia SSH para no perder acceso:"
+    cat /tmp/sshd_test.log | sed 's/^/    /'
+    warn "Revisa /etc/ssh/sshd_config. SSH sigue con la config anterior."
+    # Intento de auto-reparacion: restaurar backup si existe
+    if [ -f "$SSHD.bak" ] && sshd -t -f "$SSHD.bak" 2>/dev/null; then
+        cp "$SSHD.bak" "$SSHD"
+        systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
+        warn "sshd_config restaurado desde backup (config valida)"
+    fi
+fi
 
 # FIX #4: FileGator / File Manager - PHP 8.3 compatibility
 # SessionStorage no implementa migrate() requerido por SessionHandlerInterface en PHP 8.1+
