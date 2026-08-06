@@ -1986,10 +1986,48 @@ fi
 # ---------------------------------------------
 header "PASO 11: Verificando configuracion y reiniciando servicios"
 
-# VERIFICACION CRITICA: valores *_SYSTEM en hestia.conf
-# Si la instalacion se interrumpio, DB_SYSTEM / DNS_SYSTEM / BACKUP_SYSTEM
-# pueden faltar y el panel no muestra las pestanas BBDD / DNS / RESPALDOS.
+# VERIFICACION CRITICA Y COMPLETA de hestia.conf
+# Una instalacion interrumpida (o un 'apt reinstall hestia') puede dejar
+# valores sin escribir. Sin ellos:
+#   - Faltan pestanas del panel (BBDD, DNS, RESPALDOS, Firewall...)
+#   - Al crear dominios: "WEB_SYSTEM is not enabled" o listen sin puerto
+#     ("invalid port") -> nginx no arranca -> creacion de dominio falla.
+# Reparamos TODOS los valores criticos, cada uno segun el servicio activo.
 HCONF="/usr/local/hestia/conf/hestia.conf"
+
+# --- Helper: escribe KEY='VALUE' si la clave no existe ---
+ensure_conf() {
+    local key="$1" val="$2"
+    if ! grep -q "^${key}=" "$HCONF" 2>/dev/null; then
+        echo "${key}='${val}'" >> "$HCONF"
+        log "hestia.conf reparado: ${key}='${val}'"
+    fi
+}
+
+# --- Valores WEB basicos (sin ellos no se pueden crear dominios) ---
+if systemctl is-active --quiet apache2 2>/dev/null; then
+    ensure_conf "WEB_SYSTEM" "apache2"
+elif systemctl is-active --quiet nginx 2>/dev/null; then
+    ensure_conf "WEB_SYSTEM" "nginx"
+fi
+ensure_conf "WEB_BACKEND" "php-fpm"
+ensure_conf "WEB_SSL" "mod_ssl"
+systemctl is-active --quiet nginx 2>/dev/null && ensure_conf "PROXY_SYSTEM" "nginx"
+
+# --- PUERTOS web (sin ellos el listen sale sin puerto -> nginx no arranca) ---
+# Stack QemuCP: nginx (proxy) 80/443 delante de apache (backend) 8080/8443
+ensure_conf "WEB_PORT" "8080"
+ensure_conf "WEB_SSL_PORT" "8443"
+ensure_conf "PROXY_PORT" "80"
+ensure_conf "PROXY_SSL_PORT" "443"
+
+# --- Otros sistemas de correo/stats/webmail ---
+systemctl is-active --quiet exim4 2>/dev/null && ensure_conf "MAIL_SYSTEM" "exim4"
+ensure_conf "STATS_SYSTEM" "awstats"
+[ -d /var/www/webmail ] || [ -d "$HESTIA/web/webmail" ] || systemctl is-active --quiet apache2 2>/dev/null && ensure_conf "WEBMAIL_SYSTEM" "roundcube"
+
+log "Valores web basicos y puertos verificados"
+
 
 # --- DB_SYSTEM (pestana BBDD) ---
 if ! grep -q "^DB_SYSTEM=" "$HCONF" 2>/dev/null; then
