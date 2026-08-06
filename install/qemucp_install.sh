@@ -253,11 +253,38 @@ bash hst-install.sh \
 
 log "QemuCP instalado correctamente"
 
+# ---------------------------------------------
+#  VERIFICACION CRITICA: coherencia de version
+# ---------------------------------------------
+# El paquete .deb de HestiaCP (apt.hestiacp.com) puede ir por delante del fork.
+# Si la version instalada != version del fork, los ficheros de sesion
+# (main.php, login, list/user) que trae el paquete son INCOHERENTES con los
+# del fork -> login loop / array_reverse(null). Detectamos y avisamos.
+INSTALLED_HESTIA_VER=$(grep "^VERSION=" /usr/local/hestia/conf/hestia.conf 2>/dev/null | cut -d"'" -f2)
+FORK_HESTIA_VER="$HESTIA_INSTALL_VER"
+if [ -n "$INSTALLED_HESTIA_VER" ] && [ -n "$FORK_HESTIA_VER" ] && [ "$INSTALLED_HESTIA_VER" != "$FORK_HESTIA_VER" ]; then
+    warn "================================================================"
+    warn "AVISO DE VERSION: paquete instalado ($INSTALLED_HESTIA_VER) != fork ($FORK_HESTIA_VER)"
+    warn "HestiaCP publico una version nueva. Los ficheros de sesion del"
+    warn "PAQUETE (main.php, login, list/user) mandan y son coherentes entre"
+    warn "si, asi que el LOGIN FUNCIONARA. Pero las personalizaciones del"
+    warn "panel (WP-TOOL, Performance) pueden no aparecer hasta sincronizar"
+    warn "el fork a $INSTALLED_HESTIA_VER."
+    warn "El instalador NO sobrescribe main.php/login/list_user del fork,"
+    warn "para no romper el login. Sincroniza el fork cuando puedas."
+    warn "================================================================"
+    # Marcar para que los pasos de branding NO toquen ficheros de sesion
+    VERSION_MISMATCH="yes"
+else
+    log "Version coherente: $INSTALLED_HESTIA_VER (fork y paquete coinciden)"
+    VERSION_MISMATCH="no"
+fi
+
 # Eliminar instalador base tras la instalacion (el autoborrado del script va al final)
 rm -f /tmp/hst-install.sh 2>/dev/null || true
 log "Instalador base eliminado"
 
-source /etc/hestia/hestia.conf 2>/dev/null || true
+source /usr/local/hestia/conf/hestia.conf 2>/dev/null || true
 HESTIA=/usr/local/hestia
 
 # ---------------------------------------------
@@ -495,8 +522,9 @@ log "Logos QemuCP instalados correctamente"
 
 
 # Establecer APP_NAME en hestia.conf para el panel
-HESTIA_CONF="/etc/hestiacp/hestia.conf"
-if grep -q "APP_NAME" "$HESTIA_CONF" 2>/dev/null; then
+# Ruta REAL: /usr/local/hestia/conf/hestia.conf (NO /etc/hestiacp/ que no siempre existe)
+HESTIA_CONF="/usr/local/hestia/conf/hestia.conf"
+if grep -q "^APP_NAME=" "$HESTIA_CONF" 2>/dev/null; then
     sed -i "s|APP_NAME=.*|APP_NAME='QemuCP Control Panel'|" "$HESTIA_CONF"
 else
     echo "APP_NAME='QemuCP Control Panel'" >> "$HESTIA_CONF"
