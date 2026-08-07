@@ -566,15 +566,32 @@ if [[ -n "$DNS_BASE" ]]; then
             # Saltar NS y A del propio dominio (ya los crea QemuCP)
             [[ "$rtype" == "NS" && -z "$rec_name" ]] && continue
             [[ "$rtype" == "A" && -z "$rec_name" ]] && continue
-            # Prioridad para MX/SRV (primer campo del valor)
+            # Prioridad para MX/SRV. IMPORTANTE: los ficheros de zona usan
+            # tabulaciones o espacios indistintamente, por eso se separa con
+            # awk (que maneja ambos) y NO con 'cut -d" "'.
             rec_prio=""
             if [[ "$rtype" == "MX" || "$rtype" == "SRV" ]]; then
                 rec_prio=$(echo "$rec_val" | awk '{print $1}')
-                rec_val=$(echo "$rec_val" | cut -d' ' -f2-)
+                rec_val=$(echo "$rec_val" | awk '{$1=""; sub(/^[ \t]+/,""); print}')
+                # Validar: la prioridad debe ser numerica y el valor no vacio
+                if ! [[ "$rec_prio" =~ ^[0-9]+$ ]] || [[ -z "$rec_val" ]]; then
+                    continue
+                fi
             fi
-            $BIN/v-add-dns-record "$CPANEL_USER" "$ZONE_DOMAIN" \
-                "${rec_name:-@}" "$rtype" "$rec_val" "${rec_prio:-}" \
-                2>/dev/null && REC_COUNT=$((REC_COUNT+1)) || true
+            # Limpiar espacios/tabulaciones sobrantes del valor
+            rec_val=$(echo "$rec_val" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+            [[ -z "$rec_val" ]] && continue
+
+            # Llamada: con prioridad solo para MX/SRV (pasar "" rompe la validacion)
+            if [[ -n "$rec_prio" ]]; then
+                $BIN/v-add-dns-record "$CPANEL_USER" "$ZONE_DOMAIN" \
+                    "${rec_name:-@}" "$rtype" "$rec_val" "$rec_prio" \
+                    2>/dev/null && REC_COUNT=$((REC_COUNT+1)) || true
+            else
+                $BIN/v-add-dns-record "$CPANEL_USER" "$ZONE_DOMAIN" \
+                    "${rec_name:-@}" "$rtype" "$rec_val" \
+                    2>/dev/null && REC_COUNT=$((REC_COUNT+1)) || true
+            fi
         done < <(grep -v "^;" "$ZONE_FILE" 2>/dev/null | grep -v "^$" || true)
         [[ $REC_COUNT -gt 0 ]] && log "  $REC_COUNT registros DNS importados en $ZONE_DOMAIN"
     done
@@ -818,7 +835,7 @@ process_domain_configs() {
         -type f 2>/dev/null)
 }
 
-if [[ ${#DB_CREATED[@]:-0} -gt 0 ]]; then
+if [[ ${#DB_CREATED[@]} -gt 0 ]]; then
     log "DBs migradas en esta ejecucion: ${#DB_CREATED[@]}"
     # Procesar TODOS los dominios: principal, addons Y subdominios.
     # Un subdominio puede tener su propio CMS (blog.dominio.com, tienda...).
