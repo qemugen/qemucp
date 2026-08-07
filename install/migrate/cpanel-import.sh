@@ -131,17 +131,26 @@ if [[ -d "$BACKUP_PATH/addons" ]]; then
     done < <(cat "$BACKUP_PATH/addons" 2>/dev/null || true)
 fi
 
-# Addon domains desde userdata/ (ficheros individuales por dominio)
+# Dominios desde userdata/ (fuente mas fiable en backups cPanel EA4).
+# userdata/ puede tener ENTRADAS como directorios o como ficheros por dominio.
 if [[ -d "$BACKUP_PATH/userdata" ]]; then
-    for f in "$BACKUP_PATH/userdata"/*/; do
+    for f in "$BACKUP_PATH/userdata"/*; do
         domain=$(basename "$f")
-        # Ignorar ficheros de metadatos
+        # Ignorar metadatos y ficheros SSL/cache
         [[ "$domain" == "main" ]] && continue
         [[ "$domain" =~ _SSL$ ]] && continue
+        [[ "$domain" == "cache" ]] && continue
         [[ "$domain" == "$MAIN_DOMAIN" ]] && continue
+        # Quitar extension .json si la tiene
+        domain="${domain%.json}"
         # Validar formato de dominio
         if [[ "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
-            ADDON_DOMAINS+=("$domain")
+            # Clasificar: si es X.MAINDOMAIN es subdominio; si no, addon
+            if [[ -n "$MAIN_DOMAIN" && "$domain" == *".$MAIN_DOMAIN" ]]; then
+                SUB_DOMAINS+=("$domain")
+            else
+                ADDON_DOMAINS+=("$domain")
+            fi
         fi
     done
 fi
@@ -155,7 +164,19 @@ if [[ -f "$BACKUP_PATH/sds" ]] || [[ -f "$BACKUP_PATH/sds2" ]]; then
 fi
 
 # Eliminar duplicados
+# Deduplicar ambas listas y evitar que un dominio este en las dos
 ADDON_DOMAINS=($(printf '%s\n' "${ADDON_DOMAINS[@]}" | sort -u))
+SUB_DOMAINS=($(printf '%s\n' "${SUB_DOMAINS[@]}" | sort -u))
+# Quitar de ADDON los que ya esten en SUB (un dominio no puede ser ambos)
+if [[ ${#SUB_DOMAINS[@]} -gt 0 ]]; then
+    NEW_ADDONS=()
+    for a in "${ADDON_DOMAINS[@]}"; do
+        skip=0
+        for s in "${SUB_DOMAINS[@]}"; do [[ "$a" == "$s" ]] && skip=1 && break; done
+        [[ $skip -eq 0 ]] && NEW_ADDONS+=("$a")
+    done
+    ADDON_DOMAINS=("${NEW_ADDONS[@]}")
+fi
 log "Addon domains: ${ADDON_DOMAINS[*]:-ninguno}"
 log "Subdominios: ${SUB_DOMAINS[*]:-ninguno}"
 
@@ -222,27 +243,57 @@ if [[ -d "$HOMEDIR" ]]; then
         fi
     fi
 
-    # Carpetas de addon domains dentro de homedir
-    for ADDON in "${ADDON_DOMAINS[@]}"; do
-        # cPanel guarda addons como public_html/addon_subdir o directo en home
-        for POSSIBLE in \
-            "$HOMEDIR/$ADDON" \
-            "$HOMEDIR/public_html/$ADDON" \
-            "$HOMEDIR/${ADDON%%.*}"; do
-            if [[ -d "$POSSIBLE" ]]; then
-                DEST_ADDON="$DEST_HOME/web/$ADDON/public_html"
-                mkdir -p "$DEST_ADDON" 2>/dev/null || true
-                rsync -a --exclude='*.log' "$POSSIBLE/" "$DEST_ADDON/" 2>/dev/null && \
-                rm -f "$DEST_ADDON/index.html" "$DEST_ADDON/robots.txt" 2>/dev/null || true
-                    log "Addon $ADDON copiado" || warn "Error copiando addon $ADDON"
-                chown -R "$CPANEL_USER:$CPANEL_USER" "$DEST_ADDON" 2>/dev/null || true
-                chmod 755 "$DEST_ADDON" 2>/dev/null || true
-                find "$DEST_ADDON" -mindepth 0 -type d -exec chmod 755 {} + 2>/dev/null || true
-                find "$DEST_ADDON" -type f -exec chmod 644 {} + 2>/dev/null || true
-                break
-            fi
+    # Carpetas de addon domains y subdominios.
+    # cPanel guarda la ruta REAL del docroot en userdata/DOMINIO (campo
+    # documentroot). Leerla es lo fiable; si no, se prueban rutas comunes.
+    copy_domain_files() {
+        local DOM="$1"
+        local SRC=""
+        # 1. Leer documentroot real desde userdata (formato EA4)
+        local UD_FILE=""
+        for cand in "$BACKUP_PATH/userdata/$DOM" "$BACKUP_PATH/userdata/${DOM}.json" \
+                    "$BACKUP_PATH/userdata/${DOM}_SSL"; do
+            [[ -f "$cand" ]] && { UD_FILE="$cand"; break; }
         done
-    done
+        if [[ -n "$UD_FILE" ]]; then
+            # documentroot: /home/user/public_html/addon o similar
+            local DOCROOT
+            DOCROOT=$(grep -a "documentroot:" "$UD_FILE" 2>/dev/null | head -1 | \
+                sed 's/.*documentroot: *//; s/ *$//' | tr -d '"')
+            if [[ -n "$DOCROOT" ]]; then
+                # Convertir ruta absoluta del origen a ruta dentro del backup
+                # /home/USUARIO/public_html/x -> $HOMEDIR/public_html/x
+                local RELATIVE="${DOCROOT#/home/*/}"
+                [[ -d "$HOMEDIR/$RELATIVE" ]] && SRC="$HOMEDIR/$RELATIVE"
+            fi
+        fi
+        # 2. Fallback: rutas comunes si no se encontro via userdata
+        if [[ -z "$SRC" ]]; then
+            for POSSIBLE in "$HOMEDIR/$DOM" "$HOMEDIR/public_html/$DOM" \
+                            "$HOMEDIR/${DOM%%.*}" "$HOMEDIR/public_html/${DOM%%.*}"; do
+                [[ -d "$POSSIBLE" ]] && { SRC="$POSSIBLE"; break; }
+            done
+        fi
+        if [[ -z "$SRC" ]]; then
+            warn "No se encontro el docroot de $DOM (revisar manualmente)"
+            return
+        fi
+        local DEST_DOM="$DEST_HOME/web/$DOM/public_html"
+        mkdir -p "$DEST_DOM" 2>/dev/null || true
+        rm -f "$DEST_DOM/index.html" "$DEST_DOM/robots.txt" 2>/dev/null || true
+        if rsync -a --exclude='*.log' "$SRC/" "$DEST_DOM/" 2>/dev/null; then
+            log "Ficheros de $DOM copiados (desde ${SRC#$HOMEDIR/})"
+        else
+            warn "Error parcial copiando $DOM"
+        fi
+        chown -R "$CPANEL_USER:$CPANEL_USER" "$DEST_DOM" 2>/dev/null || true
+        chmod 755 "$DEST_DOM" 2>/dev/null || true
+        find "$DEST_DOM" -type d -exec chmod 755 {} + 2>/dev/null || true
+        find "$DEST_DOM" -type f -exec chmod 644 {} + 2>/dev/null || true
+    }
+
+    for ADDON in "${ADDON_DOMAINS[@]}"; do copy_domain_files "$ADDON"; done
+    for SUB in "${SUB_DOMAINS[@]}"; do copy_domain_files "$SUB"; done
 else
     warn "No se encontro homedir/ en el backup"
 fi
