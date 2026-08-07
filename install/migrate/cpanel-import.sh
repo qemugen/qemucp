@@ -165,17 +165,17 @@ fi
 
 # Eliminar duplicados
 # Deduplicar ambas listas y evitar que un dominio este en las dos
-ADDON_DOMAINS=($(printf '%s\n' "${ADDON_DOMAINS[@]}" | sort -u))
-SUB_DOMAINS=($(printf '%s\n' "${SUB_DOMAINS[@]}" | sort -u))
+ADDON_DOMAINS=($(printf '%s\n' "${ADDON_DOMAINS[@]:-}" | sort -u))
+SUB_DOMAINS=($(printf '%s\n' "${SUB_DOMAINS[@]:-}" | sort -u))
 # Quitar de ADDON los que ya esten en SUB (un dominio no puede ser ambos)
 if [[ ${#SUB_DOMAINS[@]} -gt 0 ]]; then
     NEW_ADDONS=()
-    for a in "${ADDON_DOMAINS[@]}"; do
+    for a in "${ADDON_DOMAINS[@]:-}"; do
         skip=0
-        for s in "${SUB_DOMAINS[@]}"; do [[ "$a" == "$s" ]] && skip=1 && break; done
+        for s in "${SUB_DOMAINS[@]:-}"; do [[ "$a" == "$s" ]] && skip=1 && break; done
         [[ $skip -eq 0 ]] && NEW_ADDONS+=("$a")
     done
-    ADDON_DOMAINS=("${NEW_ADDONS[@]}")
+    ADDON_DOMAINS=("${NEW_ADDONS[@]:-}")
 fi
 log "Addon domains: ${ADDON_DOMAINS[*]:-ninguno}"
 log "Subdominios: ${SUB_DOMAINS[*]:-ninguno}"
@@ -208,8 +208,8 @@ create_domain() {
 }
 
 [[ -n "$MAIN_DOMAIN" ]] && create_domain "$CPANEL_USER" "$MAIN_DOMAIN"
-for D in "${ADDON_DOMAINS[@]}"; do create_domain "$CPANEL_USER" "$D"; done
-for D in "${SUB_DOMAINS[@]}"; do create_domain "$CPANEL_USER" "$D"; done
+for D in "${ADDON_DOMAINS[@]:-}"; do [[ -n "$D" ]] && create_domain "$CPANEL_USER" "$D"; done
+for D in "${SUB_DOMAINS[@]:-}"; do [[ -n "$D" ]] && create_domain "$CPANEL_USER" "$D"; done
 
 # -- Ficheros web -----------------------------------------------
 header "Importando ficheros web"
@@ -292,8 +292,8 @@ if [[ -d "$HOMEDIR" ]]; then
         find "$DEST_DOM" -type f -exec chmod 644 {} + 2>/dev/null || true
     }
 
-    for ADDON in "${ADDON_DOMAINS[@]}"; do copy_domain_files "$ADDON"; done
-    for SUB in "${SUB_DOMAINS[@]}"; do copy_domain_files "$SUB"; done
+    for ADDON in "${ADDON_DOMAINS[@]:-}"; do [[ -n "$ADDON" ]] && copy_domain_files "$ADDON"; done
+    for SUB in "${SUB_DOMAINS[@]:-}"; do [[ -n "$SUB" ]] && copy_domain_files "$SUB"; done
 else
     warn "No se encontro homedir/ en el backup"
 fi
@@ -447,11 +447,57 @@ if [[ -n "$MAIL_BASE" ]]; then
         done
         SHADOW_HASHES=()
 
-        # Corregir permisos del directorio de correo para Dovecot y Exim
+        # Corregir permisos de la CONFIG de correo (passwd, aliases) para Exim
         chmod 755 "/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN" 2>/dev/null || true
-        find "/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN" -type d             -exec chmod 755 {} + 2>/dev/null || true
-        find "/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN" -type f             -exec chmod 644 {} + 2>/dev/null || true
-        log "  Permisos mail $MAIL_DOMAIN corregidos para Dovecot y Exim"
+        find "/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN" -type d \
+            -exec chmod 755 {} + 2>/dev/null || true
+        find "/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN" -type f \
+            -exec chmod 644 {} + 2>/dev/null || true
+
+        # Corregir permisos del MAILDIR REAL (donde estan los mensajes).
+        # Sin esto Dovecot da "Permission denied" al abrir los buzones.
+        MAILDIR_DOM="/home/$CPANEL_USER/mail/$MAIL_DOMAIN"
+        if [[ -d "$MAILDIR_DOM" ]]; then
+            chown -R "$CPANEL_USER:mail" "$MAILDIR_DOM" 2>/dev/null || true
+            find "$MAILDIR_DOM" -type d -exec chmod 755 {} + 2>/dev/null || true
+            find "$MAILDIR_DOM" -type f -exec chmod 644 {} + 2>/dev/null || true
+        fi
+        log "  Permisos mail $MAIL_DOMAIN corregidos (config + maildir)"
+
+        # -- Reenvios (forwarders) y alias de cPanel --------------------
+        # cPanel los guarda en homedir/etc/DOMINIO/aliases con formato:
+        #   cuenta: destino1,destino2
+        CPANEL_ALIASES="$BACKUP_PATH/homedir/etc/$MAIL_DOMAIN/aliases"
+        if [[ -f "$CPANEL_ALIASES" ]]; then
+            FWD_COUNT=0
+            while IFS=: read -r alias_acc alias_dest; do
+                alias_acc=$(echo "$alias_acc" | tr -d ' \r')
+                alias_dest=$(echo "$alias_dest" | tr -d ' \r')
+                [[ -z "$alias_acc" || -z "$alias_dest" ]] && continue
+                [[ "$alias_acc" == "*" ]] && continue   # catchall se trata aparte
+                # Solo si la cuenta existe como buzon
+                if $BIN/v-list-mail-account "$CPANEL_USER" "$MAIL_DOMAIN" "$alias_acc" &>/dev/null 2>&1; then
+                    # Anadir cada destino como forward
+                    IFS=',' read -ra DESTS <<< "$alias_dest"
+                    for d in "${DESTS[@]:-}"; do
+                        d=$(echo "$d" | tr -d ' ')
+                        [[ -z "$d" ]] && continue
+                        $BIN/v-add-mail-account-forward "$CPANEL_USER" "$MAIL_DOMAIN" \
+                            "$alias_acc" "$d" 2>/dev/null && FWD_COUNT=$((FWD_COUNT+1)) || true
+                    done
+                fi
+            done < "$CPANEL_ALIASES"
+            [[ $FWD_COUNT -gt 0 ]] && log "  $FWD_COUNT reenvios importados"
+        fi
+
+        # -- Catchall (cuenta por defecto del dominio) ------------------
+        if [[ -f "$CPANEL_ALIASES" ]]; then
+            CATCHALL=$(grep "^\*:" "$CPANEL_ALIASES" 2>/dev/null | head -1 | cut -d: -f2- | tr -d ' \r')
+            if [[ -n "$CATCHALL" && "$CATCHALL" != ":fail:"* && "$CATCHALL" != ":blackhole:"* ]]; then
+                $BIN/v-add-mail-domain-catchall "$CPANEL_USER" "$MAIL_DOMAIN" "$CATCHALL" \
+                    2>/dev/null && log "  Catchall configurado: $CATCHALL" || true
+            fi
+        fi
     done
 else
     warn "No se encontro directorio de correo en el backup"
@@ -477,6 +523,43 @@ if [[ -n "$DNS_BASE" ]]; then
         else
             warn "Zona DNS $ZONE_DOMAIN ya existe"
         fi
+
+        # Importar registros personalizados del fichero de zona.
+        # La zona nueva trae los registros por defecto (A, NS, MX propios);
+        # anadimos los que el cliente tenia y no existen ya (MX externos,
+        # TXT de verificacion/SPF/DKIM, CNAME, subdominios A, SRV...).
+        REC_COUNT=0
+        while read -r rname rttl rclass rtype rvalue; do
+            # Saltar comentarios, directivas y lineas vacias
+            [[ -z "${rname:-}" ]] && continue
+            [[ "$rname" == \;* || "$rname" == '$'* ]] && continue
+            [[ -z "${rtype:-}" ]] && continue
+            # Solo tipos que interesa migrar
+            case "$rtype" in
+                A|AAAA|CNAME|MX|TXT|SRV|CAA|NS) ;;
+                *) continue ;;
+            esac
+            # Normalizar nombre: quitar el dominio final y el punto
+            rec_name="${rname%.}"
+            rec_name="${rec_name%.$ZONE_DOMAIN}"
+            [[ "$rec_name" == "$ZONE_DOMAIN" || "$rec_name" == "@" ]] && rec_name=""
+            # Valor completo (puede tener espacios en TXT/MX/SRV)
+            rec_val="$rvalue"
+            [[ -z "$rec_val" ]] && continue
+            # Saltar NS y A del propio dominio (ya los crea QemuCP)
+            [[ "$rtype" == "NS" && -z "$rec_name" ]] && continue
+            [[ "$rtype" == "A" && -z "$rec_name" ]] && continue
+            # Prioridad para MX/SRV (primer campo del valor)
+            rec_prio=""
+            if [[ "$rtype" == "MX" || "$rtype" == "SRV" ]]; then
+                rec_prio=$(echo "$rec_val" | awk '{print $1}')
+                rec_val=$(echo "$rec_val" | cut -d' ' -f2-)
+            fi
+            $BIN/v-add-dns-record "$CPANEL_USER" "$ZONE_DOMAIN" \
+                "${rec_name:-@}" "$rtype" "$rec_val" "${rec_prio:-}" \
+                2>/dev/null && REC_COUNT=$((REC_COUNT+1)) || true
+        done < <(grep -v "^;" "$ZONE_FILE" 2>/dev/null | grep -v "^$" || true)
+        [[ $REC_COUNT -gt 0 ]] && log "  $REC_COUNT registros DNS importados en $ZONE_DOMAIN"
     done
 else
     warn "No se encontro directorio dnszones/ en el backup"
@@ -560,7 +643,7 @@ assign_php_version() {
 }
 
 [[ -n "$MAIN_DOMAIN" ]] && assign_php_version "$MAIN_DOMAIN"
-for ADDON in "${ADDON_DOMAINS[@]}"; do
+for ADDON in "${ADDON_DOMAINS[@]:-}"; do
     assign_php_version "$ADDON"
 done
 
@@ -685,7 +768,7 @@ process_domain_configs() {
 
         # Buscar la DB migrada cuyo nombre coincida con la configurada
         MATCHED=""
-        for DB_ENTRY in "${DB_CREATED[@]}"; do
+        for DB_ENTRY in "${DB_CREATED[@]:-}"; do
             DB_FINAL=$(echo "$DB_ENTRY" | cut -d: -f1)
             DB_USER=$(echo "$DB_ENTRY" | cut -d: -f2)
             DB_PASS=$(echo "$DB_ENTRY" | cut -d: -f3-)
@@ -722,7 +805,7 @@ if [[ ${#DB_CREATED[@]} -gt 0 ]]; then
     log "DBs migradas en esta ejecucion: ${#DB_CREATED[@]}"
     [[ -n "$MAIN_DOMAIN" ]] && \
         process_domain_configs "/home/$CPANEL_USER/web/$MAIN_DOMAIN/public_html"
-    for ADDON in "${ADDON_DOMAINS[@]}"; do
+    for ADDON in "${ADDON_DOMAINS[@]:-}"; do
         process_domain_configs "/home/$CPANEL_USER/web/$ADDON/public_html"
     done
 else
@@ -734,7 +817,9 @@ header "Reconstruyendo configuracion"
 
 ALL_DOMAINS=()
 [[ -n "$MAIN_DOMAIN" ]] && ALL_DOMAINS+=("$MAIN_DOMAIN")
-ALL_DOMAINS+=("${ADDON_DOMAINS[@]}")
+# Anadir addons y subdominios (protegido para arrays vacios con set -u)
+for d in "${ADDON_DOMAINS[@]:-}"; do [[ -n "$d" ]] && ALL_DOMAINS+=("$d"); done
+for d in "${SUB_DOMAINS[@]:-}"; do [[ -n "$d" ]] && ALL_DOMAINS+=("$d"); done
 
 # Reconstruir configuracion del usuario para aplicar todos los cambios
 $BIN/v-rebuild-user "$CPANEL_USER" 2>/dev/null && log "Configuracion reconstruida" || true
@@ -743,7 +828,7 @@ $BIN/v-rebuild-user "$CPANEL_USER" 2>/dev/null && log "Configuracion reconstruid
 header "Configurando SSL"
 SSL_OK=()
 SSL_FAIL=()
-for DOMAIN in "${ALL_DOMAINS[@]}"; do
+for DOMAIN in "${ALL_DOMAINS[@]:-}"; do
     [[ -z "$DOMAIN" ]] && continue
     info "Emitiendo SSL para $DOMAIN"
     $BIN/v-add-letsencrypt-domain "$CPANEL_USER" "$DOMAIN" "www.$DOMAIN" "yes"         2>/dev/null && SSL_OK+=("$DOMAIN") || SSL_FAIL+=("$DOMAIN")
@@ -755,7 +840,7 @@ fi
 if [[ ${#SSL_FAIL[@]} -gt 0 ]]; then
     warn "SSL pendiente (DNS no apunta aun): ${SSL_FAIL[*]}"
     warn "Ejecuta manualmente cuando el DNS apunte:"
-    for DOMAIN in "${SSL_FAIL[@]}"; do
+    for DOMAIN in "${SSL_FAIL[@]:-}"; do
         echo "  /usr/local/hestia/bin/v-add-letsencrypt-domain $CPANEL_USER $DOMAIN www.$DOMAIN"
     done
 fi
