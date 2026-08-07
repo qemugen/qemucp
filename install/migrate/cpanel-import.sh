@@ -122,7 +122,45 @@ fi
 
 log "Dominio principal: ${MAIN_DOMAIN:-no detectado}"
 
-# Addon domains desde addons/
+# FUENTE 1 (la mas fiable en backups cPanel clasicos): fichero cp/USUARIO
+# Contiene DNS=dominio_principal y DNS1..DNSn=addon_domains
+CP_USER_FILE="$BACKUP_PATH/cp/$CPANEL_USER"
+if [[ -f "$CP_USER_FILE" ]]; then
+    while IFS='=' read -r key val; do
+        key=$(echo "$key" | tr -d ' \r')
+        val=$(echo "$val" | tr -d ' \r')
+        [[ -z "$val" ]] && continue
+        # DNS = dominio principal; DNS1, DNS2... = adicionales
+        if [[ "$key" =~ ^DNS[0-9]+$ ]]; then
+            [[ "$val" == "$MAIN_DOMAIN" ]] && continue
+            if [[ "$val" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
+                if [[ -n "$MAIN_DOMAIN" && "$val" == *".$MAIN_DOMAIN" ]]; then
+                    SUB_DOMAINS+=("$val")
+                else
+                    ADDON_DOMAINS+=("$val")
+                fi
+            fi
+        fi
+    done < <(grep -E "^DNS[0-9]*=" "$CP_USER_FILE" 2>/dev/null || true)
+fi
+
+# FUENTE 2: zonas DNS del backup (dnszones/*.db) - respaldo fiable
+if [[ -d "$BACKUP_PATH/dnszones" ]]; then
+    for Z in "$BACKUP_PATH/dnszones"/*.db; do
+        [[ -f "$Z" ]] || continue
+        zdom=$(basename "$Z" .db)
+        [[ "$zdom" == "$MAIN_DOMAIN" ]] && continue
+        if [[ "$zdom" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
+            if [[ -n "$MAIN_DOMAIN" && "$zdom" == *".$MAIN_DOMAIN" ]]; then
+                SUB_DOMAINS+=("$zdom")
+            else
+                ADDON_DOMAINS+=("$zdom")
+            fi
+        fi
+    done
+fi
+
+# FUENTE 3: addons/
 if [[ -d "$BACKUP_PATH/addons" ]]; then
     while IFS='=' read -r addon_domain docroot; do
         addon_domain=$(echo "$addon_domain" | tr -d ' \n\r')
@@ -387,11 +425,16 @@ if [[ -n "$MAIL_BASE" ]]; then
     for DOMAIN_DIR in "$MAIL_BASE"/*/; do
         [[ -d "$DOMAIN_DIR" ]] || continue
         MAIL_DOMAIN=$(basename "$DOMAIN_DIR")
-        # Ignorar directorios internos de cPanel
-        [[ "$MAIL_DOMAIN" == "etc" ]] && continue
-        [[ "$MAIL_DOMAIN" == "new" ]] && continue
-        [[ "$MAIL_DOMAIN" == "cur" ]] && continue
-        [[ "$MAIL_DOMAIN" == "tmp" ]] && continue
+        # Ignorar directorios internos de cPanel/Courier/Dovecot que NO son dominios
+        case "$MAIL_DOMAIN" in
+            etc|new|cur|tmp|.*|courierimapkeywords|courierimapuiddb|courierimapacl|\
+            courierpop3dsizelist|maildirfolder|dovecot*|.Trash*|.Sent*|.Drafts*)
+                continue ;;
+        esac
+        # Debe tener formato de dominio (con al menos un punto y TLD valido)
+        if ! [[ "$MAIL_DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
+            continue
+        fi
 
         info "Dominio mail: $MAIL_DOMAIN"
 
