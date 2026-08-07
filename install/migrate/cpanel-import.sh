@@ -367,6 +367,23 @@ done
 
 if [[ -n "$MAIL_BASE" ]]; then
     log "Directorio de correo: $MAIL_BASE"
+
+    # FORMATO ANTIGUO cPanel: la cuenta principal del dominio primario guarda
+    # sus mensajes directamente en mail/{cur,new,tmp} (sin carpeta de dominio).
+    # Se migra a la cuenta principal del dominio principal en QemuCP.
+    if [[ -d "$MAIL_BASE/cur" || -d "$MAIL_BASE/new" ]] && [[ -n "$MAIN_DOMAIN" ]]; then
+        MAIN_MAIL_DEST="/home/$CPANEL_USER/mail/$MAIN_DOMAIN/$CPANEL_USER"
+        if [[ -d "$MAIN_MAIL_DEST" ]]; then
+            rsync -a "$MAIL_BASE/cur" "$MAIL_BASE/new" "$MAIL_BASE/tmp" \
+                "$MAIN_MAIL_DEST/" 2>/dev/null && \
+                log "  Correo del buzon principal (formato antiguo) migrado" || true
+            chown -R "$CPANEL_USER:mail" "$MAIN_MAIL_DEST" 2>/dev/null || true
+        else
+            warn "  Hay correo en formato antiguo pero no existe el buzon destino"
+            warn "  Crea la cuenta $CPANEL_USER@$MAIN_DOMAIN y reejecuta si lo necesitas"
+        fi
+    fi
+
     for DOMAIN_DIR in "$MAIL_BASE"/*/; do
         [[ -d "$DOMAIN_DIR" ]] || continue
         MAIL_DOMAIN=$(basename "$DOMAIN_DIR")
@@ -801,12 +818,19 @@ process_domain_configs() {
         -type f 2>/dev/null)
 }
 
-if [[ ${#DB_CREATED[@]} -gt 0 ]]; then
+if [[ ${#DB_CREATED[@]:-0} -gt 0 ]]; then
     log "DBs migradas en esta ejecucion: ${#DB_CREATED[@]}"
+    # Procesar TODOS los dominios: principal, addons Y subdominios.
+    # Un subdominio puede tener su propio CMS (blog.dominio.com, tienda...).
     [[ -n "$MAIN_DOMAIN" ]] && \
         process_domain_configs "/home/$CPANEL_USER/web/$MAIN_DOMAIN/public_html"
     for ADDON in "${ADDON_DOMAINS[@]:-}"; do
-        process_domain_configs "/home/$CPANEL_USER/web/$ADDON/public_html"
+        [[ -n "$ADDON" ]] && \
+            process_domain_configs "/home/$CPANEL_USER/web/$ADDON/public_html"
+    done
+    for SUB in "${SUB_DOMAINS[@]:-}"; do
+        [[ -n "$SUB" ]] && \
+            process_domain_configs "/home/$CPANEL_USER/web/$SUB/public_html"
     done
 else
     warn "No hay DBs migradas en esta ejecucion - saltando actualizacion de CMS"
