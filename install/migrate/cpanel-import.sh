@@ -122,8 +122,16 @@ fi
 
 log "Dominio principal: ${MAIN_DOMAIN:-no detectado}"
 
+# NOTA sobre tipos de dominio en cPanel:
+#   - addon domain  -> tiene su propio docroot (carpeta web independiente)
+#   - parked/alias  -> comparte el docroot del dominio principal
+# Las entradas DNS1..DNSn de cp/USUARIO incluyen AMBOS tipos. Distinguimos
+# despues comprobando si existe docroot propio; los que no lo tengan se
+# crean como ALIAS del dominio principal (que es lo que son).
+PARKED_DOMAINS=()
+
 # FUENTE 1 (la mas fiable en backups cPanel clasicos): fichero cp/USUARIO
-# Contiene DNS=dominio_principal y DNS1..DNSn=addon_domains
+# Contiene DNS=dominio_principal y DNS1..DNSn=addon/parked domains
 CP_USER_FILE="$BACKUP_PATH/cp/$CPANEL_USER"
 if [[ -f "$CP_USER_FILE" ]]; then
     while IFS='=' read -r key val; do
@@ -245,9 +253,55 @@ create_domain() {
     fi
 }
 
+# Devuelve 0 si el dominio tiene docroot propio en el backup (addon real),
+# 1 si no lo tiene (dominio aparcado / alias del principal).
+domain_has_docroot() {
+    local DOM="$1"
+    for cand in "$BACKUP_PATH/userdata/$DOM" "$BACKUP_PATH/userdata/${DOM}.json"; do
+        if [[ -f "$cand" ]]; then
+            local DR
+            DR=$(grep -a "documentroot:" "$cand" 2>/dev/null | head -1 | \
+                 sed 's/.*documentroot: *//; s/ *$//' | tr -d '"')
+            [[ -n "$DR" && -d "$HOMEDIR/${DR#/home/*/}" ]] && return 0
+        fi
+    done
+    for POSSIBLE in "$HOMEDIR/$DOM" "$HOMEDIR/public_html/$DOM" \
+                    "$HOMEDIR/${DOM%%.*}" "$HOMEDIR/public_html/${DOM%%.*}"; do
+        [[ -d "$POSSIBLE" ]] && return 0
+    done
+    return 1
+}
+
+# Clasificar ANTES de crear: los dominios sin docroot propio son "parked"
+# (alias del principal en cPanel) y NO deben crearse como dominios web
+# independientes, sino anadirse como alias del dominio principal.
+REAL_ADDONS=()
+for ADDON in "${ADDON_DOMAINS[@]:-}"; do
+    [[ -z "$ADDON" ]] && continue
+    if domain_has_docroot "$ADDON"; then
+        REAL_ADDONS+=("$ADDON")
+    else
+        PARKED_DOMAINS+=("$ADDON")
+    fi
+done
+[[ ${#REAL_ADDONS[@]} -gt 0 ]] && log "Addon domains con web propia: ${REAL_ADDONS[*]}"
+[[ ${#PARKED_DOMAINS[@]} -gt 0 ]] && log "Dominios aparcados (alias del principal): ${#PARKED_DOMAINS[@]}"
+
+# Crear: principal + addons REALES + subdominios (los parked van como alias)
 [[ -n "$MAIN_DOMAIN" ]] && create_domain "$CPANEL_USER" "$MAIN_DOMAIN"
-for D in "${ADDON_DOMAINS[@]:-}"; do [[ -n "$D" ]] && create_domain "$CPANEL_USER" "$D"; done
+for D in "${REAL_ADDONS[@]:-}"; do [[ -n "$D" ]] && create_domain "$CPANEL_USER" "$D"; done
 for D in "${SUB_DOMAINS[@]:-}"; do [[ -n "$D" ]] && create_domain "$CPANEL_USER" "$D"; done
+
+# Anadir los aparcados como ALIAS del dominio principal
+if [[ ${#PARKED_DOMAINS[@]} -gt 0 && -n "$MAIN_DOMAIN" ]]; then
+    for PK in "${PARKED_DOMAINS[@]}"; do
+        [[ -z "$PK" ]] && continue
+        $BIN/v-add-web-domain-alias "$CPANEL_USER" "$MAIN_DOMAIN" "$PK" no 2>/dev/null \
+            && log "  Alias de $MAIN_DOMAIN: $PK" \
+            || warn "  $PK: no se pudo anadir como alias"
+    done
+    $BIN/v-rebuild-web-domains "$CPANEL_USER" 2>/dev/null || true
+fi
 
 # -- Ficheros web -----------------------------------------------
 header "Importando ficheros web"
@@ -330,8 +384,12 @@ if [[ -d "$HOMEDIR" ]]; then
         find "$DEST_DOM" -type f -exec chmod 644 {} + 2>/dev/null || true
     }
 
-    for ADDON in "${ADDON_DOMAINS[@]:-}"; do [[ -n "$ADDON" ]] && copy_domain_files "$ADDON"; done
+    # Copiar ficheros solo de los addons REALES (los parked comparten el
+    # public_html del principal, no tienen ficheros propios que copiar).
+    for ADDON in "${REAL_ADDONS[@]:-}"; do [[ -n "$ADDON" ]] && copy_domain_files "$ADDON"; done
     for SUB in "${SUB_DOMAINS[@]:-}"; do [[ -n "$SUB" ]] && copy_domain_files "$SUB"; done
+
+
 else
     warn "No se encontro homedir/ en el backup"
 fi
