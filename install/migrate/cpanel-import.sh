@@ -255,6 +255,11 @@ create_domain() {
 
 # Devuelve 0 si el dominio tiene docroot propio en el backup (addon real),
 # 1 si no lo tiene (dominio aparcado / alias del principal).
+# HOMEDIR debe estar definida ANTES de esta funcion (la usa para localizar
+# los docroots dentro del backup). Se define aqui por si el bloque de
+# importacion de ficheros aun no se ha ejecutado.
+HOMEDIR="${HOMEDIR:-$BACKUP_PATH/homedir}"
+
 domain_has_docroot() {
     local DOM="$1"
     for cand in "$BACKUP_PATH/userdata/$DOM" "$BACKUP_PATH/userdata/${DOM}.json"; do
@@ -306,7 +311,7 @@ fi
 # -- Ficheros web -----------------------------------------------
 header "Importando ficheros web"
 
-HOMEDIR="$BACKUP_PATH/homedir"
+HOMEDIR="${HOMEDIR:-$BACKUP_PATH/homedir}"
 if [[ -d "$HOMEDIR" ]]; then
     DEST_HOME="/home/$CPANEL_USER"
 
@@ -966,25 +971,22 @@ for d in "${SUB_DOMAINS[@]:-}"; do [[ -n "$d" ]] && ALL_DOMAINS+=("$d"); done
 # Reconstruir configuracion del usuario para aplicar todos los cambios
 $BIN/v-rebuild-user "$CPANEL_USER" 2>/dev/null && log "Configuracion reconstruida" || true
 
-# Emitir SSL para todos los dominios (permisos ya corregidos antes de llegar aqui)
-header "Configurando SSL"
-SSL_OK=()
-SSL_FAIL=()
-for DOMAIN in "${ALL_DOMAINS[@]:-}"; do
-    [[ -z "$DOMAIN" ]] && continue
-    info "Emitiendo SSL para $DOMAIN"
-    $BIN/v-add-letsencrypt-domain "$CPANEL_USER" "$DOMAIN" "www.$DOMAIN" "yes"         2>/dev/null && SSL_OK+=("$DOMAIN") || SSL_FAIL+=("$DOMAIN")
-done
-
-if [[ ${#SSL_OK[@]} -gt 0 ]]; then
-    log "SSL emitido correctamente: ${SSL_OK[*]}"
-fi
-if [[ ${#SSL_FAIL[@]} -gt 0 ]]; then
-    warn "SSL pendiente (DNS no apunta aun): ${SSL_FAIL[*]}"
-    warn "Ejecuta manualmente cuando el DNS apunte:"
-    for DOMAIN in "${SSL_FAIL[@]:-}"; do
-        echo "  /usr/local/hestia/bin/v-add-letsencrypt-domain $CPANEL_USER $DOMAIN www.$DOMAIN"
+# SSL: NO se emite automaticamente durante la migracion.
+# Motivo: al migrar, el DNS del dominio suele seguir apuntando al servidor
+# de origen, por lo que la validacion de Let's Encrypt falla y cada intento
+# fallido cuenta para el limite de la API (5 fallos/hora por dominio).
+# Se listan los comandos para ejecutarlos cuando el DNS ya apunte aqui.
+header "SSL (emision manual)"
+if [[ ${#ALL_DOMAINS[@]} -gt 0 ]]; then
+    warn "El SSL NO se emite automaticamente (el DNS aun puede apuntar al origen)."
+    warn "Cuando el DNS apunte a este servidor, ejecuta:"
+    echo ""
+    for DOMAIN in "${ALL_DOMAINS[@]:-}"; do
+        [[ -z "$DOMAIN" ]] && continue
+        echo "  $BIN/v-add-letsencrypt-domain $CPANEL_USER $DOMAIN www.$DOMAIN yes"
     done
+    echo ""
+    log "${#ALL_DOMAINS[@]} dominios pendientes de SSL (ver comandos arriba)"
 fi
 
 # -- Limpieza ---------------------------------------------------
