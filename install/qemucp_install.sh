@@ -179,6 +179,31 @@ log "Versiones PHP obsoletas bloqueadas (5.6, 7.0, 7.1)"
 # ---------------------------------------------
 header "PASO 2: Instalando QemuCP"
 
+# IDEMPOTENCIA: si el panel ya esta instalado (por ejemplo, una ejecucion
+# anterior fallo DESPUES de instalar la base), saltamos la instalacion y
+# vamos directos a las optimizaciones. Asi se puede relanzar el script sin
+# reinstalar HestiaCP ni perder la configuracion existente.
+# Detectar el SO siempre (se usa dentro y fuera del bloque de instalacion)
+detect_os_type() {
+    if [ -f /etc/debian_version ]; then
+        if grep -qi ubuntu /etc/os-release 2>/dev/null; then echo "ubuntu"; else echo "debian"; fi
+    else
+        echo "ubuntu"
+    fi
+}
+OS_TYPE=$(detect_os_type)
+
+SKIP_BASE_INSTALL="no"
+if [ -f /usr/local/hestia/conf/hestia.conf ] && [ -x /usr/local/hestia/bin/v-list-users ]; then
+    EXISTING_VER=$(grep "^VERSION=" /usr/local/hestia/conf/hestia.conf 2>/dev/null | cut -d"'" -f2)
+    warn "QemuCP/HestiaCP YA esta instalado (version ${EXISTING_VER:-desconocida})"
+    warn "Se SALTA la instalacion base y se aplican solo las optimizaciones."
+    warn "Si quieres una instalacion limpia, reinstala el sistema operativo."
+    SKIP_BASE_INSTALL="yes"
+fi
+
+if [ "$SKIP_BASE_INSTALL" = "no" ]; then
+
 cd /tmp || error "No se puede acceder a /tmp"
 wget -q --timeout=30 "https://raw.githubusercontent.com/qemugen/qemucp/release/install/hst-install.sh" \
     -O hst-install.sh || error "No se pudo descargar el instalador de QemuCP"
@@ -198,14 +223,6 @@ sed -i \
 # DEFENSA: forzar que hst-install.sh use el ubuntu.sh LOCAL ya parcheado
 # en lugar de descargarlo (evita cache de GitHub Raw con version antigua).
 # Descargamos ubuntu.sh nosotros con cache-buster y neutralizamos el version check.
-detect_os_type() {
-    if [ -f /etc/debian_version ]; then
-        if grep -qi ubuntu /etc/os-release 2>/dev/null; then echo "ubuntu"; else echo "debian"; fi
-    else
-        echo "ubuntu"
-    fi
-}
-OS_TYPE=$(detect_os_type)
 CACHE_BUST=$(date +%s)
 wget -q --timeout=30 "https://raw.githubusercontent.com/qemugen/qemucp/release/install/hst-install-${OS_TYPE}.sh?cb=${CACHE_BUST}" \
     -O "hst-install-${OS_TYPE}.sh" || error "No se pudo descargar hst-install-${OS_TYPE}.sh"
@@ -261,7 +278,16 @@ log "QemuCP instalado correctamente"
 # (main.php, login, list/user) que trae el paquete son INCOHERENTES con los
 # del fork -> login loop / array_reverse(null). Detectamos y avisamos.
 INSTALLED_HESTIA_VER=$(grep "^VERSION=" /usr/local/hestia/conf/hestia.conf 2>/dev/null | cut -d"'" -f2)
-FORK_HESTIA_VER="$HESTIA_INSTALL_VER"
+# La version del fork se lee del hst-install-${OS_TYPE}.sh que descargamos antes.
+# NO usar $HESTIA_INSTALL_VER: esa variable solo existe DENTRO de ese script,
+# no aqui, y con 'set -u' referenciarla aborta la instalacion.
+FORK_HESTIA_VER=""
+for CAND in "/tmp/hst-install-${OS_TYPE:-ubuntu}.sh" "./hst-install-${OS_TYPE:-ubuntu}.sh"; do
+    if [ -f "$CAND" ]; then
+        FORK_HESTIA_VER=$(grep "^HESTIA_INSTALL_VER=" "$CAND" 2>/dev/null | head -1 | cut -d"'" -f2)
+        [ -n "$FORK_HESTIA_VER" ] && break
+    fi
+done
 if [ -n "$INSTALLED_HESTIA_VER" ] && [ -n "$FORK_HESTIA_VER" ] && [ "$INSTALLED_HESTIA_VER" != "$FORK_HESTIA_VER" ]; then
     warn "================================================================"
     warn "AVISO DE VERSION: paquete instalado ($INSTALLED_HESTIA_VER) != fork ($FORK_HESTIA_VER)"
@@ -279,6 +305,8 @@ else
     log "Version coherente: $INSTALLED_HESTIA_VER (fork y paquete coinciden)"
     VERSION_MISMATCH="no"
 fi
+
+fi   # fin de: if [ "$SKIP_BASE_INSTALL" = "no" ]
 
 # Eliminar instalador base tras la instalacion (el autoborrado del script va al final)
 rm -f /tmp/hst-install.sh 2>/dev/null || true
