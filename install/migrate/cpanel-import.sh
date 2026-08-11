@@ -690,20 +690,32 @@ if [[ -n "$DNS_BASE" ]]; then
 
             # Llamada: con prioridad solo para MX/SRV (pasar "" rompe la validacion)
             if [[ -n "$rec_prio" ]]; then
-                # RESTART='no' (8o parametro): NO reiniciar BIND en cada registro.
-                # Sin esto cada uno reconstruye la zona y recarga el servicio,
-                # lo que hace que importar una zona tarde varios minutos.
-                # El parametro 7 (ID) va vacio para respetar las posiciones.
-                $BIN/v-add-dns-record "$CPANEL_USER" "$ZONE_DOMAIN" \
-                    "${rec_name:-@}" "$rtype" "$rec_val" "$rec_prio" '' 'no' \
-                    2>/dev/null && REC_COUNT=$((REC_COUNT+1)) || true
-            else
-                $BIN/v-add-dns-record "$CPANEL_USER" "$ZONE_DOMAIN" \
-                    "${rec_name:-@}" "$rtype" "$rec_val" '' '' 'no' \
-                    2>/dev/null && REC_COUNT=$((REC_COUNT+1)) || true
+                # Escribimos el registro DIRECTAMENTE en el fichero de zona de
+                # HestiaCP en lugar de llamar a v-add-dns-record. Ese comando,
+                # aun con restart=no, ejecuta sort_dns_records +
+                # update_domain_serial + rebuild_dns_domain_conf en CADA
+                # llamada (~1-2s), lo que hacia que una zona de 35 registros
+                # tardase mas de un minuto. Aqui acumulamos y reconstruimos
+                # una sola vez por zona al final.
+                ZONE_CONF="/usr/local/hestia/data/users/$CPANEL_USER/dns/${ZONE_DOMAIN}.conf"
+                if [[ -f "$ZONE_CONF" ]]; then
+                    NEXT_ID=$(( $(awk -F"ID='" '{print $2}' "$ZONE_CONF" 2>/dev/null \
+                        | cut -d"'" -f1 | sort -n | tail -1) + 1 ))
+                    [[ -z "$NEXT_ID" || "$NEXT_ID" -lt 1 ]] && NEXT_ID=1
+                    NOW_T=$(date +'%T'); NOW_D=$(date +'%F')
+                    printf "ID='%s' RECORD='%s' TYPE='%s' PRIORITY='%s' VALUE='%s' SUSPENDED='no' TIME='%s' DATE='%s'\n" \
+                        "$NEXT_ID" "${rec_name:-@}" "$rtype" "$rec_prio" "$rec_val" "$NOW_T" "$NOW_D" \
+                        >> "$ZONE_CONF" 2>/dev/null && REC_COUNT=$((REC_COUNT+1)) || true
+                fi
             fi
         done < <(grep -v "^;" "$ZONE_FILE" 2>/dev/null | grep -v "^$" || true)
-        [[ $REC_COUNT -gt 0 ]] && log "  $REC_COUNT registros DNS importados en $ZONE_DOMAIN"
+        # Reconstruir ESTA zona una sola vez (en vez de una vez por registro)
+        if [[ $REC_COUNT -gt 0 ]]; then
+            ZONE_CONF="/usr/local/hestia/data/users/$CPANEL_USER/dns/${ZONE_DOMAIN}.conf"
+            [[ -f "$ZONE_CONF" ]] && chmod 660 "$ZONE_CONF" 2>/dev/null || true
+            $BIN/v-rebuild-dns-domain "$CPANEL_USER" "$ZONE_DOMAIN" 'no' 2>/dev/null || true
+            log "  $REC_COUNT registros DNS importados en $ZONE_DOMAIN"
+        fi
     done
     # Reconstruir y reiniciar DNS UNA sola vez, al terminar todas las zonas
     $BIN/v-rebuild-dns-domains "$CPANEL_USER" 2>/dev/null || true
