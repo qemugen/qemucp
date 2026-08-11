@@ -690,17 +690,25 @@ if [[ -n "$DNS_BASE" ]]; then
 
             # Llamada: con prioridad solo para MX/SRV (pasar "" rompe la validacion)
             if [[ -n "$rec_prio" ]]; then
+                # RESTART='no' (8o parametro): NO reiniciar BIND en cada registro.
+                # Sin esto cada uno reconstruye la zona y recarga el servicio,
+                # lo que hace que importar una zona tarde varios minutos.
+                # El parametro 7 (ID) va vacio para respetar las posiciones.
                 $BIN/v-add-dns-record "$CPANEL_USER" "$ZONE_DOMAIN" \
-                    "${rec_name:-@}" "$rtype" "$rec_val" "$rec_prio" \
+                    "${rec_name:-@}" "$rtype" "$rec_val" "$rec_prio" '' 'no' \
                     2>/dev/null && REC_COUNT=$((REC_COUNT+1)) || true
             else
                 $BIN/v-add-dns-record "$CPANEL_USER" "$ZONE_DOMAIN" \
-                    "${rec_name:-@}" "$rtype" "$rec_val" \
+                    "${rec_name:-@}" "$rtype" "$rec_val" '' '' 'no' \
                     2>/dev/null && REC_COUNT=$((REC_COUNT+1)) || true
             fi
         done < <(grep -v "^;" "$ZONE_FILE" 2>/dev/null | grep -v "^$" || true)
         [[ $REC_COUNT -gt 0 ]] && log "  $REC_COUNT registros DNS importados en $ZONE_DOMAIN"
     done
+    # Reconstruir y reiniciar DNS UNA sola vez, al terminar todas las zonas
+    $BIN/v-rebuild-dns-domains "$CPANEL_USER" 2>/dev/null || true
+    $BIN/v-restart-dns 2>/dev/null || true
+    log "DNS reconstruido y reiniciado (una sola vez)"
 else
     warn "No se encontro directorio dnszones/ en el backup"
 fi
