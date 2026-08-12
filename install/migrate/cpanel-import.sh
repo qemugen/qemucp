@@ -709,9 +709,52 @@ if [[ -n "$DNS_BASE" ]]; then
                 fi
             fi
         done < <(grep -v "^;" "$ZONE_FILE" 2>/dev/null | grep -v "^$" || true)
+
+        # ---- Saneado de la zona tras importar --------------------------
+        # 1. mail/webmail DEBEN apuntar a ESTE servidor. Los del backup
+        #    apuntan al servidor de origen, y entonces falla la emision del
+        #    SSL de correo (HestiaCP pide cert para mail.DOM y webmail.DOM).
+        # 2. Un nombre con CNAME no puede tener otros registros: BIND
+        #    rechaza la zona ENTERA ("CNAME and other data") y el dominio
+        #    deja de resolver. Se elimina el CNAME y se conserva el A.
+        ZONE_CONF="/usr/local/hestia/data/users/$CPANEL_USER/dns/${ZONE_DOMAIN}.conf"
+        if [[ -f "$ZONE_CONF" ]]; then
+            for SUB in mail webmail; do
+                # Quitar cualquier registro previo de ese nombre (del origen)
+                sed -i "/RECORD='${SUB}' /d" "$ZONE_CONF" 2>/dev/null || true
+                # Insertar un A limpio apuntando a este servidor
+                NID=$(( $(grep -oP "ID='\K[0-9]+" "$ZONE_CONF" 2>/dev/null \
+                    | sort -n | tail -1) + 1 ))
+                [[ -z "$NID" || "$NID" -lt 1 ]] && NID=1
+                printf "ID='%s' RECORD='%s' TYPE='A' PRIORITY='' VALUE='%s' SUSPENDED='no' TIME='%s' DATE='%s'\n" \
+                    "$NID" "$SUB" "$SERVER_IP" "$(date +%T)" "$(date +%F)" \
+                    >> "$ZONE_CONF"
+            done
+            log "  mail/webmail de $ZONE_DOMAIN apuntando a $SERVER_IP"
+
+            # Resolver conflictos CNAME + otro tipo (rompen la zona en BIND)
+            for N in $(grep -oP "RECORD='\K[^']+" "$ZONE_CONF" | sort -u); do
+                NC=$(grep "RECORD='$N' " "$ZONE_CONF" | grep -c "TYPE='CNAME'")
+                NO=$(grep "RECORD='$N' " "$ZONE_CONF" | grep -vc "TYPE='CNAME'")
+                if [[ "$NC" -gt 0 && "$NO" -gt 0 ]]; then
+                    sed -i "/RECORD='$N' TYPE='CNAME'/d" "$ZONE_CONF"
+                    warn "  $ZONE_DOMAIN: CNAME '$N' eliminado (colisionaba con otro registro)"
+                fi
+                # Varios CNAME para el mismo nombre: dejar solo el primero
+                if [[ "$NC" -gt 1 ]]; then
+                    awk -v n="$N" '
+                        $0 ~ "RECORD=\x27"n"\x27 TYPE=\x27CNAME\x27" {
+                            if (seen[n]++) next
+                        } {print}' "$ZONE_CONF" > "${ZONE_CONF}.tmp" \
+                        && mv "${ZONE_CONF}.tmp" "$ZONE_CONF"
+                    warn "  $ZONE_DOMAIN: CNAMEs duplicados de '$N' eliminados"
+                fi
+            done
+            REC_COUNT=$((REC_COUNT+2))
+        fi
+
         # Reconstruir ESTA zona una sola vez (en vez de una vez por registro)
         if [[ $REC_COUNT -gt 0 ]]; then
-            ZONE_CONF="/usr/local/hestia/data/users/$CPANEL_USER/dns/${ZONE_DOMAIN}.conf"
             [[ -f "$ZONE_CONF" ]] && chmod 660 "$ZONE_CONF" 2>/dev/null || true
             $BIN/v-rebuild-dns-domain "$CPANEL_USER" "$ZONE_DOMAIN" 'no' 2>/dev/null || true
             log "  $REC_COUNT registros DNS importados en $ZONE_DOMAIN"
