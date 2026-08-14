@@ -662,6 +662,22 @@ if [[ -n "$DNS_BASE" ]]; then
                 A|AAAA|CNAME|MX|TXT|SRV|CAA|NS) ;;
                 *) continue ;;
             esac
+
+            # NO importar registros propios de cPanel: no existen en QemuCP y
+            # apuntan al servidor de origen. Incluye el DKIM antiguo, que si se
+            # importa hace que la firma de correo de este servidor no valide.
+            case "${rname%.}" in
+                whm|cpanel|webdisk|cpcontacts|cpcalendars|autodiscover|autoconfig|\
+                whm.*|cpanel.*|webdisk.*|cpcontacts.*|cpcalendars.*|\
+                _cpanel-dcv-test-record*|_caldav._tcp*|_caldavs._tcp*|\
+                _carddav._tcp*|_carddavs._tcp*|_autodiscover._tcp*|\
+                default._domainkey*|_acme-challenge*|_domainkey*)
+                    continue ;;
+            esac
+            # SPF del servidor de origen: QemuCP crea el suyo, dos SPF invalidan ambos
+            if [[ "$rtype" == "TXT" && "$rvalue" == *"v=spf1"* ]]; then
+                continue
+            fi
             # Normalizar nombre: quitar el dominio final y el punto
             rec_name="${rname%.}"
             rec_name="${rec_name%.$ZONE_DOMAIN}"
@@ -699,6 +715,14 @@ if [[ -n "$DNS_BASE" ]]; then
                 # una sola vez por zona al final.
                 ZONE_CONF="/usr/local/hestia/data/users/$CPANEL_USER/dns/${ZONE_DOMAIN}.conf"
                 if [[ -f "$ZONE_CONF" ]]; then
+                    # IDEMPOTENCIA: si el registro YA existe (mismo nombre, tipo
+                    # y valor) no volver a anadirlo. Sin esto, reejecutar el
+                    # migrador sobre una cuenta ya migrada triplica la zona
+                    # (visto en produccion: 115 registros donde debia haber 20).
+                    if grep -qF "RECORD='${rec_name:-@}' TYPE='$rtype' PRIORITY='$rec_prio' VALUE='$rec_val'" \
+                        "$ZONE_CONF" 2>/dev/null; then
+                        continue
+                    fi
                     NEXT_ID=$(( $(awk -F"ID='" '{print $2}' "$ZONE_CONF" 2>/dev/null \
                         | cut -d"'" -f1 | sort -n | tail -1) + 1 ))
                     [[ -z "$NEXT_ID" || "$NEXT_ID" -lt 1 ]] && NEXT_ID=1
@@ -756,7 +780,18 @@ if [[ -n "$DNS_BASE" ]]; then
         # Reconstruir ESTA zona una sola vez (en vez de una vez por registro)
         if [[ $REC_COUNT -gt 0 ]]; then
             [[ -f "$ZONE_CONF" ]] && chmod 660 "$ZONE_CONF" 2>/dev/null || true
-            $BIN/v-rebuild-dns-domain "$CPANEL_USER" "$ZONE_DOMAIN" 'no' 2>/dev/null || true
+            $BIN/v-rebuild-dns-domain "$CPANEL_USER" "$ZONE_DOMAIN" 'no' 2>/dev/null
+            # El serial del SOA no puede pasar de 10 digitos o BIND rechaza la
+            # zona ("out of range"). HestiaCP lo desborda al reconstruir muchas
+            # veces el mismo dia.
+            ZFILE="/home/$CPANEL_USER/conf/dns/${ZONE_DOMAIN}.db"
+            if [[ -f "$ZFILE" ]]; then
+                LONGSER=$(grep -oP '^\s+\K[0-9]{11,}' "$ZFILE" 2>/dev/null | head -1)
+                if [[ -n "$LONGSER" ]]; then
+                    sed -i "s/$LONGSER/$(date +%Y%m%d)01/" "$ZFILE"
+                    warn "  $ZONE_DOMAIN: serial corregido (excedia 10 digitos)"
+                fi
+            fi || true
             log "  $REC_COUNT registros DNS importados en $ZONE_DOMAIN"
         fi
     done

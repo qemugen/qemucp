@@ -46,6 +46,30 @@ fi
 
 set -euo pipefail
 
+# Si el script muere, decir EXACTAMENTE en que linea y con que comando.
+# Sin esto un fallo (p.ej. variable no definida con set -u) corta la
+# instalacion sin dejar rastro, que es lo que ocurrio en produccion.
+# Marca de progreso: si el script muere, sabemos donde iba.
+QEMUCP_PASO="inicio"
+
+# trap EXIT captura TODO, incluido 'unbound variable' de set -u (que ERR no
+# atrapa porque bash sale antes). Sin esto la instalacion se corta en
+# silencio, como ocurrio en produccion con HESTIA_INSTALL_VER.
+trap 'RC=$?
+if [ $RC -ne 0 ]; then
+    echo ""
+    echo "==========================================================="
+    echo "  LA INSTALACION SE HA DETENIDO"
+    echo "==========================================================="
+    echo "  Ultimo paso completado: ${QEMUCP_PASO}"
+    echo "  Codigo de salida:       $RC"
+    echo ""
+    echo "  El panel puede estar instalado pero SIN optimizaciones."
+    echo "  Relanza este script: detecta la instalacion existente y"
+    echo "  aplica solo los pasos que falten."
+    echo ""
+fi' EXIT
+
 # Evitar ventanas interactivas durante apt (GRUB, sshd, etc)
 export DEBIAN_FRONTEND=noninteractive
 export DEBCONF_NONINTERACTIVE_SEEN=true
@@ -75,7 +99,8 @@ NC='\033[0m'
 log()    { echo -e "${GREEN}[OK]${NC} $1"; }
 warn()   { echo -e "${YELLOW}[!]${NC} $1"; }
 error()  { echo -e "${RED}[!!]${NC} $1"; exit 1; }
-header() { echo -e "\n${BLUE}======================================${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}======================================${NC}\n"; }
+header() {
+    QEMUCP_PASO="$1" echo -e "\n${BLUE}======================================${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}======================================${NC}\n"; }
 
 # ---------------------------------------------
 #  COMPROBACIONES PREVIAS
