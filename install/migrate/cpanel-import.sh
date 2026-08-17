@@ -688,14 +688,15 @@ if [[ -n "$DNS_BASE" ]]; then
             # NO importar registros propios de cPanel: no existen en QemuCP y
             # apuntan al servidor de origen. Incluye el DKIM antiguo, que si se
             # importa hace que la firma de correo de este servidor no valide.
+            SKIP_REC="no"
             case "${rname%.}" in
-                whm|cpanel|webdisk|cpcontacts|cpcalendars|autodiscover|autoconfig|\
-                whm.*|cpanel.*|webdisk.*|cpcontacts.*|cpcalendars.*|\
-                _cpanel-dcv-test-record*|_caldav._tcp*|_caldavs._tcp*|\
-                _carddav._tcp*|_carddavs._tcp*|_autodiscover._tcp*|\
-                default._domainkey*|_acme-challenge*|_domainkey*)
-                    continue ;;
+                whm|cpanel|webdisk|cpcontacts|cpcalendars|autodiscover|autoconfig) SKIP_REC="yes" ;;
+                whm.*|cpanel.*|webdisk.*|cpcontacts.*|cpcalendars.*) SKIP_REC="yes" ;;
+                _cpanel-dcv-test-record*|_acme-challenge*) SKIP_REC="yes" ;;
+                _caldav*|_carddav*|_autodiscover*) SKIP_REC="yes" ;;
+                *_domainkey*) SKIP_REC="yes" ;;
             esac
+            [[ "$SKIP_REC" == "yes" ]] && continue
             # SPF del servidor de origen: QemuCP crea el suyo, dos SPF invalidan ambos
             if [[ "$rtype" == "TXT" && "$rvalue" == *"v=spf1"* ]]; then
                 continue
@@ -726,33 +727,40 @@ if [[ -n "$DNS_BASE" ]]; then
             rec_val=$(echo "$rec_val" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
             [[ -z "$rec_val" ]] && continue
 
-            # Llamada: con prioridad solo para MX/SRV (pasar "" rompe la validacion)
-            if [[ -n "$rec_prio" ]]; then
-                # Escribimos el registro DIRECTAMENTE en el fichero de zona de
-                # HestiaCP en lugar de llamar a v-add-dns-record. Ese comando,
-                # aun con restart=no, ejecuta sort_dns_records +
-                # update_domain_serial + rebuild_dns_domain_conf en CADA
-                # llamada (~1-2s), lo que hacia que una zona de 35 registros
-                # tardase mas de un minuto. Aqui acumulamos y reconstruimos
-                # una sola vez por zona al final.
-                ZONE_CONF="/usr/local/hestia/data/users/$CPANEL_USER/dns/${ZONE_DOMAIN}.conf"
-                if [[ -f "$ZONE_CONF" ]]; then
-                    # IDEMPOTENCIA: si el registro YA existe (mismo nombre, tipo
-                    # y valor) no volver a anadirlo. Sin esto, reejecutar el
-                    # migrador sobre una cuenta ya migrada triplica la zona
-                    # (visto en produccion: 115 registros donde debia haber 20).
-                    if grep -qF "RECORD='${rec_name:-@}' TYPE='$rtype' PRIORITY='$rec_prio' VALUE='$rec_val'" \
-                        "$ZONE_CONF" 2>/dev/null; then
-                        continue
-                    fi
-                    NEXT_ID=$(( $(awk -F"ID='" '{print $2}' "$ZONE_CONF" 2>/dev/null \
-                        | cut -d"'" -f1 | sort -n | tail -1) + 1 ))
-                    [[ -z "$NEXT_ID" || "$NEXT_ID" -lt 1 ]] && NEXT_ID=1
-                    NOW_T=$(date +'%T'); NOW_D=$(date +'%F')
-                    printf "ID='%s' RECORD='%s' TYPE='%s' PRIORITY='%s' VALUE='%s' SUSPENDED='no' TIME='%s' DATE='%s'\n" \
-                        "$NEXT_ID" "${rec_name:-@}" "$rtype" "$rec_prio" "$rec_val" "$NOW_T" "$NOW_D" \
-                        >> "$ZONE_CONF" 2>/dev/null && REC_COUNT=$((REC_COUNT+1)) || true
+            # Si el registro apunta a una IP del servidor de ORIGEN, se
+            # reescribe a la IP de ESTE servidor. Si no, la web/servicio
+            # seguiria resolviendo al hosting antiguo tras la migracion.
+            if [[ "$rtype" == "A" && "$rec_val" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                if [[ "$rec_val" != "$SERVER_IP" && "$rec_val" != "127.0.0.1" ]]; then
+                    rec_val="$SERVER_IP"
                 fi
+            fi
+
+            # Escribimos el registro DIRECTAMENTE en el fichero de zona de
+            # HestiaCP en lugar de llamar a v-add-dns-record. Ese comando,
+            # aun con restart=no, ejecuta sort_dns_records +
+            # update_domain_serial + rebuild_dns_domain_conf en CADA llamada
+            # (~1-2s), lo que hacia que una zona de 35 registros tardase mas
+            # de un minuto. Aqui acumulamos y reconstruimos una vez por zona.
+            # NOTA: esto aplica a TODOS los tipos (A, CNAME, TXT, MX, SRV...),
+            # no solo a los que llevan prioridad.
+            ZONE_CONF="/usr/local/hestia/data/users/$CPANEL_USER/dns/${ZONE_DOMAIN}.conf"
+            if [[ -f "$ZONE_CONF" ]]; then
+                # IDEMPOTENCIA: si el registro YA existe (mismo nombre, tipo,
+                # prioridad y valor) no volver a anadirlo. Sin esto, reejecutar
+                # el migrador sobre una cuenta ya migrada multiplica la zona
+                # (visto en produccion: 115 registros donde debia haber 20).
+                if grep -qF "RECORD='${rec_name:-@}' TYPE='$rtype' PRIORITY='$rec_prio' VALUE='$rec_val'" \
+                    "$ZONE_CONF" 2>/dev/null; then
+                    continue
+                fi
+                NEXT_ID=$(( $(awk -F"ID='" '{print $2}' "$ZONE_CONF" 2>/dev/null \
+                    | cut -d"'" -f1 | sort -n | tail -1) + 1 ))
+                [[ -z "$NEXT_ID" || "$NEXT_ID" -lt 1 ]] && NEXT_ID=1
+                NOW_T=$(date +'%T'); NOW_D=$(date +'%F')
+                printf "ID='%s' RECORD='%s' TYPE='%s' PRIORITY='%s' VALUE='%s' SUSPENDED='no' TIME='%s' DATE='%s'\n" \
+                    "$NEXT_ID" "${rec_name:-@}" "$rtype" "$rec_prio" "$rec_val" "$NOW_T" "$NOW_D" \
+                    >> "$ZONE_CONF" 2>/dev/null && REC_COUNT=$((REC_COUNT+1)) || true
             fi
         done < <(grep -v "^;" "$ZONE_FILE" 2>/dev/null | grep -v "^$" || true)
 
@@ -778,16 +786,22 @@ if [[ -n "$DNS_BASE" ]]; then
             done
             log "  mail/webmail de $ZONE_DOMAIN apuntando a $SERVER_IP"
 
-            # Resolver conflictos CNAME + otro tipo (rompen la zona en BIND)
+            # Resolver conflictos CNAME + otro tipo (rompen la zona en BIND).
+            # OJO: no usar NC como contador, es la variable del color de los
+            # mensajes definida al inicio del script.
             for N in $(grep -oP "RECORD='\K[^']+" "$ZONE_CONF" | sort -u); do
-                NC=$(grep "RECORD='$N' " "$ZONE_CONF" | grep -c "TYPE='CNAME'")
-                NO=$(grep "RECORD='$N' " "$ZONE_CONF" | grep -vc "TYPE='CNAME'")
-                if [[ "$NC" -gt 0 && "$NO" -gt 0 ]]; then
+                # OJO: 'grep -c' devuelve codigo 1 cuando cuenta 0 y con
+                # 'set -e' eso aborta el bucle en silencio. De ahi el '|| true'.
+                CNT_CNAME=$(grep "RECORD='$N' " "$ZONE_CONF" | grep -c "TYPE='CNAME'" || true)
+                CNT_OTRO=$(grep "RECORD='$N' " "$ZONE_CONF" | grep -vc "TYPE='CNAME'" || true)
+                [[ -z "$CNT_CNAME" ]] && CNT_CNAME=0
+                [[ -z "$CNT_OTRO" ]] && CNT_OTRO=0
+                if [[ "$CNT_CNAME" -gt 0 && "$CNT_OTRO" -gt 0 ]]; then
                     sed -i "/RECORD='$N' TYPE='CNAME'/d" "$ZONE_CONF"
                     warn "  $ZONE_DOMAIN: CNAME '$N' eliminado (colisionaba con otro registro)"
                 fi
                 # Varios CNAME para el mismo nombre: dejar solo el primero
-                if [[ "$NC" -gt 1 ]]; then
+                if [[ "$CNT_CNAME" -gt 1 ]]; then
                     awk -v n="$N" '
                         $0 ~ "RECORD=\x27"n"\x27 TYPE=\x27CNAME\x27" {
                             if (seen[n]++) next
