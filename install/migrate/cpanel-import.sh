@@ -1205,3 +1205,8 @@ echo ""
 warn "Actualiza las cadenas de conexion a DB en tus aplicaciones"
 warn "Apunta los DNS de tus dominios a este servidor"
 echo ""
+
+# Salida explicita: sin esto el script devuelve el codigo del ULTIMO comando
+# ejecutado. Un simple aviso ("Sin DB coincidente...") marcaba la migracion
+# entera como fallida aunque webs, correo y DNS estuviesen correctos.
+exit 0
