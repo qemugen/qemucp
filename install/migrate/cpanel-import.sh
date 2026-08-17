@@ -669,6 +669,21 @@ if [[ -n "$DNS_BASE" ]]; then
             warn "Zona DNS $ZONE_DOMAIN ya existe"
         fi
 
+        # El dominio usa correo EXTERNO? (Google Workspace, Microsoft 365,
+        # Zoho...)? Si es asi hay que RESPETAR sus MX y su SPF, y no crear
+        # el buzon local ni pisar la configuracion: el correo del cliente
+        # dejaria de funcionar.
+        MAIL_EXTERNO="no"
+        PROVEEDOR_MAIL=""
+        if grep -qiE "MX.*(google|googlemail|aspmx|outlook|microsoft|zoho|protonmail|mailgun|sendgrid)" \
+            "$ZONE_FILE" 2>/dev/null; then
+            MAIL_EXTERNO="si"
+            PROVEEDOR_MAIL=$(grep -iE "MX" "$ZONE_FILE" 2>/dev/null \
+                | grep -oiE "(google|googlemail|aspmx|outlook|microsoft|zoho|protonmail|mailgun|sendgrid)[a-z0-9.-]*" \
+                | head -1)
+            warn "  $ZONE_DOMAIN usa correo EXTERNO ($PROVEEDOR_MAIL): se respetan MX y SPF"
+        fi
+
         # Importar registros personalizados del fichero de zona.
         # La zona nueva trae los registros por defecto (A, NS, MX propios);
         # anadimos los que el cliente tenia y no existen ya (MX externos,
@@ -697,9 +712,14 @@ if [[ -n "$DNS_BASE" ]]; then
                 *_domainkey*) SKIP_REC="yes" ;;
             esac
             [[ "$SKIP_REC" == "yes" ]] && continue
-            # SPF del servidor de origen: QemuCP crea el suyo, dos SPF invalidan ambos
+            # SPF: si el correo es EXTERNO hay que conservar su SPF (sin el,
+            # el correo de Google/Microsoft acaba en spam). Si el correo es
+            # local, se descarta el del origen porque QemuCP crea el suyo y
+            # dos registros SPF invalidan ambos.
             if [[ "$rtype" == "TXT" && "$rvalue" == *"v=spf1"* ]]; then
-                continue
+                if [[ "$MAIL_EXTERNO" != "si" ]]; then
+                    continue
+                fi
             fi
             # Normalizar nombre: quitar el dominio final y el punto
             rec_name="${rname%.}"
@@ -773,7 +793,20 @@ if [[ -n "$DNS_BASE" ]]; then
         #    deja de resolver. Se elimina el CNAME y se conserva el A.
         ZONE_CONF="/usr/local/hestia/data/users/$CPANEL_USER/dns/${ZONE_DOMAIN}.conf"
         if [[ -f "$ZONE_CONF" ]]; then
-            for SUB in mail webmail; do
+            # Con correo EXTERNO no se toca 'mail' (podria ser parte de la
+            # configuracion del proveedor) y se elimina el MX local que
+            # HestiaCP anade al crear la zona, que competiria con los MX de
+            # Google/Microsoft y desviaria el correo al servidor equivocado.
+            if [[ "$MAIL_EXTERNO" == "si" ]]; then
+                sed -i "/TYPE='MX' PRIORITY='10' VALUE='mail.${ZONE_DOMAIN}.'/d" \
+                    "$ZONE_CONF" 2>/dev/null || true
+                SUBS_A_CREAR="webmail"
+                warn "  $ZONE_DOMAIN: MX local eliminado, se mantienen los del proveedor"
+            else
+                SUBS_A_CREAR="mail webmail"
+            fi
+
+            for SUB in $SUBS_A_CREAR; do
                 # Quitar cualquier registro previo de ese nombre (del origen)
                 sed -i "/RECORD='${SUB}' /d" "$ZONE_CONF" 2>/dev/null || true
                 # Insertar un A limpio apuntando a este servidor
@@ -784,7 +817,7 @@ if [[ -n "$DNS_BASE" ]]; then
                     "$NID" "$SUB" "$SERVER_IP" "$(date +%T)" "$(date +%F)" \
                     >> "$ZONE_CONF"
             done
-            log "  mail/webmail de $ZONE_DOMAIN apuntando a $SERVER_IP"
+            log "  ${SUBS_A_CREAR// //} de $ZONE_DOMAIN apuntando a $SERVER_IP"
 
             # Resolver conflictos CNAME + otro tipo (rompen la zona en BIND).
             # OJO: no usar NC como contador, es la variable del color de los
