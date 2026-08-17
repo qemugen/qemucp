@@ -939,7 +939,13 @@ assign_php_version() {
 
     if [[ -n "$PHP_TPL" ]]; then
         # Verificar que la version existe en el sistema
-        if [[ -d "/etc/php/${PHP_TPL#PHP-}" ]] ||            ls "$HESTIA/data/templates/web/php-fpm/${PHP_TPL}.tpl" &>/dev/null 2>&1; then
+        # OJO: la plantilla es PHP-8_1 pero el directorio es /etc/php/8.1
+        # (punto, no guion bajo). Sin esta conversion la comprobacion SIEMPRE
+        # fallaba y ningun dominio recibia la version de PHP detectada.
+        PHP_NUM="${PHP_TPL#PHP-}"
+        PHP_NUM="${PHP_NUM//_/.}"
+        if [[ -d "/etc/php/$PHP_NUM" ]] \
+            || ls "$HESTIA/data/templates/web/php-fpm/${PHP_TPL}.tpl" &>/dev/null 2>&1; then
             $BIN/v-change-web-domain-backend-tpl "$CPANEL_USER" "$DOMAIN" "$PHP_TPL" "no"                 2>/dev/null && log "  $DOMAIN -> $PHP_TPL" ||                 warn "  No se pudo asignar $PHP_TPL a $DOMAIN"
         else
             warn "  $DOMAIN necesita $PHP_TPL pero no esta instalada - usando por defecto"
