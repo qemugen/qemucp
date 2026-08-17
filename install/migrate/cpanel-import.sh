@@ -570,12 +570,34 @@ if [[ -n "$MAIL_BASE" ]]; then
         done
         SHADOW_HASHES=()
 
-        # Corregir permisos de la CONFIG de correo (passwd, aliases) para Exim
-        chmod 755 "/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN" 2>/dev/null || true
-        find "/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN" -type d \
-            -exec chmod 755 {} + 2>/dev/null || true
-        find "/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN" -type f \
-            -exec chmod 644 {} + 2>/dev/null || true
+        # Permisos de la CONFIG de correo. CRITICO: si el propietario no es
+        # el correcto, Dovecot NO puede leer el fichero passwd y RECHAZA
+        # TODOS los logins aunque la contrasena sea correcta. El sintoma que
+        # ve el cliente es "la contrasena deja de funcionar sola".
+        # Patron correcto de HestiaCP (verificado en produccion):
+        #   directorio del dominio -> Debian-exim:mail  modo 771
+        #   passwd                 -> dovecot:mail      modo 660
+        #   resto de ficheros      -> Debian-exim:mail  modo 660
+        MAILCONF_DIR="/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN"
+        if [[ -d "$MAILCONF_DIR" ]]; then
+            chown Debian-exim:mail "$MAILCONF_DIR" 2>/dev/null || true
+            chmod 771 "$MAILCONF_DIR" 2>/dev/null || true
+
+            for MF in "$MAILCONF_DIR"/*; do
+                [[ -f "$MF" ]] || continue
+                case "$(basename "$MF")" in
+                    passwd)
+                        chown dovecot:mail "$MF" 2>/dev/null || true
+                        chmod 660 "$MF" 2>/dev/null || true ;;
+                    *.conf|*.conf_letsencrypt)
+                        # Los vhost los gestiona HestiaCP: no tocarlos
+                        ;;
+                    *)
+                        chown Debian-exim:mail "$MF" 2>/dev/null || true
+                        chmod 660 "$MF" 2>/dev/null || true ;;
+                esac
+            done
+        fi
 
         # Corregir permisos del MAILDIR REAL (donde estan los mensajes).
         # Sin esto Dovecot da "Permission denied" al abrir los buzones.
@@ -1068,6 +1090,34 @@ for d in "${SUB_DOMAINS[@]:-}"; do [[ -n "$d" ]] && ALL_DOMAINS+=("$d"); done
 
 # Reconstruir configuracion del usuario para aplicar todos los cambios
 $BIN/v-rebuild-user "$CPANEL_USER" 2>/dev/null && log "Configuracion reconstruida" || true
+
+# -- VERIFICACION FINAL de permisos de correo -------------------
+# Los pasos anteriores (rebuild-user, rebuild-mail-domains) pueden
+# revertir el propietario del directorio de configuracion. Si queda mal,
+# Dovecot no puede leer el passwd y RECHAZA TODOS los logins: el cliente
+# ve que "la contrasena deja de funcionar sola".
+header "Verificando permisos de correo"
+PERM_FIX=0
+for MD in /home/$CPANEL_USER/conf/mail/*/; do
+    [[ -d "$MD" ]] || continue
+    if [[ "$(stat -c '%U:%G' "$MD" 2>/dev/null)" != "Debian-exim:mail" ]]; then
+        chown Debian-exim:mail "$MD" 2>/dev/null || true
+        chmod 771 "$MD" 2>/dev/null || true
+        PERM_FIX=$((PERM_FIX+1))
+    fi
+    if [[ -f "$MD/passwd" ]] && \
+       [[ "$(stat -c '%U:%G' "$MD/passwd" 2>/dev/null)" != "dovecot:mail" ]]; then
+        chown dovecot:mail "$MD/passwd" 2>/dev/null || true
+        chmod 660 "$MD/passwd" 2>/dev/null || true
+        PERM_FIX=$((PERM_FIX+1))
+    fi
+done
+if [[ $PERM_FIX -gt 0 ]]; then
+    warn "$PERM_FIX permisos de correo corregidos en la verificacion final"
+    systemctl restart dovecot 2>/dev/null || true
+else
+    log "Permisos de correo correctos"
+fi
 
 # SSL: NO se emite automaticamente durante la migracion.
 # Motivo: al migrar, el DNS del dominio suele seguir apuntando al servidor
