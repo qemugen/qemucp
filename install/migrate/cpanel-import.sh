@@ -673,14 +673,27 @@ if [[ -n "$DNS_BASE" ]]; then
         # Zoho...)? Si es asi hay que RESPETAR sus MX y su SPF, y no crear
         # el buzon local ni pisar la configuracion: el correo del cliente
         # dejaria de funcionar.
+        # Correo EXTERNO = el MX apunta FUERA del propio dominio.
+        # No se usa una lista de proveedores conocidos: siempre aparecen
+        # nuevos (Forpsi, IONOS, CDMON, OVH...) y clasificarlos como
+        # "locales" hace que el MX de HestiaCP compita con el del proveedor
+        # y el correo del cliente se entregue en el servidor equivocado.
         MAIL_EXTERNO="no"
         PROVEEDOR_MAIL=""
-        if grep -qiE "MX.*(google|googlemail|aspmx|outlook|microsoft|zoho|protonmail|mailgun|sendgrid)" \
-            "$ZONE_FILE" 2>/dev/null; then
+        while read -r mxdest; do
+            [[ -z "$mxdest" ]] && continue
+            mxdest="${mxdest%.}"
+            # Un MX del propio dominio (dominio.com o algo.dominio.com) es local
+            if [[ "$mxdest" == "$ZONE_DOMAIN" || "$mxdest" == *".$ZONE_DOMAIN" ]]; then
+                continue
+            fi
             MAIL_EXTERNO="si"
-            PROVEEDOR_MAIL=$(grep -iE "MX" "$ZONE_FILE" 2>/dev/null \
-                | grep -oiE "(google|googlemail|aspmx|outlook|microsoft|zoho|protonmail|mailgun|sendgrid)[a-z0-9.-]*" \
-                | head -1)
+            PROVEEDOR_MAIL="$mxdest"
+            break
+        done < <(grep -iE "[[:space:]]MX[[:space:]]" "$ZONE_FILE" 2>/dev/null \
+                 | awk '{print $NF}')
+
+        if [[ "$MAIL_EXTERNO" == "si" ]]; then
             warn "  $ZONE_DOMAIN usa correo EXTERNO ($PROVEEDOR_MAIL): se respetan MX y SPF"
         fi
 
