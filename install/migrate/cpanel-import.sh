@@ -811,7 +811,11 @@ if [[ -n "$DNS_BASE" ]]; then
             # HestiaCP anade al crear la zona, que competiria con los MX de
             # Google/Microsoft y desviaria el correo al servidor equivocado.
             if [[ "$MAIL_EXTERNO" == "si" ]]; then
-                sed -i "/TYPE='MX' PRIORITY='10' VALUE='mail.${ZONE_DOMAIN}.'/d" \
+                # Eliminar el MX local SEA CUAL SEA su prioridad: HestiaCP lo
+                # crea con PRIORITY='0' en unas versiones y '10' en otras, asi
+                # que fijar el numero dejaba el MX local conviviendo con los
+                # del proveedor externo (dos rutas de correo compitiendo).
+                sed -i "/TYPE='MX' PRIORITY='[0-9]*' VALUE='mail\.${ZONE_DOMAIN}\.'/d" \
                     "$ZONE_CONF" 2>/dev/null || true
                 SUBS_A_CREAR="webmail"
                 warn "  $ZONE_DOMAIN: MX local eliminado, se mantienen los del proveedor"
