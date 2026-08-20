@@ -1181,10 +1181,23 @@ for MD in /home/$CPANEL_USER/conf/mail/*/; do
         chmod 660 "$MD/passwd" 2>/dev/null || true
         PERM_FIX=$((PERM_FIX+1))
     fi
+    # Ficheros que lee EXIM. Visto en produccion: el directorio quedaba
+    # correcto pero estos volvian a USUARIO:USUARIO, y entonces Exim no
+    # puede leerlos y RECHAZA el correo entrante con 451:
+    #   failed to open /etc/exim4/domains/DOM/aliases: Permission denied
+    for MF in accounts aliases ip limits antispam antivirus fwd_only dkim.pem; do
+        [[ -f "$MD$MF" ]] || continue
+        if [[ "$(stat -c '%U:%G' "$MD$MF" 2>/dev/null)" != "Debian-exim:mail" ]]; then
+            chown Debian-exim:mail "$MD$MF" 2>/dev/null || true
+            chmod 660 "$MD$MF" 2>/dev/null || true
+            PERM_FIX=$((PERM_FIX+1))
+        fi
+    done
 done
 if [[ $PERM_FIX -gt 0 ]]; then
     warn "$PERM_FIX permisos de correo corregidos en la verificacion final"
     systemctl restart dovecot 2>/dev/null || true
+    systemctl restart exim4 2>/dev/null || true
 else
     log "Permisos de correo correctos"
 fi
