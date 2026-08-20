@@ -10,7 +10,7 @@
 
 				<!-- Logo / Home Button -->
 				<a href="/" class="top-bar-logo" title="<?= htmlentities($_SESSION["APP_NAME"]) ?>">
-					<img src="/images/logo-header.svg" alt="<?= htmlentities($_SESSION["APP_NAME"]) ?>" width="140" height="30" style="max-width:100%;height:auto;">
+					<img src="/images/logo-header.svg" alt="<?= htmlentities($_SESSION["APP_NAME"]) ?>" width="54" height="29">
 				</a>
 
 				<!-- Usage Statistics -->
@@ -201,7 +201,7 @@
 							<?php } ?>
 
 							<!-- Server Settings -->
-							<?php if (($_SESSION["userContext"] === "admin" && $_SESSION["POLICY_SYSTEM_HIDE_SERVICES"] !== "yes") || $_SESSION["user"] === "admin") { ?>
+							<?php if (($_SESSION["userContext"] === "admin" && $_SESSION["POLICY_SYSTEM_HIDE_SERVICES"] !== "yes") || $_SESSION["user"] === $_SESSION['ROOT_USER']) { ?>
 								<?php if ($_SESSION["userContext"] === "admin" && $_SESSION["look"] !== "") { ?>
 									<!-- Hide 'Server Settings' button when impersonating 'admin' or other users -->
 								<?php } else { ?>
@@ -211,13 +211,6 @@
 } ?>" href="/list/server/">
 											<i class="fas fa-gear"></i>
 											<span class="top-bar-menu-link-label u-hide-desktop"><?= _("Server settings") ?></span>
-										</a>
-									</li>
-									<!-- QemuCP Performance Dashboard -->
-									<li class="top-bar-menu-item">
-										<a title="<?= _("Performance Dashboard") ?>" class="top-bar-menu-link <?php if ($TAB == "PERFORMANCE") { echo "active"; } ?>" href="/list/performance/">
-											<i class="fas fa-gauge-high"></i>
-											<span class="top-bar-menu-link-label u-hide-desktop"><?= _("Performance") ?></span>
 										</a>
 									</li>
 								<?php } ?>
@@ -257,7 +250,7 @@
 							<?php if ($_SESSION["HIDE_DOCS"] !== "yes") { ?>
 								<!-- Help / Documentation -->
 								<li class="top-bar-menu-item">
-									<a title="<?= _("Help") ?>" class="top-bar-menu-link" href="https://docs.qemucp.com/" target="_blank" rel="noopener">
+									<a title="<?= _("Help") ?>" class="top-bar-menu-link" href="https://hestiacp.com/docs/" target="_blank" rel="noopener">
 										<i class="fas fa-circle-question"></i>
 										<span class="top-bar-menu-link-label u-hide-desktop"><?= _("Help") ?></span>
 									</a>
@@ -355,17 +348,7 @@
 					<?php } ?>
 				<?php } ?>
 
-								<!-- WP Manager tab -->
-				<li class="main-menu-item">
-					<a class="main-menu-item-link <?php if ($TAB == "WP") {
-					echo "active"; } ?>" href="/list/wp/" title="<?= _("WP-TOOL - WordPress Manager") ?>">
-								<p class="main-menu-item-label"><?= _("WP-TOOL") ?><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" style="width:1em;height:1em;fill:currentColor;margin-left:4px;"><path d="M61.7 169.4l101.5 278C92.2 413 43.3 340.2 43.3 256c0-30.9 6.6-60.1 18.4-86.6zm337.9-7.9c0-26.5-9.5-44.9-17.7-59.2-10.9-17.7-21.1-32.6-21.1-50.3 0-19.7 14.9-38.1 36-38.1.9 0 1.8.1 2.7.2-38.2-35-89.1-56.4-145-56.4-75 0-141 38.5-179.4 96.8 5 .2 9.8.3 13.8.3 22.4 0 57.1-2.7 57.1-2.7 11.5-.7 12.9 16.3 1.4 17.6 0 0-11.6 1.4-24.6 2l78.2 232.7 47-140.9-33.4-91.8c-11.5-.7-22.4-2-22.4-2-11.5-.7-10.2-18.3 1.3-17.6 0 0 35.4 2.7 56.5 2.7 22.4 0 57.1-2.7 57.1-2.7 11.5-.7 12.9 16.3 1.4 17.6 0 0-11.6 1.4-24.6 2l77.6 230.9 21.4-71.5c9.3-29.7 16.4-51 16.4-69.4zm-139.9 29.3l-64.4 187.1c19.2 5.7 39.5 8.8 60.6 8.8 25 0 48.8-4.3 71-12.1-.6-.9-1.1-1.9-1.5-3L259.7 190.8zm183.7-120.7c.9 6.8 1.4 14 1.4 21.9 0 21.6-4 45.8-16.2 76.2l-65 187.9C426.2 403 468.7 334.5 468.7 256c0-34.4-8.8-66.8-24.3-95zm-209 256L256 512C114.6 512 0 397.4 0 256S114.6 0 256 0s256 114.6 256 256-114.6 256-256 256z"/></svg></p>
-								<ul class="main-menu-stats">
-								</ul>
-					</a>
-				</li>
-
-                <!-- DNS tab -->
+				<!-- DNS tab -->
 				<?php if (isset($_SESSION["DNS_SYSTEM"]) && !empty($_SESSION["DNS_SYSTEM"])) { ?>
 					<?php if ($panel[$user]["DNS_DOMAINS"] != "0") { ?>
 						<li class="main-menu-item">

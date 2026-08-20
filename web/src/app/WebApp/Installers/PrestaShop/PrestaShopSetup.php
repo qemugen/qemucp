@@ -1,94 +1,128 @@
 <?php
 
-namespace Hestia\WebApp\Installers\Prestashop;
+declare(strict_types=1);
 
-use Hestia\WebApp\Installers\BaseSetup as BaseSetup;
-use function Hestiacp\quoteshellarg\quoteshellarg;
+namespace Hestia\WebApp\Installers\PrestaShop;
+
+use Hestia\WebApp\BaseSetup;
+use Hestia\WebApp\InstallationTarget\InstallationTarget;
 
 class PrestaShopSetup extends BaseSetup {
-	protected $appInfo = [
-		"name" => "PrestaShop",
-		"group" => "ecommerce",
-		"enabled" => true,
-		"version" => "8.1.0",
-		"thumbnail" => "prestashop-thumb.png",
-	];
+    protected array $info = [
+        "name" => "PrestaShop",
+        "group" => "ecommerce",
+        "version" => "9.1.4",
+        "thumbnail" => "prestashop-logo.svg",
+    ];
 
-	protected $appname = "prestashop";
-	protected $extractsubdir = "/tmp-prestashop";
+    protected array $config = [
+        "form" => [
+            "shop_name" => ["value" => "PrestaShop"],
+            "first_name" => ["value" => ""],
+            "last_name" => ["value" => ""],
+            "language" => [
+                "type" => "select",
+                "value" => "en",
+                "options" => [
+                    "en" => "English",
+                    "ar" => "العربية (Arabic)",
+                    "bs" => "Bosanski (Bosnian)",
+                    "bg" => "български език (Bulgarian)",
+                    "ca" => "Català (Catalan)",
+                    "cs" => "Čeština (Czech)",
+                    "da" => "Dansk (Danish)",
+                    "de" => "Deutsch (German)",
+                    "et" => "Eesti keel (Estonian)",
+                    "es" => "Español (Spanish)",
+                    "mx" => "Español MX (Spanish)",
+                    "fr" => "Français (French)",
+                    "qc" => "Français CA (French)",
+                    "gl" => "Galego (Galician)",
+                    "el" => "ελληνικά (Greek)",
+                    "ko" => "한국어 (Korean)",
+                    "hr" => "Hrvatski (Croatian)",
+                    "id" => "Indonesia (Indonesian)",
+                    "it" => "Italiano (Italian)",
+                    "ja" => "日本語 (Japanese)",
+                    "lv" => "Latvija (Latvian)",
+                    "lt" => "lietuvių kalba (Lithuanian)",
+                    "mk" => "македонски јазик (Macedonian)",
+                    "hu" => "Magyar (Hungarian)",
+                    "nl" => "Nederlands (Dutch)",
+                    "no" => "Norsk (Norwegian)",
+                    "fa" => "پارسی (Persian)",
+                    "pl" => "Polski (Polish)",
+                    "br" => "Português (Brasil)",
+                    "pt" => "Português (Portuguese)",
+                    "ro" => "Română (Romanian)",
+                    "ru" => "Русский (Russian)",
+                    "sr" => "Srpski (Serbian)",
+                    "sq" => "Shqip (Albanian)",
+                    "sk" => "Slovenčina (Slovak)",
+                    "si" => "slovenski jezik (Slovene)",
+                    "fi" => "Suomi (Finnish)",
+                    "sv" => "svenska (Swedish)",
+                    "tr" => "Türkçe (Turkish)",
+                    "uk" => "Українська (Ukrainian)",
+                    "vn" => "tiếng Việt (Vietnamese)",
+                    "he" => "עברית (Hebrew)",
+                    "hi" => "हिन्दी (Hindi)",
+                    "bn" => "বাংলা (Bengali)",
+                    "tw" => "繁體中文 (Traditional Chinese)",
+                    "zh" => "简体字 (Simplified Chinese)",
+                ],
+            ],
+            "email" => "text",
+            "password" => "password",
+        ],
+        "database" => true,
+        "resources" => [
+            "archive" => [
+                "src" =>
+                    "https://assets.prestashop3.com/dst/edition/corporate/9.1.4-5.0/prestashop_edition_classic_version_9.1.4-5.0.zip?source=hestiacp",
+            ],
+        ],
+        "server" => [
+            "nginx" => [
+                "template" => "prestashop",
+            ],
+            "php" => [
+                "supported" => ["8.1", "8.2", "8.3", "8.4", "8.5"],
+            ],
+        ],
+    ];
 
-	protected $config = [
-		"form" => [
-			"prestashop_account_first_name" => ["value" => "John"],
-			"prestashop_account_last_name" => ["value" => "Doe"],
-			"prestashop_account_email" => "text",
-			"prestashop_account_password" => "password",
-		],
-		"database" => true,
-		"resources" => [
-			"archive" => [
-				"src" =>
-					"https://github.com/PrestaShop/PrestaShop/releases/download/8.1.0/prestashop_8.1.0.zip",
-			],
-		],
-		"server" => [
-			"nginx" => [
-				"template" => "prestashop",
-			],
-			"php" => [
-				"supported" => ["8.0", "8.1"],
-			],
-		],
-	];
+    protected function setupApplication(InstallationTarget $target, array $options): void {
+        // Remove the browser-based installation files
+        $this->appcontext->deleteFile($target->getDocRoot("/index.php"));
+        $this->appcontext->deleteFile($target->getDocRoot("/Install_PrestaShop.html"));
 
-	public function install(array $options = null): bool {
-		parent::install($options);
-		parent::setup($options);
-		$this->appcontext->archiveExtract(
-			$this->getDocRoot($this->extractsubdir . "/prestashop.zip"),
-			$this->getDocRoot(),
-		);
-		//check if ssl is enabled
-		$this->appcontext->runUser("v-list-web-domain", [$this->domain, "json"], $status);
+        $this->appcontext->archiveExtract(
+            $target->getDocRoot("/prestashop.zip"),
+            $target->getDocRoot("/"),
+        );
 
-		if ($status->code !== 0) {
-			throw new \Exception("Cannot list domain");
-		}
+        $this->appcontext->runPHP(
+            $options["php_version"],
+            $target->getDocRoot("/install/index_cli.php"),
+            [
+                "--db_server=" . $target->database->host,
+                "--db_user=" . $target->database->user,
+                "--db_password=" . $target->database->password,
+                "--db_name=" . $target->database->name,
+                "--name=" . $options["shop_name"],
+                "--firstname=" . $options["first_name"],
+                "--lastname=" . $options["last_name"],
+                "--language=" . $options["language"],
+                "--password=" . $options["password"],
+                "--email=" . $options["email"],
+                "--domain=" . $target->domain->domainName,
+                "--ssl=" . $target->domain->isSslEnabled,
+            ],
+        );
 
-		if ($status->json[$this->domain]["SSL"] == "no") {
-			$ssl_enabled = 0;
-		} else {
-			$ssl_enabled = 1;
-		}
-
-		$php_version = $this->appcontext->getSupportedPHP(
-			$this->config["server"]["php"]["supported"],
-		);
-
-		$this->appcontext->runUser(
-			"v-run-cli-cmd",
-			[
-				"/usr/bin/php" . $options["php_version"],
-				quoteshellarg($this->getDocRoot("/install/index_cli.php")),
-				"--db_server=" . quoteshellarg($options["database_host"]),
-				"--db_user=" .
-				quoteshellarg($this->appcontext->user() . "_" . $options["database_user"]),
-				"--db_password=" . quoteshellarg($options["database_password"]),
-				"--db_name=" .
-				quoteshellarg($this->appcontext->user() . "_" . $options["database_name"]),
-				"--firstname=" . quoteshellarg($options["prestashop_account_first_name"]),
-				"--lastname=" . quoteshellarg($options["prestashop_account_last_name"]),
-				"--password=" . quoteshellarg($options["prestashop_account_password"]),
-				"--email=" . quoteshellarg($options["prestashop_account_email"]),
-				"--domain=" . quoteshellarg($this->domain),
-				"--ssl=" . (int) $ssl_enabled,
-			],
-			$status,
-		);
-
-		// remove install folder
-		$this->appcontext->runUser("v-delete-fs-directory", [$this->getDocRoot("/install")]);
-		$this->cleanup();
-		return $status->code === 0;
-	}
+        // Cleanup
+        $this->appcontext->deleteDirectory($target->getDocRoot("/install"));
+        $this->appcontext->deleteFile($target->getDocRoot("/prestashop.zip"));
+    }
 }

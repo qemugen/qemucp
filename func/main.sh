@@ -139,7 +139,7 @@ detect_os() {
 			fi
 		elif [ "$get_os_type" = "debian" ]; then
 			OS_TYPE='Debian'
-			OS_VERSION=$(cat /etc/debian_version | grep -o "[0-9]\{1,2\}" | head -n1)
+			OS_VERSION=$(grep -o "[0-9]\{1,2\}" /etc/debian_version | head -n1)
 		fi
 	else
 		OS_TYPE="Unsupported OS"
@@ -590,7 +590,7 @@ is_object_suspended() {
 # Check if object is unsupended
 is_object_unsuspended() {
 	if [ $2 = 'USER' ]; then
-		spnd=$(cat $USER_DATA/$1.conf | grep "SUSPENDED='yes'")
+		spnd=$(grep "SUSPENDED='yes'" "$USER_DATA/$1.conf")
 	else
 		spnd=$(grep "$2='$3'" $USER_DATA/$1.conf | grep "SUSPENDED='yes'")
 	fi
@@ -679,13 +679,19 @@ update_object_value() {
 
 # Add object key
 add_object_key() {
-	row=$(grep -n "$2='$3'" $USER_DATA/$1.conf)
-	lnr=$(echo $row | cut -f 1 -d ':')
-	object=$(echo $row | sed "s/^$lnr://")
-	if [ -z "$(echo $object | grep $4=)" ]; then
+	row=$(grep -n "$2='$3'" "$USER_DATA/$1.conf")
+	lnr=$(echo "$row" | cut -f 1 -d ':')
+	object=$(echo "$row" | sed "s/^$lnr://")
+
+	# If lnr or $5 is empty, do not run sed
+	if [[ -z "$lnr" || -z "$5" ]]; then
+		return 1
+	fi
+
+	if [[ -z "$(echo "$object" | grep "$4=")" ]]; then
 		local varname="${4#\$}"
 		old="${!varname}"
-		sed -i "$lnr s/$5='/$4='' $5='/" $USER_DATA/$1.conf
+		sed -i "$lnr s/$5='/$4='' $5='/" "$USER_DATA/$1.conf"
 	fi
 }
 
@@ -851,7 +857,7 @@ get_next_cronjob() {
 
 # Sort cron jobs by id
 sort_cron_jobs() {
-	cat $USER_DATA/cron.conf | sort -n -k 2 -t \' > $USER_DATA/cron.tmp
+	sort -n -k 2 -t \' $USER_DATA/cron.conf > $USER_DATA/cron.tmp
 	mv -f $USER_DATA/cron.tmp $USER_DATA/cron.conf
 }
 
@@ -879,7 +885,7 @@ sync_cron_jobs() {
 		echo 'MAILTO=""' > $crontab
 	fi
 
-	while read line; do
+	while IFS= read -r line; do
 		parse_object_kv_list "$line"
 		if [ "$SUSPENDED" = 'no' ]; then
 			echo "$MIN $HOUR $DAY $MONTH $WDAY $CMD" \
@@ -919,7 +925,7 @@ is_localpart_format_valid() {
 # Username / ftp username format validator
 is_user_format_valid() {
 	if [ ${#1} -eq 1 ]; then
-		if ! [[ "$1" =~ ^^[[:alnum:]]$ ]]; then
+		if ! [[ "$1" =~ ^[[:alnum:]]$ ]]; then
 			check_result "$E_INVALID" "invalid $2 format :: $1"
 		fi
 	else
@@ -949,8 +955,17 @@ is_user_format_valid() {
 # Domain format validator
 is_domain_format_valid() {
 	object_name=${2-domain}
-	exclude="[!|@|#|$|^|&|*|(|)|+|=|{|}|:|,|<|>|?|_|/|\|\"|'|;|%|\`| ]"
-	if [[ $1 =~ $exclude ]] || [[ $1 =~ ^[0-9]+$ ]] || [[ $1 =~ \.\. ]] || [[ $1 =~ $(printf '\t') ]] || [[ "$1" = "www" ]]; then
+	exclude='[][!@#$^&*()+={},<>?_/\\"|'\''`;%[:space:]]'
+	if [[ $1 =~ $exclude ]] \
+		|| [[ $1 =~ ^[0-9]+$ ]] \
+		|| [[ $1 =~ \.\. ]] \
+		|| [[ $1 =~ ^- ]] \
+		|| [[ $1 =~ -$ ]] \
+		|| [[ $1 =~ ^\. ]] \
+		|| [[ $1 =~ \.$ ]] \
+		|| [[ $1 =~ \.- ]] \
+		|| [[ $1 =~ -\. ]] \
+		|| [[ "$1" = "www" ]]; then
 		check_result "$E_INVALID" "invalid $object_name format :: $1"
 	fi
 	is_no_new_line_format "$1"
@@ -959,8 +974,15 @@ is_domain_format_valid() {
 # Alias forman validator
 is_alias_format_valid() {
 	for object in ${1//,/ }; do
-		exclude="[!|@|#|$|^|&|(|)|+|=|{|}|:|<|>|?|_|/|\|\"|'|;|%|\`| ]"
-		if [[ "$object" =~ $exclude ]]; then
+		exclude='[][!@#$^&()+={},<>?_/\\"|'\''`;%[:space:]]'
+		if [[ $object =~ $exclude ]] \
+			|| [[ $object =~ \.\. ]] \
+			|| [[ $object =~ ^- ]] \
+			|| [[ $object =~ -$ ]] \
+			|| [[ $object =~ ^\. ]] \
+			|| [[ $object =~ \.$ ]] \
+			|| [[ $object =~ \.- ]] \
+			|| [[ $object =~ -\. ]]; then
 			check_result "$E_INVALID" "invalid alias format :: $object"
 		fi
 		if [[ "$object" =~ [*] ]] && ! [[ "$object" =~ ^[*]\..* ]]; then
@@ -1176,7 +1198,7 @@ is_string_format_valid() {
 	is_no_new_line_format "$1"
 }
 is_cron_command_valid_format() {
-	if [[ ! "$1" =~ ^[^\`]*?$ ]]; then
+	if [[ "$1" == *'`'* ]] || [[ "$1" != "${1//$'\n'/}" ]]; then
 		check_result "$E_INVALID" "Invalid cron command format"
 	fi
 }
@@ -1506,7 +1528,7 @@ is_format_valid() {
 				charset) is_object_format_valid "$arg" "$arg_name" ;;
 				charsets) is_common_format_valid "$arg" 'charsets' ;;
 				chain) is_object_format_valid "$arg" 'chain' ;;
-				comment) is_object_format_valid "$arg" 'comment' ;;
+				comment) is_comment_format_valid "$arg" 'comment' ;;
 				cron_command) is_cron_command_valid_format "$arg" ;;
 				database) is_database_format_valid "$arg" 'database' ;;
 				day) is_cron_format_valid "$arg" $arg_name ;;
@@ -1785,12 +1807,12 @@ is_restart_format_valid() {
 
 check_backup_conditions() {
 	# Checking load average
-	la=$(cat /proc/loadavg | cut -f 1 -d ' ' | cut -f 1 -d '.')
+	la=$(awk -F'[. ]' '{print $1}' /proc/loadavg)
 	# i=0
 	while [ "$la" -ge "$BACKUP_LA_LIMIT" ]; do
 		echo -e "$(date "+%F %T") Load Average $la"
 		sleep 60
-		la=$(cat /proc/loadavg | cut -f 1 -d ' ' | cut -f 1 -d '.')
+		la=$(awk -F'[. ]' '{print $1}' /proc/loadavg)
 	done
 }
 
@@ -2075,7 +2097,7 @@ Description=Mount $user's home directory to the jail chroot
 Before=local-fs.target
 
 [Mount]
-What=$(getent passwd $user | cut -d : -f 6)
+What=$(getent passwd | awk -F: -v u="$user" '$1 == u {print $6}')
 Where=/srv/jail/$user/home/$user
 Type=none
 Options=bind

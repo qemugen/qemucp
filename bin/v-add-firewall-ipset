@@ -44,11 +44,7 @@ IPSET_PATH="$HESTIA/data/firewall/ipset"
 
 # Ensure ipset is installed
 if [ -z "$IPSET_BIN" ]; then
-	if [ -f '/etc/redhat-release' ]; then
-		dnf install -q -y ipset > /dev/null
-	else
-		apt-get --quiet --yes install ipset > /dev/null
-	fi
+	apt-get --quiet --yes install ipset > /dev/null
 	check_result $? "Installing IPset package"
 
 	IPSET_BIN="$(which ipset)"
@@ -133,8 +129,8 @@ if [ ! -f "${IPSET_PATH}/${IPSET_FILE}.iplist" ] || [ "$refresh" = "yes" ]; then
 	fi
 
 	# Validate iplist file size
-	iplist_size=$(sed -r -e '/^#|^$/d' "$iplist_tempfile" | wc -l)
-	[[ "$iplist_size" -le "$IPSET_MIN_SIZE" ]] && check_result "$E_INVALID" "IP list file too small (<${IPSET_MIN_SIZE}), ignoring"
+	iplist_size="$(grep -cEv '^(#|$)' "$iplist_tempfile")"
+	[[ "$iplist_size" -lt "$IPSET_MIN_SIZE" ]] && check_result "$E_INVALID" "IP list ${IPSET_FILE} is too small (<${IPSET_MIN_SIZE}), ignoring"
 	mv -f "$iplist_tempfile" "${IPSET_PATH}/${IPSET_FILE}.iplist"
 
 fi

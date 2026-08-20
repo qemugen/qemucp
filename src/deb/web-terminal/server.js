@@ -51,7 +51,7 @@ function parseCookies(cookieHeader) {
 }
 
 const wss = new WebSocketServer({
-	port: parseInt(config.WEB_TERMINAL_PORT, 10),
+	port: Number.parseInt(config.WEB_TERMINAL_PORT, 10),
 	verifyClient: async (info, cb) => {
 		const cookies = parseCookies(info.req.headers.cookie);
 		const sessionIDs = cookies[sessionName] || [];
@@ -138,8 +138,8 @@ wss.on('connection', (ws, req) => {
 	// Spawn shell as logged in user
 	const pty = spawn(shell, [], {
 		name: 'xterm-color',
-		uid: parseInt(uid, 10),
-		gid: parseInt(gid, 10),
+		uid: Number.parseInt(uid, 10),
+		gid: Number.parseInt(gid, 10),
 		cwd: homedir,
 		env: {
 			SHELL: shell,

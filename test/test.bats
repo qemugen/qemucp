@@ -465,7 +465,7 @@ function check_ip_not_banned(){
   refute_output
 }
 
-@test "User: Change user language (Does not exists)" {
+@test "User: Change user language (Does not exist)" {
   run v-change-user-language $user "aa"
   assert_failure $E_NOTEXIST
 }
@@ -482,7 +482,7 @@ function check_ip_not_banned(){
   refute_output
 }
 
-@test "User: Change user theme (Does not exists)" {
+@test "User: Change user theme (Does not exist)" {
   run v-change-user-theme $user "aa"
   assert_failure $E_NOTEXIST
 }
@@ -930,6 +930,12 @@ function check_ip_not_banned(){
 
 @test "WEB: Rebuild web domain" {
     run v-rebuild-web-domains $user
+    assert_success
+    refute_output
+}
+
+@test "WEB: Use quick install app on web domain" {
+    run v-quick-install-app install $user $domain Laravel
     assert_success
     refute_output
 }
@@ -1521,6 +1527,28 @@ function check_ip_not_banned(){
     refute_output
 }
 
+@test "DNS: Check serial rollover from max 32-bit value to 1 (RFC 1982)" {
+	[ -z "$DNS_SYSTEM" ] && skip
+
+	USER_DATA=$HESTIA/data/users/$user
+	local zn_conf="$HOMEDIR/$user/conf/dns/${domain}.db"
+
+	# Seed the zone's current serial to the max unsigned 32-bit value so the
+	# next update has to wrap around per RFC 1982 (serial 0 is skipped, so it
+	# wraps to 1, not 0).
+	sed -i -E "0,/^[[:space:]]*[0-9]+[[:space:]]*\$/s//                                            4294967295/" "$zn_conf"
+	assert_file_contains "$zn_conf" "4294967295"
+
+	# Any DNS-mutating command runs update_domain_serial() as a side effect.
+	run v-change-dns-domain-ttl $user $domain 3600
+	assert_success
+	refute_output
+
+	run get_object_value 'dns' 'DOMAIN' "$domain" '$SERIAL'
+	assert_success
+	assert_output "0000000001"
+}
+
 @test "DNS: Change domain ip" {
     run v-change-dns-domain-ip $user $domain 127.0.0.1
     assert_success
@@ -2056,6 +2084,39 @@ function check_ip_not_banned(){
   refute_output
   assert_file_not_exist /etc/exim4/smtp_relay.conf
 }
+
+@test "System: Add Mail DNSBL (Simple Syntax)" {
+  run v-add-sys-mail-dnsbl sbl.spamhaus.org
+  assert_success
+  refute_output
+  assert_file_exist $HESTIA/conf/dnsbl.conf
+  assert_file_exist /etc/exim4/dnsbl.conf
+  assert_file_contains $HESTIA/conf/dnsbl.conf "sbl.spamhaus.org"
+  assert_file_contains /etc/exim4/dnsbl.conf "sbl.spamhaus.org"
+}
+
+@test "System: Add Mail DNSBL (Complex Syntax)" {
+  run v-add-sys-mail-dnsbl zen.spamhaus.org!=127.255.255.252,127.255.255.254,127.255.255.255
+  assert_success
+  refute_output
+  assert_file_contains $HESTIA/conf/dnsbl.conf "zen.spamhaus.org!=127.255.255.252,127.255.255.254,127.255.255.255"
+  assert_file_contains /etc/exim4/dnsbl.conf "zen.spamhaus.org!=127.255.255.252,127.255.255.254,127.255.255.255"
+}
+
+@test "System: List Mail DNSBL" {
+  run v-list-sys-mail-dnsbl plain
+  assert_success
+  assert_output --partial "sbl.spamhaus.org"
+  assert_output --partial "zen.spamhaus.org!=127.255.255.252,127.255.255.254,127.255.255.255"
+}
+
+@test "System: Delete Mail DNSBL (Cleanup)" {
+  run v-delete-sys-mail-dnsbl sbl.spamhaus.org
+  assert_success
+  run v-delete-sys-mail-dnsbl zen.spamhaus.org!=127.255.255.252,127.255.255.254,127.255.255.255
+  assert_success
+}
+
 
 #----------------------------------------------------------#
 #                        Firewall                          #

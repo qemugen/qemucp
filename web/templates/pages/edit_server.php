@@ -524,7 +524,7 @@
 									<?= tohtml( _("phpMyAdmin Single Sign On")) ?>
 									<span class="hint">
 										<a
-											href="https://docs.qemucp.com/databases"
+											href="https://hestiacp.com/docs/server-administration/databases.html"
 											target="_blank"
 										>
 											(<?= tohtml( _("More info")) ?>)
@@ -541,6 +541,27 @@
 										<?= tohtml( _("Disabled")) ?>
 									</option>
 									<option value="yes" <?= tohtml($_SESSION["PHPMYADMIN_KEY"] != "" ? "selected" : "") ?>>
+										<?= tohtml( _("Enabled")) ?>
+									</option>
+								</select>
+							</div>
+							<div class="u-mb10">
+								<label for="v_pma_restrict" class="form-label">
+									<?= tohtml( _("Restrict phpMyAdmin to Hestia login")) ?>
+									<span class="hint">
+										<?= tohtml( _("Blocks phpMyAdmin's own login form; only reachable via the phpMyAdmin link inside Hestia (requires SSO above).")) ?>
+									</span>
+								</label>
+								<select
+									class="form-select"
+									name="v_pma_restrict"
+									id="v_pma_restrict"
+									<?php echo $_SESSION["PHPMYADMIN_KEY"] == "" ? "disabled" : ""; ?>
+								>
+									<option value="no">
+										<?= tohtml( _("Disabled")) ?>
+									</option>
+									<option value="yes" <?= tohtml($_SESSION["PMA_RESTRICT_ACCESS"] == "yes" ? "selected" : "") ?>>
 										<?= tohtml( _("Enabled")) ?>
 									</option>
 								</select>
@@ -676,7 +697,7 @@
 						<label for="v_backup_mode" class="form-label">
 							<?= tohtml( _("Compression")) ?>
 							<a
-								href="https://docs.qemucp.com/backup"
+								href="https://hestiacp.com/docs/server-administration/backup-restore.html#what-is-the-difference-between-zstd-and-gzip"
 								target="_blank"
 								class="u-ml5"
 							>
@@ -696,7 +717,7 @@
 						<label for="v_backup_gzip" class="form-label">
 							<?= tohtml( _("Compression Level")) ?>
 							<a
-								href="https://docs.qemucp.com/backup"
+								href="https://hestiacp.com/docs/server-administration/backup-restore.html#what-is-the-optimal-compression-ratio"
 								target="_blank"
 								class="u-ml5"
 							>
@@ -719,7 +740,7 @@
 						<label for="v_backup_dir" class="form-label">
 							<?= tohtml( _("Directory")) ?>
 							<a
-								href="https://docs.qemucp.com/backup"
+								href="https://hestiacp.com/docs/server-administration/backup-restore.html#how-to-change-default-backup-folder"
 								target="_blank"
 								class="u-ml5"
 							>
@@ -752,7 +773,7 @@
 							<label for="backup_type" class="form-label">
 								<?= tohtml( _("Protocol")) ?>
 								<a
-									href="https://docs.qemucp.com/backup"
+									href="https://hestiacp.com/docs/server-administration/backup-restore.html#what-kind-of-protocols-are-currently-supported"
 									target="_blank"
 									class="u-ml5"
 								>
@@ -1204,7 +1225,7 @@
 						</div>
 					</details>
 
-					<?php if ($_SESSION["userContext"] === "admin" && $_SESSION["user"] === "admin") { ?>
+					<?php if ($_SESSION["userContext"] === "admin" && $_SESSION["user"] === $_SESSION["ROOT_USER"]) { ?>
 						<details class="collapse">
 							<summary class="collapse-header">
 								<?= tohtml( _("System Protection")) ?>

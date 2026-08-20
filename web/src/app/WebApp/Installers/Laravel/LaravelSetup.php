@@ -1,55 +1,70 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Hestia\WebApp\Installers\Laravel;
 
-use Hestia\WebApp\Installers\BaseSetup as BaseSetup;
+use Hestia\WebApp\BaseSetup;
+use Hestia\WebApp\InstallationTarget\InstallationTarget;
+use function file_get_contents;
+use function str_replace;
 
 class LaravelSetup extends BaseSetup {
-	protected $appname = "laravel";
+    protected array $info = [
+        "name" => "Laravel",
+        "group" => "framework",
+        "version" => "latest",
+        "thumbnail" => "laravel-logo.svg",
+    ];
 
-	protected $appInfo = [
-		"name" => "Laravel",
-		"group" => "framework",
-		"enabled" => true,
-		"version" => "latest",
-		"thumbnail" => "laravel-thumb.png",
-	];
+    protected array $config = [
+        "form" => [],
+        "database" => true,
+        "resources" => [
+            "composer" => ["src" => "laravel/laravel", "dst" => "/"],
+        ],
+        "server" => [
+            "nginx" => [
+                "template" => "laravel",
+            ],
+            "php" => [
+                "supported" => ["8.3", "8.4", "8.5"],
+            ],
+        ],
+    ];
 
-	protected $config = [
-		"form" => [],
-		"database" => true,
-		"resources" => [
-			"composer" => ["src" => "laravel/laravel", "dst" => "/"],
-		],
-		"server" => [
-			"nginx" => [
-				"template" => "laravel",
-			],
-			"php" => [
-				"supported" => ["8.1", "8.2", "8.3", "8.4"],
-			],
-		],
-	];
+    protected function setupApplication(InstallationTarget $target, array $options): void {
+        $this->appcontext->createFile(
+            $target->getDocRoot(".htaccess"),
+            file_get_contents(__DIR__ . "/.htaccess"),
+        );
 
-	public function install(array $options = null): bool {
-		parent::install($options);
-		parent::setup($options);
+        // Update .env to use MySQL
+        $envPath = $target->getDocRoot(".env");
+        $env = $this->appcontext->readFile($envPath);
 
-		$result = null;
+        $env = str_replace("DB_CONNECTION=sqlite", "DB_CONNECTION=mysql", $env);
+        $env = str_replace("# DB_HOST=127.0.0.1", "DB_HOST=" . $target->database->host, $env);
+        $env = str_replace("# DB_PORT=3306", "DB_PORT=3306", $env);
+        $env = str_replace("# DB_DATABASE=laravel", "DB_DATABASE=" . $target->database->name, $env);
+        $env = str_replace("# DB_USERNAME=root", "DB_USERNAME=" . $target->database->user, $env);
+        $env = str_replace("# DB_PASSWORD=", "DB_PASSWORD=" . $target->database->password, $env);
 
-		$htaccess_rewrite = '
-<IfModule mod_rewrite.c>
-		RewriteEngine On
-		RewriteRule ^(.*)$ public/$1 [L]
-</IfModule>';
+        $this->appcontext->createFile($envPath, $env);
 
-		$tmp_configpath = $this->saveTempFile($htaccess_rewrite);
-		$this->appcontext->runUser(
-			"v-move-fs-file",
-			[$tmp_configpath, $this->getDocRoot(".htaccess")],
-			$result,
-		);
+        // Generate application key
+        $this->appcontext->runPHP($options["php_version"], $target->getDocRoot("artisan"), [
+            "key:generate",
+            "--force",
+        ]);
 
-		return $result->code === 0;
-	}
+        // Migrate database
+        $this->appcontext->runPHP($options["php_version"], $target->getDocRoot("artisan"), [
+            "migrate",
+            "--force",
+        ]);
+
+        // Delete the default SQLite database
+        $this->appcontext->deleteFile($target->getDocRoot("database/database.sqlite"));
+    }
 }

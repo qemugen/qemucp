@@ -1,138 +1,131 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Hestia\WebApp\Installers\Dolibarr;
 
-use Hestia\WebApp\Installers\BaseSetup as BaseSetup;
+use Hestia\WebApp\BaseSetup;
+use Hestia\WebApp\InstallationTarget\InstallationTarget;
+use function file_get_contents;
 
 class DolibarrSetup extends BaseSetup {
-	protected $appInfo = [
-		"name" => "Dolibarr",
-		"group" => "CRM",
-		"enabled" => true,
-		"version" => "20.0.2",
-		"thumbnail" => "dolibarr-thumb.png",
-	];
+    protected array $info = [
+        "name" => "Dolibarr",
+        "group" => "crm",
+        "version" => "23.0.3",
+        "thumbnail" => "dolibarr_logo.svg",
+    ];
 
-	protected $appname = "dolibarr";
+    protected array $config = [
+        "form" => [
+            "username" => [
+                "value" => "doliadmin",
+            ],
+            "password" => "password",
+            "language" => [
+                "type" => "select",
+                "value" => "en_EN",
+                "options" => [
+                    "en_EN" => "English",
+                    "fr_FR" => "French",
+                    "de_DE" => "German",
+                    "es_ES" => "Spanish",
+                    "it_IT" => "Italian",
+                    "pt_PT" => "Portuguese",
+                ],
+            ],
+        ],
 
-	protected $config = [
-		"form" => [
-			"dolibarr_account_username" => ["value" => "admin"],
-			"dolibarr_account_password" => "password",
-			"language" => [
-				"type" => "select",
-				"options" => [
-					"en_EN" => "English",
-					"es_ES" => "Spanish",
-					"fr_FR" => "French",
-					"de_DE" => "German",
-					"pt_PT" => "Portuguese",
-					"it_IT" => "Italian",
-				],
-				"default" => "en_EN",
-			],
-		],
-		"database" => true,
-		"resources" => [
-			"archive" => [
-				"src" => "https://github.com/Dolibarr/dolibarr/archive/refs/tags/20.0.2.zip",
-			],
-		],
-		"server" => [
-			"nginx" => [
-				"template" => "dolibarr",
-			],
-			"php" => [
-				"supported" => ["7.4", "8.0", "8.1", "8.2", "8.3"],
-			],
-		],
-	];
+        "database" => true,
 
-	public function install(array $options = null): bool {
-		parent::install($options);
-		parent::setup($options);
+        "resources" => [
+            "archive" => [
+                "src" => "https://github.com/Dolibarr/dolibarr/archive/refs/tags/23.0.3.zip",
+            ],
+        ],
 
-		$this->appcontext->runUser(
-			"v-copy-fs-directory",
-			[$this->getDocRoot($this->extractsubdir . "/dolibarr-20.0.2/."), $this->getDocRoot()],
-			$status,
-		);
+        "server" => [
+            "nginx" => [
+                "template" => "dolibarr",
+            ],
+            "php" => [
+                "supported" => ["8.1", "8.2", "8.3", "8.4"],
+            ],
+        ],
+    ];
 
-		$this->appcontext->runUser("v-list-web-domain", [$this->domain, "json"], $status);
+    protected function setupApplication(InstallationTarget $target, array $options): void {
+        $this->appcontext->copyDirectory(
+            $target->getDocRoot("/dolibarr-" . $this->info["version"] . "/."),
+            $target->getDocRoot(),
+        );
 
-		$sslEnabled = $status->json[$this->domain]["SSL"] == "no" ? false : true;
-		$webDomain = ($sslEnabled ? "https://" : "http://") . $this->domain;
+        $language = $options["language"];
 
-		$language = $options["language"] ?? "en_EN";
-		$username = rawurlencode($options["dolibarr_account_username"]);
-		$password = rawurlencode($options["dolibarr_account_password"]);
-		$databaseUser = rawurlencode($this->appcontext->user() . "_" . $options["database_user"]);
-		$databasePassword = rawurlencode($options["database_password"]);
-		$databaseName = rawurlencode($this->appcontext->user() . "_" . $options["database_name"]);
+        $this->appcontext->moveFile(
+            $target->getDocRoot("htdocs/conf/conf.php.example"),
+            $target->getDocRoot("htdocs/conf/conf.php"),
+        );
 
-		$this->appcontext->runUser(
-			"v-copy-fs-file",
-			[
-				$this->getDocRoot("htdocs/conf/conf.php.example"),
-				$this->getDocRoot("htdocs/conf/conf.php"),
-			],
-			$status,
-		);
+        $this->appcontext->changeFilePermissions(
+            $target->getDocRoot("htdocs/conf/conf.php"),
+            "666",
+        );
 
-		$this->appcontext->runUser(
-			"v-change-fs-file-permission",
-			[$this->getDocRoot("htdocs/conf/conf.php"), "666"],
-			$status,
-		);
+        $this->appcontext->addDirectory($target->getDocRoot("documents"));
 
-		$cmd =
-			"curl --request POST " .
-			($sslEnabled ? "" : "--insecure ") .
-			"--url $webDomain/install/step1.php " .
-			"--data 'testpost=ok&action=set" .
-			"&main_dir=" .
-			rawurlencode($this->getDocRoot("htdocs")) .
-			"&main_data_dir=" .
-			rawurlencode($this->getDocRoot("documents")) .
-			"&main_url=" .
-			rawurlencode($webDomain) .
-			"&db_name=$databaseName" .
-			"&db_type=mysqli" .
-			"&db_host=localhost" .
-			"&db_port=3306" .
-			"&db_prefix=llx_" .
-			"&db_user=$databaseUser" .
-			"&db_pass=$databasePassword" .
-			"&selectlang=$language' && " .
-			"curl --request POST " .
-			($sslEnabled ? "" : "--insecure ") .
-			"--url $webDomain/install/step2.php " .
-			"--data 'testpost=ok&action=set" .
-			"&dolibarr_main_db_character_set=utf8" .
-			"&dolibarr_main_db_collation=utf8_unicode_ci" .
-			"&selectlang=$language' && " .
-			"curl --request POST " .
-			($sslEnabled ? "" : "--insecure ") .
-			"--url $webDomain/install/step4.php " .
-			"--data 'testpost=ok&action=set" .
-			"&dolibarrpingno=checked" .
-			"&selectlang=$language' && " .
-			"curl --request POST " .
-			($sslEnabled ? "" : "--insecure ") .
-			"--url $webDomain/install/step5.php " .
-			"--data 'testpost=ok&action=set" .
-			"&login=$username" .
-			"&pass=$password" .
-			"&pass_verif=$password" .
-			"&selectlang=$language'";
+        $this->appcontext->createFile(
+            $target->getDocRoot(".htaccess"),
+            file_get_contents(__DIR__ . "/.htaccess"),
+        );
 
-		exec($cmd, $output, $return_var);
-		if ($return_var > 0) {
-			throw new \Exception(implode(PHP_EOL, $output));
-		}
+        // Adapted from YunoHost install script: https://github.com/YunoHost-Apps/dolibarr_ynh/blob/master/scripts/install
+        $this->appcontext->sendPostRequest($target->getUrl() . "/install/step1.php", [
+            "testpost" => "ok",
+            "action" => "set",
+            "main_dir" => $target->getDocRoot("htdocs"),
+            "main_data_dir" => $target->getDocRoot("documents"),
+            "main_url" => $target->getUrl(),
+            "main_force_https" => $target->domain->isSslEnabled,
+            "db_type" => "mysqli",
+            "db_host" => $target->database->host,
+            "db_port" => "3306",
+            "db_prefix" => "llx_",
+            "db_name" => $target->database->name,
+            "db_user" => $target->database->user,
+            "db_pass" => $target->database->password,
+            "selectlang" => $language,
+        ]);
 
-		$this->cleanup();
+        $this->appcontext->sendPostRequest($target->getUrl() . "/install/step2.php", [
+            "testpost" => "ok",
+            "action" => "set",
+            "dolibarr_main_db_character_set" => "utf8",
+            "dolibarr_main_db_collation" => "utf8_unicode_ci",
+            "selectlang" => $language,
+        ]);
 
-		return $status->code === 0;
-	}
+        // Give time to complete the step 2
+        sleep(10);
+
+        // There's no step 3 and step 4 is an HTML form to ensure admin credentials
+        $this->appcontext->sendPostRequest($target->getUrl() . "/install/step5.php", [
+            "testpost" => "ok",
+            "action" => "set",
+            "login" => $options["username"],
+            "pass" => $options["password"],
+            "pass_verif" => $options["password"],
+            "installlock" => "1",
+            "selectlang" => $language,
+        ]);
+
+        $this->appcontext->changeFilePermissions(
+            $target->getDocRoot("htdocs/conf/conf.php"),
+            "400",
+        );
+
+        $this->appcontext->deleteDirectory(
+            $target->getDocRoot("/dolibarr-" . $this->info["version"] . "/"),
+        );
+    }
 }
