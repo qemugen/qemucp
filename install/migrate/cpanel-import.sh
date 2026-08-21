@@ -141,7 +141,7 @@ if [[ -f "$CP_USER_FILE" ]]; then
         # DNS = dominio principal; DNS1, DNS2... = adicionales
         if [[ "$key" =~ ^DNS[0-9]+$ ]]; then
             [[ "$val" == "$MAIN_DOMAIN" ]] && continue
-            if [[ "$val" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
+            if [[ "$val" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
                 if [[ -n "$MAIN_DOMAIN" && "$val" == *".$MAIN_DOMAIN" ]]; then
                     SUB_DOMAINS+=("$val")
                 else
@@ -158,7 +158,7 @@ if [[ -d "$BACKUP_PATH/dnszones" ]]; then
         [[ -f "$Z" ]] || continue
         zdom=$(basename "$Z" .db)
         [[ "$zdom" == "$MAIN_DOMAIN" ]] && continue
-        if [[ "$zdom" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
+        if [[ "$zdom" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
             if [[ -n "$MAIN_DOMAIN" && "$zdom" == *".$MAIN_DOMAIN" ]]; then
                 SUB_DOMAINS+=("$zdom")
             else
@@ -190,7 +190,7 @@ if [[ -d "$BACKUP_PATH/userdata" ]]; then
         # Quitar extension .json si la tiene
         domain="${domain%.json}"
         # Validar formato de dominio
-        if [[ "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
+        if [[ "$domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
             # Clasificar: si es X.MAINDOMAIN es subdominio; si no, addon
             if [[ -n "$MAIN_DOMAIN" && "$domain" == *".$MAIN_DOMAIN" ]]; then
                 SUB_DOMAINS+=("$domain")
@@ -240,7 +240,7 @@ create_domain() {
     local user="$1"
     local domain="$2"
     # Validar formato
-    if [[ ! "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
+    if [[ ! "$domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
         warn "Formato invalido, saltando: $domain"
         return
     fi
@@ -495,7 +495,7 @@ if [[ -n "$MAIL_BASE" ]]; then
                 continue ;;
         esac
         # Debe tener formato de dominio (con al menos un punto y TLD valido)
-        if ! [[ "$MAIL_DOMAIN" =~ ^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z]{2,})+$ ]]; then
+        if ! [[ "$MAIL_DOMAIN" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
             continue
         fi
 
