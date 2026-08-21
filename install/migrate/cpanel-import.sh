@@ -187,9 +187,16 @@ if [[ -d "$BACKUP_PATH/userdata" ]]; then
         [[ "$domain" =~ _SSL$ ]] && continue
         [[ "$domain" == "cache" ]] && continue
         [[ "$domain" == "$MAIN_DOMAIN" ]] && continue
-        # Quitar extension .json si la tiene
-        domain="${domain%.json}"
-        # Validar formato de dominio
+        # En userdata/ hay ficheros que NO son dominios: DOMINIO.php-fpm.yaml,
+        # DOMINIO.php-fpm.yaml.transferred, DOMINIO_SSL, cache.json...
+        # Si se toman por dominios acaban dados de alta como alias (visto en
+        # produccion: "Alias de sif-fgv.es: sif-fgv.es.php-fpm.yaml").
+        case "$domain" in
+            *.php-fpm.yaml|*.php-fpm.yaml.transferred|*.yaml|*.yaml.*|\
+            *_SSL|*.cache|*.json|*.bak|*.orig|*.transferred|main|scope|cache)
+                continue ;;
+        esac
+        # Validar formato de dominio (el TLD debe ser un TLD real, no .yaml)
         if [[ "$domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
             # Clasificar: si es X.MAINDOMAIN es subdominio; si no, addon
             if [[ -n "$MAIN_DOMAIN" && "$domain" == *".$MAIN_DOMAIN" ]]; then
