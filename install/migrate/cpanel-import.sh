@@ -627,17 +627,31 @@ if [[ -n "$MAIL_BASE" ]]; then
                 alias_dest=$(echo "$alias_dest" | tr -d ' \r')
                 [[ -z "$alias_acc" || -z "$alias_dest" ]] && continue
                 [[ "$alias_acc" == "*" ]] && continue   # catchall se trata aparte
-                # Solo si la cuenta existe como buzon
-                if $BIN/v-list-mail-account "$CPANEL_USER" "$MAIL_DOMAIN" "$alias_acc" &>/dev/null 2>&1; then
-                    # Anadir cada destino como forward
-                    IFS=',' read -ra DESTS <<< "$alias_dest"
-                    for d in "${DESTS[@]:-}"; do
-                        d=$(echo "$d" | tr -d ' ')
-                        [[ -z "$d" ]] && continue
-                        $BIN/v-add-mail-account-forward "$CPANEL_USER" "$MAIL_DOMAIN" \
-                            "$alias_acc" "$d" 2>/dev/null && FWD_COUNT=$((FWD_COUNT+1)) || true
-                    done
+                # Destinos especiales de cPanel que no son direcciones
+                case "$alias_dest" in
+                    :fail:*|:blackhole:*|"|"*) continue ;;
+                esac
+
+                # En cPanel es habitual el reenviador PURO: una direccion que
+                # solo redirige y NO tiene buzon. Antes se exigia que la cuenta
+                # existiese como buzon y esos reenvios se perdian todos.
+                if ! $BIN/v-list-mail-account "$CPANEL_USER" "$MAIL_DOMAIN" "$alias_acc" &>/dev/null 2>&1; then
+                    # Crear la cuenta como solo-reenvio
+                    FWDPASS=$(openssl rand -base64 16 | tr -d '/+=' | head -c 16)
+                    $BIN/v-add-mail-account "$CPANEL_USER" "$MAIL_DOMAIN" "$alias_acc" "$FWDPASS" \
+                        2>/dev/null || true
                 fi
+
+                # Anadir cada destino como forward
+                IFS=',' read -ra DESTS <<< "$alias_dest"
+                for d in "${DESTS[@]:-}"; do
+                    d=$(echo "$d" | tr -d ' ')
+                    [[ -z "$d" ]] && continue
+                    # Ignorar destinos que no son direcciones de correo
+                    [[ "$d" != *"@"* ]] && continue
+                    $BIN/v-add-mail-account-forward "$CPANEL_USER" "$MAIL_DOMAIN" \
+                        "$alias_acc" "$d" 2>/dev/null && FWD_COUNT=$((FWD_COUNT+1)) || true
+                done
             done < "$CPANEL_ALIASES"
             [[ $FWD_COUNT -gt 0 ]] && log "  $FWD_COUNT reenvios importados"
         fi
@@ -656,6 +670,64 @@ else
 fi
 
 # -- DNS --------------------------------------------------------
+# ============================================================
+#  TAREAS PROGRAMADAS (CRON)
+# ============================================================
+# cPanel guarda el crontab del usuario en el fichero 'cron/USUARIO'
+# del backup. Sin esto se pierden copias de seguridad, sincronizaciones
+# y tareas del CMS (wp-cron, Moodle cron...) que el cliente tenia
+# programadas.
+header "Importando tareas programadas (cron)"
+
+CRON_FILE=""
+for CANDIDATO in "$BACKUP_PATH/cron/$CPANEL_USER" "$BACKUP_PATH/cron/crontab" \
+                 "$BACKUP_PATH/cron"; do
+    [[ -f "$CANDIDATO" ]] && { CRON_FILE="$CANDIDATO"; break; }
+done
+
+if [[ -n "$CRON_FILE" ]]; then
+    CRON_OK=0; CRON_SKIP=0
+    while IFS= read -r linea; do
+        # Saltar comentarios, lineas vacias y variables de entorno
+        [[ -z "${linea// }" ]] && continue
+        [[ "$linea" =~ ^[[:space:]]*# ]] && continue
+        [[ "$linea" =~ ^[[:space:]]*[A-Z_]+= ]] && continue
+
+        # Separar los 5 campos de tiempo del comando
+        MIN=$(echo "$linea" | awk '{print $1}')
+        HOR=$(echo "$linea" | awk '{print $2}')
+        DIA=$(echo "$linea" | awk '{print $3}')
+        MES=$(echo "$linea" | awk '{print $4}')
+        WDY=$(echo "$linea" | awk '{print $5}')
+        CMD=$(echo "$linea" | awk '{$1=$2=$3=$4=$5=""; sub(/^[ \t]+/,""); print}')
+
+        # Descartar lineas que no son un cron valido
+        [[ -z "$CMD" ]] && continue
+        if ! [[ "$MIN" =~ ^[0-9*/,-]+$ && "$HOR" =~ ^[0-9*/,-]+$ ]]; then
+            CRON_SKIP=$((CRON_SKIP+1)); continue
+        fi
+
+        # Las rutas del servidor de origen (/home/USUARIO/...) siguen siendo
+        # validas porque el usuario se llama igual, pero public_html cambia
+        # de sitio en QemuCP.
+        CMD=$(echo "$CMD" | sed "s#/home/$CPANEL_USER/public_html#/home/$CPANEL_USER/web/$MAIN_DOMAIN/public_html#g")
+
+        if $BIN/v-add-cron-job "$CPANEL_USER" "$MIN" "$HOR" "$DIA" "$MES" "$WDY" "$CMD" \
+            2>/dev/null; then
+            CRON_OK=$((CRON_OK+1))
+        else
+            CRON_SKIP=$((CRON_SKIP+1))
+            warn "  No se pudo crear: $MIN $HOR $DIA $MES $WDY $(echo "$CMD" | cut -c1-50)"
+        fi
+    done < "$CRON_FILE"
+
+    [[ $CRON_OK -gt 0 ]] && log "$CRON_OK tareas cron importadas"
+    [[ $CRON_SKIP -gt 0 ]] && warn "$CRON_SKIP lineas de cron omitidas (revisar manualmente)"
+    [[ $CRON_OK -eq 0 && $CRON_SKIP -eq 0 ]] && info "El backup no tiene tareas cron"
+else
+    info "No se encontro fichero de cron en el backup"
+fi
+
 header "Importando DNS"
 
 # cPanel usa dnszones/ no dns/
