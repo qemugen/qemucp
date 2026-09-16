@@ -15,9 +15,9 @@
 type=$1
 host=$2
 user=$3
+password=$4
 raw_password=$4
 HIDE=4
-password=$(perl -e 'print quotemeta shift(@ARGV)' "${raw_password}")
 path=${5-/backup}
 port=$6
 
@@ -176,7 +176,7 @@ if [ "$type" = 'b2' ]; then
 	fi
 
 	b2 clear-account > /dev/null 2>&1
-	b2 authorize-account "$user" "$raw_password" > /dev/null 2>&1
+	b2 authorize-account "$user" "$password" > /dev/null 2>&1
 	b2 ls --long "$host" "$user" > /dev/null 2>&1
 
 	if [ $? -ne 0 ]; then
@@ -211,7 +211,7 @@ if [ $type == 'ftp' ] || [ $type = 'sftp' ]; then
 	chmod 660 $HESTIA/conf/$type.backup.conf
 elif [ $type == 'b2' ]; then
 	new_timestamp
-	str="BUCKET='$host'\nB2_KEYID='$user'\nB2_KEY='$raw_password'"
+	str="BUCKET='$host'\nB2_KEYID='$user'\nB2_KEY='$password'"
 	str="$str\nTIME='$time'\nDATE='$date'"
 	echo -e "$str" > $HESTIA/conf/$type.backup.conf
 	chmod 660 $HESTIA/conf/$type.backup.conf
