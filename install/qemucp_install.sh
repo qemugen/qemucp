@@ -1218,6 +1218,14 @@ cp "$TPL_FILE" "$TPL_BACKUP_DIR/$(basename "$TPL_FILE").bak" 2>/dev/null || true
 
     # Insertar optimizaciones si no estan ya
     if ! grep -q "memory_limit = 512M" "$TPL_FILE" 2>/dev/null; then
+        # La plantilla de HestiaCP YA trae session.save_path apuntando a
+        # /home/%user%/tmp. Si se deja esa linea y se anade la de Redis,
+        # el pool acaba con DOS session.save_path y PHP toma el equivocado:
+        # las webs con sesiones fallan con "Redis connection not available
+        # ... Failed to read session data: redis (path: /home/USER/tmp)".
+        # Visto en produccion en PrestaShop, Joomla y Moodle.
+        sed -i '/^php_admin_value\[session.save_path\] = \/home\//d' "$TPL_FILE" 2>/dev/null || true
+
         # Anadir valores optimizados al final del template
         cat >> "$TPL_FILE" << 'TPLEOF'
 
@@ -2037,6 +2045,47 @@ fi
 # ---------------------------------------------
 #  PASO 11: VERIFICACION NGINX + REINICIO
 # ---------------------------------------------
+header "PASO 10C: Parcheando bugs conocidos de HestiaCP"
+
+# --- File Manager: "Error desconocido" al navegar -------------------------
+# HestiaAuth.php lee $_SESSION["root"], una clave que el panel NUNCA define.
+# Con PHP 8.x eso es un warning que rompe la respuesta del gestor y el
+# usuario ve "Error desconocido" al entrar en cualquier carpeta.
+FM_AUTH="$HESTIA/web/fm/backend/Services/Auth/Adapters/HestiaAuth.php"
+if [[ -f "$FM_AUTH" ]]; then
+    if grep -q '\$_SESSION\["look"\] == \$_SESSION\["root"\]' "$FM_AUTH" 2>/dev/null; then
+        cp "$FM_AUTH" "$FM_AUTH.qemucp.bak" 2>/dev/null || true
+        sed -i 's|\$_SESSION\["look"\] == \$_SESSION\["root"\] &&|$_SESSION["look"] == ($_SESSION["root"] ?? "") \&\&|' \
+            "$FM_AUTH" 2>/dev/null || true
+        log "File Manager parcheado (SESSION root indefinido)"
+    else
+        info "File Manager ya parcheado o version distinta"
+    fi
+fi
+
+# --- Hook post-update: reaplicar los parches tras actualizar HestiaCP -----
+# El paquete sobrescribe estos ficheros en cada actualizacion.
+mkdir -p "$HESTIA/data/hooks"
+HOOK="$HESTIA/data/hooks/post_update.sh"
+if ! grep -q "QemuCP: parches post-update" "$HOOK" 2>/dev/null; then
+    cat >> "$HOOK" << 'HOOKEOF'
+
+# --- QemuCP: parches post-update ---
+# File Manager: $_SESSION["root"] no existe (bug de HestiaCP)
+FM=/usr/local/hestia/web/fm/backend/Services/Auth/Adapters/HestiaAuth.php
+[ -f "$FM" ] && sed -i 's|\$_SESSION\["look"\] == \$_SESSION\["root"\] &&|$_SESSION["look"] == ($_SESSION["root"] ?? "") \&\&|' "$FM" 2>/dev/null
+# Plantillas PHP-FPM: quitar el session.save_path de fichero (deja el de Redis)
+for T in /usr/local/hestia/data/templates/web/php-fpm/*.tpl; do
+    [ -f "$T" ] || continue
+    [ "$(grep -c '^php_admin_value\[session.save_path\]' "$T")" -gt 1 ] || continue
+    sed -i '0,/^php_admin_value\[session.save_path\] = \/home\//{/^php_admin_value\[session.save_path\] = \/home\//d}' "$T"
+done
+HOOKEOF
+    chmod +x "$HOOK" 2>/dev/null || true
+    log "Hook post-update instalado"
+fi
+
+
 header "PASO 11: Verificando configuracion y reiniciando servicios"
 
 # VERIFICACION CRITICA Y COMPLETA de hestia.conf
