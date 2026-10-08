@@ -219,6 +219,7 @@ for user in $user_list; do
 	update_user_value "$user" '$U_DISK_DB' "$U_DISK_DB"
 	update_user_value "$user" '$U_BANDWIDTH' "$U_BANDWIDTH"
 	update_user_value "$user" '$U_WEB_DOMAINS' "$U_WEB_DOMAINS"
+	update_user_value "$user" '$U_WEB_SUBDOMAINS' "$U_WEB_SUBDOMAINS"
 	update_user_value "$user" '$U_WEB_SSL' "$U_WEB_SSL"
 	update_user_value "$user" '$U_WEB_ALIASES' "$U_WEB_ALIASES"
 	update_user_value "$user" '$U_DNS_DOMAINS' "$U_DNS_DOMAINS"
