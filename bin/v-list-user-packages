@@ -27,12 +27,16 @@ json_list() {
 	echo "{"
 	for package in $packages; do
 		PACKAGE=${package/.pkg/}
+		# QemuCP: limpiar antes de cada source_conf. Es un bucle, y un paquete
+		# sin WEB_SUBDOMAINS heredaria el valor del paquete anterior.
+		WEB_SUBDOMAINS=''
 		source_conf "$HESTIA/data/packages/$PACKAGE.pkg"
 		echo -n '    "'$PACKAGE'": {
         "WEB_TEMPLATE": "'$WEB_TEMPLATE'",
         "PROXY_TEMPLATE": "'$PROXY_TEMPLATE'",
         "DNS_TEMPLATE": "'$DNS_TEMPLATE'",
         "WEB_DOMAINS": "'$WEB_DOMAINS'",
+        "WEB_SUBDOMAINS": "'$WEB_SUBDOMAINS'",
         "WEB_ALIASES": "'$WEB_ALIASES'",
         "DNS_DOMAINS": "'$DNS_DOMAINS'",
         "DNS_RECORDS": "'$DNS_RECORDS'",

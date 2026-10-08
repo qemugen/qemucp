@@ -200,7 +200,9 @@ if (!empty($_POST["ok"])) {
 			}
 			$pkg .= "DNS_TEMPLATE=" . $v_dns_template . "\n";
 			$pkg .= "WEB_DOMAINS=" . $v_web_domains . "\n";
-			$pkg .= "WEB_SUBDOMAINS=" . $v_web_subdomains . "\n";
+			if (trim($_POST["v_web_subdomains"]) !== "") {
+				$pkg .= "WEB_SUBDOMAINS=" . $v_web_subdomains . "\n";
+			}
 			$pkg .= "WEB_ALIASES=" . $v_web_aliases . "\n";
 			$pkg .= "DNS_DOMAINS=" . $v_dns_domains . "\n";
 			$pkg .= "DNS_RECORDS=" . $v_dns_records . "\n";

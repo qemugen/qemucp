@@ -32,6 +32,7 @@ json_list() {
         "PROXY_TEMPLATE": "'$PROXY_TEMPLATE'",
         "DNS_TEMPLATE": "'$DNS_TEMPLATE'",
         "WEB_DOMAINS": "'$WEB_DOMAINS'",
+        "WEB_SUBDOMAINS": "'$WEB_SUBDOMAINS'",
         "WEB_ALIASES": "'$WEB_ALIASES'",
         "DNS_DOMAINS": "'$DNS_DOMAINS'",
         "DNS_RECORDS": "'$DNS_RECORDS'",
@@ -68,6 +69,7 @@ json_list() {
         "U_DISK_DB": "'$U_DISK_DB'",
         "U_BANDWIDTH": "'$U_BANDWIDTH'",
         "U_WEB_DOMAINS": "'$U_WEB_DOMAINS'",
+        "U_WEB_SUBDOMAINS": "'$U_WEB_SUBDOMAINS'",
         "U_WEB_SSL": "'$U_WEB_SSL'",
         "U_WEB_ALIASES": "'$U_WEB_ALIASES'",
         "U_DNS_DOMAINS": "'$U_DNS_DOMAINS'",
@@ -104,6 +106,7 @@ shell_list() {
 	echo "PACKAGE:       $PACKAGE"
 	echo "SHELL:         $SHELL"
 	echo "WEB DOMAINS:   $U_WEB_DOMAINS/$WEB_DOMAINS"
+	echo "WEB SUBDOMAINS: ${U_WEB_SUBDOMAINS:-0}/${WEB_SUBDOMAINS:-n/a}"
 	echo "WEB ALIASES:   $U_WEB_ALIASES/$WEB_ALIASES"
 	echo "DNS DOMAINS:   $U_DNS_DOMAINS/$DNS_DOMAINS"
 	echo "DNS RECORDS:   $U_DNS_RECORDS/$DNS_RECORDS"

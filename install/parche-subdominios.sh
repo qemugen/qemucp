@@ -40,8 +40,9 @@ ok()   { echo -e "  ${GREEN}OK${NC}   $1"; }
 bad()  { echo -e "  ${RED}ERROR${NC} $1"; }
 warn() { echo -e "  ${YELLOW}AVISO${NC} $1"; }
 
-FICHEROS="func/main.sh bin/v-add-web-domain bin/v-add-domain \
-bin/v-change-user-package bin/v-update-user-counters \
+FICHEROS="func/main.sh bin/v-add-web-domain bin/v-add-domain bin/v-add-user \
+bin/v-add-user-package bin/v-change-user-package bin/v-update-user-counters \
+bin/v-list-user bin/v-list-user-package bin/v-list-user-packages \
 web/add/package/index.php web/edit/package/index.php \
 web/templates/pages/add_package.php web/templates/pages/edit_package.php"
 
@@ -66,6 +67,92 @@ if [ "${1:-}" = "--revertir" ]; then
         \( -name "*.rej" -o -name "*.orig" \) -delete 2>/dev/null
     systemctl restart hestia 2>/dev/null
     echo "Revertido."
+    exit 0
+fi
+
+# ----------------------------------------------------------------- --listar
+# Estado de dominios y subdominios de todos los usuarios, con su limite.
+if [ "${1:-}" = "--listar" ]; then
+    if ! grep -q "count_web_domains_split" "$HESTIA/func/main.sh" 2>/dev/null; then
+        bad "El parche no esta aplicado. Ejecuta primero: bash $0"
+        exit 1
+    fi
+    FN=$(mktemp /tmp/qemucp-fn.XXXXXX.sh)
+    sed -n '/^count_web_domains_split()/,/^}/p' "$HESTIA/func/main.sh" > "$FN"
+    # shellcheck disable=SC1090
+    . "$FN"; rm -f "$FN"
+    printf "%-16s %-12s %14s %16s   %s\n" USUARIO PLAN DOMINIOS SUBDOMINIOS ESQUEMA
+    printf "%-16s %-12s %14s %16s   %s\n" ---------------- ------------ -------------- ---------------- -------
+    for UD in "$HESTIA"/data/users/*/; do
+        [ -d "$UD" ] || continue
+        U=$(basename "$UD")
+        [ -f "$UD/web.conf" ] || continue
+        S=$(count_web_domains_split "$UD/web.conf")
+        USA_D=$(echo "$S" | cut -f1 -d' '); USA_S=$(echo "$S" | cut -f2 -d' ')
+        PL=$(grep -m1 "^PACKAGE=" "$UD/user.conf" 2>/dev/null | cut -f2 -d\')
+        LD=$(grep -m1 "^WEB_DOMAINS=" "$UD/user.conf" 2>/dev/null | cut -f2 -d\')
+        LS=$(grep -m1 "^WEB_SUBDOMAINS=" "$UD/user.conf" 2>/dev/null | cut -f2 -d\')
+        if [ -n "$LS" ]; then
+            ESQ="separado"
+            TOTD="$USA_D/$LD"; TOTS="$USA_S/$LS"
+        else
+            ESQ="heredado"
+            # En el esquema heredado el limite es conjunto
+            TOTD="$USA_D"; TOTS="$USA_S"
+            [ -n "$LD" ] && TOTD="$USA_D (cupo conjunto $((USA_D+USA_S))/$LD)"
+        fi
+        printf "%-16s %-12s %14s %16s   %s\n" "$U" "${PL:-?}" "$TOTD" "$TOTS" "$ESQ"
+    done
+    echo ""
+    echo "heredado = los subdominios gastan cupo de dominios (HestiaCP de siempre)"
+    echo "separado = cada uno con su limite (como cPanel)"
+    echo ""
+    echo "Cambiar un plan:     bash $0 --plan PLAN DOMINIOS SUBDOMINIOS"
+    echo "Cambiar un usuario:  bash $0 --usuario USUARIO DOMINIOS SUBDOMINIOS"
+    exit 0
+fi
+
+# ---------------------------------------------------------------- --usuario
+# Limites de UN usuario concreto, sin tocar su plan ni a los demas.
+if [ "${1:-}" = "--usuario" ]; then
+    USU="${2:-}"; NDOM="${3:-}"; NSUB="${4:-}"
+    UC="$HESTIA/data/users/$USU/user.conf"
+    if [ -z "$USU" ] || [ -z "$NDOM" ] || [ -z "$NSUB" ]; then
+        echo "Uso: bash $0 --usuario USUARIO DOMINIOS SUBDOMINIOS"
+        echo ""
+        echo "  DOMINIOS     dominios de nivel superior, INCLUIDO el principal."
+        echo "  SUBDOMINIOS  numero, o 'unlimited'."
+        echo ""
+        echo "Afecta solo a este usuario. Lo escribe en su user.conf, por encima"
+        echo "de lo que diga su plan."
+        exit 1
+    fi
+    [ -f "$UC" ] || { bad "No existe el usuario '$USU'"; exit 1; }
+    if ! grep -q "count_web_domains_split" "$HESTIA/func/main.sh" 2>/dev/null; then
+        bad "El parche no esta aplicado. Ejecuta primero: bash $0"
+        exit 1
+    fi
+    case "$NDOM" in ''|*[!0-9]*) bad "DOMINIOS debe ser un numero"; exit 1 ;; esac
+    [ "$NDOM" -lt 1 ] && { bad "DOMINIOS debe ser 1 o mas: el principal tambien cuenta"; exit 1; }
+    if [ "$NSUB" != "unlimited" ]; then
+        case "$NSUB" in ''|*[!0-9]*) bad "SUBDOMINIOS debe ser un numero o 'unlimited'"; exit 1 ;; esac
+    fi
+
+    cp -a "$UC" "$UC.bak-$(date +%Y%m%d-%H%M%S)"
+    sed -i "/^WEB_SUBDOMAINS=/d" "$UC"
+    sed -i "s|^WEB_DOMAINS=.*|WEB_DOMAINS='$NDOM'|" "$UC"
+    sed -i "/^WEB_DOMAINS=/a WEB_SUBDOMAINS='$NSUB'" "$UC"
+    # DNS y correo no deben limitar: solo mandan dominios y subdominios
+    for CLAVE in DNS_DOMAINS MAIL_DOMAINS; do
+        grep -q "^$CLAVE=" "$UC" && sed -i "s|^$CLAVE=.*|$CLAVE='unlimited'|" "$UC"
+    done
+    grep -q "^U_WEB_SUBDOMAINS=" "$UC" || sed -i "/^U_WEB_DOMAINS=/a U_WEB_SUBDOMAINS='0'" "$UC"
+    "$HESTIA/bin/v-update-user-counters" "$USU" 2>/dev/null || true
+    ok "Usuario '$USU': WEB_DOMAINS='$NDOM'  WEB_SUBDOMAINS='$NSUB'"
+    grep -E "^(WEB_DOMAINS|WEB_SUBDOMAINS|U_WEB_DOMAINS|U_WEB_SUBDOMAINS)=" "$UC" | sed 's/^/  /'
+    echo ""
+    warn "Esto es un ajuste individual: si mas adelante le cambias el PLAN"
+    warn "desde el panel, estos valores se sobreescriben con los del plan."
     exit 0
 fi
 
@@ -117,25 +204,18 @@ if [ "${1:-}" = "--plan" ]; then
     ok "WEB_DOMAINS='$NDOM'  WEB_SUBDOMAINS='$NSUB'"
 
     # DNS y correo: cada subdominio consume tambien uno de esos cupos
-    if [ "$NSUB" = "unlimited" ]; then
-        TOTAL="unlimited"
-    else
-        TOTAL=$((NDOM + NSUB))
-    fi
+    # DNS y correo a 'unlimited': los unicos cupos que deben limitar son
+    # dominios y subdominios. Si se dejan con numero, bloquean la creacion del
+    # subdominio aunque queden subdominios libres, y encima sin dar error.
     for CLAVE in DNS_DOMAINS MAIL_DOMAINS; do
         ACTUAL=$(grep -m1 "^$CLAVE=" "$PKG" | cut -f2 -d\')
         if [ "$ACTUAL" = "unlimited" ]; then
             ok "$CLAVE ya era unlimited"
-        elif [ "$TOTAL" = "unlimited" ]; then
-            sed -i "s|^$CLAVE=.*|$CLAVE='unlimited'|" "$PKG"
-            warn "$CLAVE subido de '$ACTUAL' a 'unlimited' (subdominios ilimitados)"
         elif [ -z "$ACTUAL" ]; then
             warn "$CLAVE no estaba en el paquete, se deja como esta"
-        elif [ "$ACTUAL" -lt "$TOTAL" ]; then
-            sed -i "s|^$CLAVE=.*|$CLAVE='$TOTAL'|" "$PKG"
-            warn "$CLAVE subido de '$ACTUAL' a '$TOTAL' (cada subdominio usa uno)"
         else
-            ok "$CLAVE='$ACTUAL' es suficiente"
+            sed -i "s|^$CLAVE=.*|$CLAVE='unlimited'|" "$PKG"
+            ok "$CLAVE: '$ACTUAL' -> 'unlimited' (no debe limitar nada)"
         fi
     done
 
@@ -172,7 +252,7 @@ for F in $FICHEROS; do
     [ -f "$HESTIA/$F" ] || { bad "no existe $HESTIA/$F"; FALTA=1; }
 done
 [ "$FALTA" -ne 0 ] && { bad "Instalacion inesperada, no se aplica nada"; exit 1; }
-ok "Los 9 ficheros a modificar estan presentes"
+ok "Los 13 ficheros a modificar estan presentes"
 
 # Si ya esta aplicado se sale ANTES de hacer backup. De lo contrario el backup
 # guardaria los ficheros ya parcheados y --revertir dejaria de servir.
@@ -217,6 +297,30 @@ index be69cbe50..9e11ee13d 100755
  	if [ $? -eq 0 ]; then
  		$BIN/v-add-web-domain "$user" "$domain" "$ip" 'no'
  		check_result $? "can't add web domain"
+diff --git a/bin/v-add-user b/bin/v-add-user
+index a0cda7871..38ce6fe1d 100755
+--- a/bin/v-add-user
++++ b/bin/v-add-user
+@@ -248,6 +248,7 @@ U_DISK_MAIL='0'
+ U_DISK_DB='0'
+ U_BANDWIDTH='0'
+ U_WEB_DOMAINS='0'
++U_WEB_SUBDOMAINS='0'
+ U_WEB_SSL='0'
+ U_WEB_ALIASES='0'
+ U_DNS_DOMAINS='0'
+diff --git a/bin/v-add-user-package b/bin/v-add-user-package
+index 816dc3970..7a6542e9f 100755
+--- a/bin/v-add-user-package
++++ b/bin/v-add-user-package
+@@ -133,6 +133,7 @@ PROXY_TEMPLATE='$PROXY_TEMPLATE'
+ BACKEND_TEMPLATE='$BACKEND_TEMPLATE'
+ DNS_TEMPLATE='$DNS_TEMPLATE'
+ WEB_DOMAINS='$WEB_DOMAINS'
++WEB_SUBDOMAINS='${WEB_SUBDOMAINS:-unlimited}'
+ WEB_ALIASES='$WEB_ALIASES'
+ DNS_DOMAINS='$DNS_DOMAINS'
+ DNS_RECORDS='$DNS_RECORDS'
 diff --git a/bin/v-add-web-domain b/bin/v-add-web-domain
 index e50498658..50ef2632b 100755
 --- a/bin/v-add-web-domain
@@ -290,6 +394,75 @@ index b05acc641..3194328af 100755
  U_WEB_SSL='$U_WEB_SSL'
  U_WEB_ALIASES='$U_WEB_ALIASES'
  U_DNS_DOMAINS='$U_DNS_DOMAINS'
+diff --git a/bin/v-list-user b/bin/v-list-user
+index 66566a4de..b851364f8 100755
+--- a/bin/v-list-user
++++ b/bin/v-list-user
+@@ -32,6 +32,7 @@ json_list() {
+         "PROXY_TEMPLATE": "'$PROXY_TEMPLATE'",
+         "DNS_TEMPLATE": "'$DNS_TEMPLATE'",
+         "WEB_DOMAINS": "'$WEB_DOMAINS'",
++        "WEB_SUBDOMAINS": "'$WEB_SUBDOMAINS'",
+         "WEB_ALIASES": "'$WEB_ALIASES'",
+         "DNS_DOMAINS": "'$DNS_DOMAINS'",
+         "DNS_RECORDS": "'$DNS_RECORDS'",
+@@ -68,6 +69,7 @@ json_list() {
+         "U_DISK_DB": "'$U_DISK_DB'",
+         "U_BANDWIDTH": "'$U_BANDWIDTH'",
+         "U_WEB_DOMAINS": "'$U_WEB_DOMAINS'",
++        "U_WEB_SUBDOMAINS": "'$U_WEB_SUBDOMAINS'",
+         "U_WEB_SSL": "'$U_WEB_SSL'",
+         "U_WEB_ALIASES": "'$U_WEB_ALIASES'",
+         "U_DNS_DOMAINS": "'$U_DNS_DOMAINS'",
+@@ -104,6 +106,7 @@ shell_list() {
+ 	echo "PACKAGE:       $PACKAGE"
+ 	echo "SHELL:         $SHELL"
+ 	echo "WEB DOMAINS:   $U_WEB_DOMAINS/$WEB_DOMAINS"
++	echo "WEB SUBDOMAINS: ${U_WEB_SUBDOMAINS:-0}/${WEB_SUBDOMAINS:-n/a}"
+ 	echo "WEB ALIASES:   $U_WEB_ALIASES/$WEB_ALIASES"
+ 	echo "DNS DOMAINS:   $U_DNS_DOMAINS/$DNS_DOMAINS"
+ 	echo "DNS RECORDS:   $U_DNS_RECORDS/$DNS_RECORDS"
+diff --git a/bin/v-list-user-package b/bin/v-list-user-package
+index f0b0e3cb7..ef64d14e3 100755
+--- a/bin/v-list-user-package
++++ b/bin/v-list-user-package
+@@ -29,6 +29,7 @@ json_list() {
+         "PROXY_TEMPLATE": "'$PROXY_TEMPLATE'",
+         "DNS_TEMPLATE": "'$DNS_TEMPLATE'",
+         "WEB_DOMAINS": "'$WEB_DOMAINS'",
++        "WEB_SUBDOMAINS": "'$WEB_SUBDOMAINS'",
+         "WEB_ALIASES": "'$WEB_ALIASES'",
+         "DNS_DOMAINS": "'$DNS_DOMAINS'",
+         "DNS_RECORDS": "'$DNS_RECORDS'",
+@@ -61,6 +62,7 @@ shell_list() {
+ 	echo "PROXY TEMPLATE:   $PROXY_TEMPLATE"
+ 	echo "DNS TEMPLATE:     $DNS_TEMPLATE"
+ 	echo "WEB DOMAINS:      $WEB_DOMAINS"
++	echo "WEB SUBDOMAINS:   $WEB_SUBDOMAINS"
+ 	echo "WEB ALIASES:      $WEB_ALIASES"
+ 	echo "DNS DOMAINS:      $DNS_DOMAINS"
+ 	echo "DNS RECORDS:      $DNS_RECORDS"
+diff --git a/bin/v-list-user-packages b/bin/v-list-user-packages
+index 1b90a04e7..06d9173b1 100755
+--- a/bin/v-list-user-packages
++++ b/bin/v-list-user-packages
+@@ -27,12 +27,16 @@ json_list() {
+ 	echo "{"
+ 	for package in $packages; do
+ 		PACKAGE=${package/.pkg/}
++		# QemuCP: limpiar antes de cada source_conf. Es un bucle, y un paquete
++		# sin WEB_SUBDOMAINS heredaria el valor del paquete anterior.
++		WEB_SUBDOMAINS=''
+ 		source_conf "$HESTIA/data/packages/$PACKAGE.pkg"
+ 		echo -n '    "'$PACKAGE'": {
+         "WEB_TEMPLATE": "'$WEB_TEMPLATE'",
+         "PROXY_TEMPLATE": "'$PROXY_TEMPLATE'",
+         "DNS_TEMPLATE": "'$DNS_TEMPLATE'",
+         "WEB_DOMAINS": "'$WEB_DOMAINS'",
++        "WEB_SUBDOMAINS": "'$WEB_SUBDOMAINS'",
+         "WEB_ALIASES": "'$WEB_ALIASES'",
+         "DNS_DOMAINS": "'$DNS_DOMAINS'",
+         "DNS_RECORDS": "'$DNS_RECORDS'",
 diff --git a/bin/v-update-user-counters b/bin/v-update-user-counters
 index 586f8aa1c..6ee372d15 100755
 --- a/bin/v-update-user-counters
@@ -423,7 +596,7 @@ index 8b59d2e26..a78e9307b 100644
  		# Used is always calculated with the new alias added
  		if [ "$limit" != 'unlimited' ] && [[ "$used" -gt "$limit" ]]; then
 diff --git a/web/add/package/index.php b/web/add/package/index.php
-index 32d5e2507..808f7ac40 100644
+index 32d5e2507..bb2b10b09 100644
 --- a/web/add/package/index.php
 +++ b/web/add/package/index.php
 @@ -50,6 +50,9 @@ if (!empty($_POST["ok"])) {
@@ -444,15 +617,17 @@ index 32d5e2507..808f7ac40 100644
  		$v_web_aliases = quoteshellarg($_POST["v_web_aliases"]);
  		$v_dns_domains = quoteshellarg($_POST["v_dns_domains"]);
  		$v_dns_records = quoteshellarg($_POST["v_dns_records"]);
-@@ -196,6 +200,7 @@ if (!empty($_POST["ok"])) {
+@@ -196,6 +200,9 @@ if (!empty($_POST["ok"])) {
  			}
  			$pkg .= "DNS_TEMPLATE=" . $v_dns_template . "\n";
  			$pkg .= "WEB_DOMAINS=" . $v_web_domains . "\n";
-+			$pkg .= "WEB_SUBDOMAINS=" . $v_web_subdomains . "\n";
++			if (trim($_POST["v_web_subdomains"]) !== "") {
++				$pkg .= "WEB_SUBDOMAINS=" . $v_web_subdomains . "\n";
++			}
  			$pkg .= "WEB_ALIASES=" . $v_web_aliases . "\n";
  			$pkg .= "DNS_DOMAINS=" . $v_dns_domains . "\n";
  			$pkg .= "DNS_RECORDS=" . $v_dns_records . "\n";
-@@ -297,6 +302,9 @@ if (empty($v_shell)) {
+@@ -297,6 +304,9 @@ if (empty($v_shell)) {
  if (empty($v_web_domains)) {
  	$v_web_domains = "'1'";
  }
@@ -463,18 +638,21 @@ index 32d5e2507..808f7ac40 100644
  	$v_web_aliases = "'5'";
  }
 diff --git a/web/edit/package/index.php b/web/edit/package/index.php
-index 6085f5e9d..23dc220d8 100644
+index 6085f5e9d..e02cb361a 100644
 --- a/web/edit/package/index.php
 +++ b/web/edit/package/index.php
-@@ -40,6 +40,7 @@ $v_backend_template = $data[$v_package]["BACKEND_TEMPLATE"];
+@@ -40,6 +40,10 @@ $v_backend_template = $data[$v_package]["BACKEND_TEMPLATE"];
  $v_proxy_template = $data[$v_package]["PROXY_TEMPLATE"];
  $v_dns_template = $data[$v_package]["DNS_TEMPLATE"];
  $v_web_domains = $data[$v_package]["WEB_DOMAINS"];
-+$v_web_subdomains = $data[$v_package]["WEB_SUBDOMAINS"] ?? "unlimited";
++// Vacio = paquete heredado: los subdominios siguen contando como dominios.
++// No se rellena con "unlimited" para que editar otro campo del paquete no
++// cambie el esquema sin que el administrador lo pida expresamente.
++$v_web_subdomains = $data[$v_package]["WEB_SUBDOMAINS"] ?? "";
  $v_web_aliases = $data[$v_package]["WEB_ALIASES"];
  $v_dns_domains = $data[$v_package]["DNS_DOMAINS"];
  $v_dns_records = $data[$v_package]["DNS_RECORDS"];
-@@ -163,6 +164,9 @@ if (!empty($_POST["save"])) {
+@@ -163,6 +167,9 @@ if (!empty($_POST["save"])) {
  	if (!isset($_POST["v_web_domains"])) {
  		$errors[] = _("Web Domains");
  	}
@@ -484,7 +662,7 @@ index 6085f5e9d..23dc220d8 100644
  	if (!isset($_POST["v_web_aliases"])) {
  		$errors[] = _("Web Aliases");
  	}
-@@ -253,6 +257,7 @@ if (!empty($_POST["save"])) {
+@@ -253,6 +260,7 @@ if (!empty($_POST["save"])) {
  		$v_shell = "nologin";
  	}
  	$v_web_domains = quoteshellarg($_POST["v_web_domains"]);
@@ -492,16 +670,18 @@ index 6085f5e9d..23dc220d8 100644
  	$v_web_aliases = quoteshellarg($_POST["v_web_aliases"]);
  	$v_dns_domains = quoteshellarg($_POST["v_dns_domains"]);
  	$v_dns_records = quoteshellarg($_POST["v_dns_records"]);
-@@ -312,6 +317,7 @@ if (!empty($_POST["save"])) {
+@@ -312,6 +320,9 @@ if (!empty($_POST["save"])) {
  	$pkg .= "PROXY_TEMPLATE=" . $v_proxy_template . "\n";
  	$pkg .= "DNS_TEMPLATE=" . $v_dns_template . "\n";
  	$pkg .= "WEB_DOMAINS=" . $v_web_domains . "\n";
-+	$pkg .= "WEB_SUBDOMAINS=" . $v_web_subdomains . "\n";
++	if (trim($_POST["v_web_subdomains"]) !== "") {
++		$pkg .= "WEB_SUBDOMAINS=" . $v_web_subdomains . "\n";
++	}
  	$pkg .= "WEB_ALIASES=" . $v_web_aliases . "\n";
  	$pkg .= "DNS_DOMAINS=" . $v_dns_domains . "\n";
  	$pkg .= "DNS_RECORDS=" . $v_dns_records . "\n";
 diff --git a/web/templates/pages/add_package.php b/web/templates/pages/add_package.php
-index 111df452d..128728d93 100644
+index 111df452d..671315575 100644
 --- a/web/templates/pages/add_package.php
 +++ b/web/templates/pages/add_package.php
 @@ -81,6 +81,17 @@
@@ -510,7 +690,7 @@ index 111df452d..128728d93 100644
  					</div>
 +					<div class="u-mb10">
 +						<label for="v_web_subdomains" class="form-label">
-+							<?= tohtml( _("Web Subdomains")) ?> <span class="optional">(<?= tohtml( _("subdomains of own domains")) ?>)</span>
++							<?= tohtml( _("Web Subdomains")) ?> <span class="optional">(<?= tohtml( _("subdomains of own domains; empty = count as domains")) ?>)</span>
 +						</label>
 +						<div class="u-pos-relative">
 +							<input type="text" class="form-control" name="v_web_subdomains" id="v_web_subdomains" value="<?= tohtml(trim($v_web_subdomains, "'")) ?>">
@@ -523,7 +703,7 @@ index 111df452d..128728d93 100644
  						<label for="v_web_aliases" class="form-label">
  							<?= tohtml( _("Web Aliases")) ?> <span class="optional">(<?= tohtml( _("per domain")) ?>)</span>
 diff --git a/web/templates/pages/edit_package.php b/web/templates/pages/edit_package.php
-index 0272fd99b..768bed787 100644
+index 0272fd99b..cbcb57ab5 100644
 --- a/web/templates/pages/edit_package.php
 +++ b/web/templates/pages/edit_package.php
 @@ -83,6 +83,17 @@
@@ -532,7 +712,7 @@ index 0272fd99b..768bed787 100644
  					</div>
 +					<div class="u-mb10">
 +						<label for="v_web_subdomains" class="form-label">
-+							<?= tohtml( _("Web Subdomains")) ?> <span class="optional">(<?= tohtml( _("subdomains of own domains")) ?>)</span>
++							<?= tohtml( _("Web Subdomains")) ?> <span class="optional">(<?= tohtml( _("subdomains of own domains; empty = count as domains")) ?>)</span>
 +						</label>
 +						<div class="u-pos-relative">
 +							<input type="text" class="form-control" name="v_web_subdomains" id="v_web_subdomains" value="<?= tohtml(trim($v_web_subdomains, "'")) ?>">
@@ -579,7 +759,7 @@ fi   # fin de: if [ "$YA_APLICADO" = "no" ]
 echo ""
 echo "--- Verificando ---"
 ERR=0
-for F in func/main.sh bin/v-add-web-domain bin/v-add-domain bin/v-change-user-package bin/v-update-user-counters; do
+for F in func/main.sh bin/v-add-web-domain bin/v-add-domain bin/v-add-user bin/v-add-user-package bin/v-change-user-package bin/v-update-user-counters bin/v-list-user bin/v-list-user-package bin/v-list-user-packages; do
     if bash -n "$HESTIA/$F" 2>/dev/null; then ok "sintaxis bash $F"; else bad "sintaxis bash ROTA en $F"; ERR=1; fi
 done
 PHPBIN=$(command -v php || ls /usr/bin/php* 2>/dev/null | head -1)

@@ -29,6 +29,7 @@ json_list() {
         "PROXY_TEMPLATE": "'$PROXY_TEMPLATE'",
         "DNS_TEMPLATE": "'$DNS_TEMPLATE'",
         "WEB_DOMAINS": "'$WEB_DOMAINS'",
+        "WEB_SUBDOMAINS": "'$WEB_SUBDOMAINS'",
         "WEB_ALIASES": "'$WEB_ALIASES'",
         "DNS_DOMAINS": "'$DNS_DOMAINS'",
         "DNS_RECORDS": "'$DNS_RECORDS'",
@@ -61,6 +62,7 @@ shell_list() {
 	echo "PROXY TEMPLATE:   $PROXY_TEMPLATE"
 	echo "DNS TEMPLATE:     $DNS_TEMPLATE"
 	echo "WEB DOMAINS:      $WEB_DOMAINS"
+	echo "WEB SUBDOMAINS:   $WEB_SUBDOMAINS"
 	echo "WEB ALIASES:      $WEB_ALIASES"
 	echo "DNS DOMAINS:      $DNS_DOMAINS"
 	echo "DNS RECORDS:      $DNS_RECORDS"

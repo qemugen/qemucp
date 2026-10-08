@@ -83,7 +83,7 @@
 					</div>
 					<div class="u-mb10">
 						<label for="v_web_subdomains" class="form-label">
-							<?= tohtml( _("Web Subdomains")) ?> <span class="optional">(<?= tohtml( _("subdomains of own domains")) ?>)</span>
+							<?= tohtml( _("Web Subdomains")) ?> <span class="optional">(<?= tohtml( _("subdomains of own domains; empty = count as domains")) ?>)</span>
 						</label>
 						<div class="u-pos-relative">
 							<input type="text" class="form-control" name="v_web_subdomains" id="v_web_subdomains" value="<?= tohtml(trim($v_web_subdomains, "'")) ?>">
