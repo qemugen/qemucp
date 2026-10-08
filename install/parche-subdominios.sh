@@ -40,8 +40,9 @@ ok()   { echo -e "  ${GREEN}OK${NC}   $1"; }
 bad()  { echo -e "  ${RED}ERROR${NC} $1"; }
 warn() { echo -e "  ${YELLOW}AVISO${NC} $1"; }
 
-FICHEROS="func/main.sh bin/v-add-web-domain bin/v-change-user-package \
-bin/v-update-user-counters web/add/package/index.php web/edit/package/index.php \
+FICHEROS="func/main.sh bin/v-add-web-domain bin/v-add-domain \
+bin/v-change-user-package bin/v-update-user-counters \
+web/add/package/index.php web/edit/package/index.php \
 web/templates/pages/add_package.php web/templates/pages/edit_package.php"
 
 # ---------------------------------------------------------------- revertir
@@ -68,6 +69,93 @@ if [ "${1:-}" = "--revertir" ]; then
     exit 0
 fi
 
+# ------------------------------------------------------------------- --plan
+# Ajusta un paquete a "X dominios / Y subdominios" dejando coherentes TODOS
+# los cupos implicados. Hace falta porque en HestiaCP cada subdominio es
+# tambien una zona DNS y un dominio de correo: si DNS_DOMAINS o MAIL_DOMAINS
+# se quedan cortos, el panel crea el subdominio a medias y sin dar error.
+if [ "${1:-}" = "--plan" ]; then
+    PLAN="${2:-}"; NDOM="${3:-}"; NSUB="${4:-}"
+    PKG="$HESTIA/data/packages/${PLAN}.pkg"
+    if [ -z "$PLAN" ] || [ -z "$NDOM" ] || [ -z "$NSUB" ]; then
+        echo "Uso: bash $0 --plan NOMBRE DOMINIOS SUBDOMINIOS"
+        echo ""
+        echo "  DOMINIOS     dominios de nivel superior, INCLUIDO el principal."
+        echo "               Para 'principal + 2 adicionales' pon 3."
+        echo "  SUBDOMINIOS  subdominios de sus propios dominios, o 'unlimited'."
+        echo ""
+        echo "Ejemplos:"
+        echo "  bash $0 --plan basico 1 10         1 dominio, 10 subdominios"
+        echo "  bash $0 --plan pro 3 unlimited     principal + 2 adicionales"
+        echo ""
+        echo "Paquetes disponibles:"
+        ls -1 "$HESTIA/data/packages/"*.pkg 2>/dev/null \
+            | sed 's|.*/||; s|\.pkg$||; s|^|  |'
+        exit 1
+    fi
+    [ -f "$PKG" ] || { bad "No existe el paquete '$PLAN' ($PKG)"; exit 1; }
+    case "$NDOM" in ''|*[!0-9]*) bad "DOMINIOS debe ser un numero"; exit 1 ;; esac
+    [ "$NDOM" -lt 1 ] && { bad "DOMINIOS debe ser 1 o mas: el dominio principal tambien cuenta"; exit 1; }
+    case "$NSUB" in
+        unlimited|0|[1-9]*) ;;
+        *) bad "SUBDOMINIOS debe ser un numero o 'unlimited'"; exit 1 ;;
+    esac
+    case "$NSUB" in
+        unlimited) ;;
+        *[!0-9]*) bad "SUBDOMINIOS debe ser un numero o 'unlimited'"; exit 1 ;;
+    esac
+
+    if ! grep -q "count_web_domains_split" "$HESTIA/func/main.sh" 2>/dev/null; then
+        bad "El parche no esta aplicado todavia. Ejecuta primero: bash $0"
+        exit 1
+    fi
+
+    cp -a "$PKG" "$PKG.bak-$(date +%Y%m%d-%H%M%S)"
+    sed -i "/^WEB_SUBDOMAINS=/d" "$PKG"
+    sed -i "s|^WEB_DOMAINS=.*|WEB_DOMAINS='$NDOM'|" "$PKG"
+    sed -i "/^WEB_DOMAINS=/a WEB_SUBDOMAINS='$NSUB'" "$PKG"
+    ok "WEB_DOMAINS='$NDOM'  WEB_SUBDOMAINS='$NSUB'"
+
+    # DNS y correo: cada subdominio consume tambien uno de esos cupos
+    if [ "$NSUB" = "unlimited" ]; then
+        TOTAL="unlimited"
+    else
+        TOTAL=$((NDOM + NSUB))
+    fi
+    for CLAVE in DNS_DOMAINS MAIL_DOMAINS; do
+        ACTUAL=$(grep -m1 "^$CLAVE=" "$PKG" | cut -f2 -d\')
+        if [ "$ACTUAL" = "unlimited" ]; then
+            ok "$CLAVE ya era unlimited"
+        elif [ "$TOTAL" = "unlimited" ]; then
+            sed -i "s|^$CLAVE=.*|$CLAVE='unlimited'|" "$PKG"
+            warn "$CLAVE subido de '$ACTUAL' a 'unlimited' (subdominios ilimitados)"
+        elif [ -z "$ACTUAL" ]; then
+            warn "$CLAVE no estaba en el paquete, se deja como esta"
+        elif [ "$ACTUAL" -lt "$TOTAL" ]; then
+            sed -i "s|^$CLAVE=.*|$CLAVE='$TOTAL'|" "$PKG"
+            warn "$CLAVE subido de '$ACTUAL' a '$TOTAL' (cada subdominio usa uno)"
+        else
+            ok "$CLAVE='$ACTUAL' es suficiente"
+        fi
+    done
+
+    echo ""
+    echo "--- Paquete '$PLAN' ---"
+    grep -E "^(WEB_DOMAINS|WEB_SUBDOMAINS|WEB_ALIASES|DNS_DOMAINS|MAIL_DOMAINS)=" "$PKG" | sed 's/^/  /'
+    echo ""
+    echo "Significa: $((NDOM - 1)) dominios adicionales (mas el principal)"
+    echo "           $NSUB subdominios de sus propios dominios"
+    echo ""
+    echo "--- Propagando a los usuarios de este plan ---"
+    if "$HESTIA/bin/v-update-user-package" "$PLAN" 2>&1 | sed 's/^/  /'; then
+        ok "Plan propagado"
+    else
+        warn "v-update-user-package devolvio error: revisa si algun usuario ya"
+        warn "supera los nuevos limites (a esos hay que subirles el plan primero)"
+    fi
+    exit 0
+fi
+
 # ---------------------------------------------------------- comprobaciones
 echo "============================================================"
 echo " Parche: limite de subdominios separado"
@@ -84,7 +172,7 @@ for F in $FICHEROS; do
     [ -f "$HESTIA/$F" ] || { bad "no existe $HESTIA/$F"; FALTA=1; }
 done
 [ "$FALTA" -ne 0 ] && { bad "Instalacion inesperada, no se aplica nada"; exit 1; }
-ok "Los 8 ficheros a modificar estan presentes"
+ok "Los 9 ficheros a modificar estan presentes"
 
 # Si ya esta aplicado se sale ANTES de hacer backup. De lo contrario el backup
 # guardaria los ficheros ya parcheados y --revertir dejaria de servir.
@@ -113,41 +201,36 @@ echo ""
 echo "--- Aplicando ---"
 PATCHFILE=$(mktemp /tmp/qemucp-sub.XXXXXX.patch)
 cat > "$PATCHFILE" <<'FIN_DEL_PARCHE'
+diff --git a/bin/v-add-domain b/bin/v-add-domain
+index be69cbe50..9e11ee13d 100755
+--- a/bin/v-add-domain
++++ b/bin/v-add-domain
+@@ -54,7 +54,10 @@ fi
+ 
+ # Working on web domain
+ if [ -n "$WEB_SYSTEM" ]; then
+-	check1=$(is_package_full 'WEB_DOMAINS')
++	# QemuCP: un subdominio cuenta contra WEB_SUBDOMAINS, no contra WEB_DOMAINS.
++	# Sin esto, con el cupo de dominios lleno pero subdominios libres, este
++	# pre-chequeo se saltaria la creacion de la parte web sin dar ningun error.
++	check1=$(is_package_full "$(web_quota_key "$domain")")
+ 	if [ $? -eq 0 ]; then
+ 		$BIN/v-add-web-domain "$user" "$domain" "$ip" 'no'
+ 		check_result $? "can't add web domain"
 diff --git a/bin/v-add-web-domain b/bin/v-add-web-domain
-index e50498658..80129fc15 100755
+index e50498658..50ef2632b 100755
 --- a/bin/v-add-web-domain
 +++ b/bin/v-add-web-domain
-@@ -53,7 +53,32 @@ check_args '2' "$#" 'USER DOMAIN [IP] [RESTART] [ALIASES] [PROXY_EXTENSIONS]'
+@@ -53,7 +53,11 @@ check_args '2' "$#" 'USER DOMAIN [IP] [RESTART] [ALIASES] [PROXY_EXTENSIONS]'
  is_format_valid 'user' 'domain' 'aliases' 'ip' 'proxy_ext' 'restart'
  is_object_valid 'user' 'USER' "$user"
  is_object_unsuspended 'user' 'USER' "$user"
 -is_package_full 'WEB_DOMAINS'
 +
 +# QemuCP: en cPanel un subdominio de un dominio que ya aloja la cuenta no gasta
-+# cupo de "addon domains", sino el suyo propio. Si el paquete define
-+# WEB_SUBDOMAINS se replica ese comportamiento: el dominio nuevo se contabiliza
-+# contra WEB_SUBDOMAINS cuando es X.DOMINIO de un dominio ya alojado por este
-+# mismo usuario, y contra WEB_DOMAINS en cualquier otro caso. Si el paquete no
-+# define WEB_SUBDOMAINS todo cuenta en WEB_DOMAINS, como en HestiaCP original.
-+if has_split_subdomain_limit; then
-+	is_new_sub='no'
-+	for _parent in $(grep -o "DOMAIN='[^']*'" "$USER_DATA/web.conf" 2> /dev/null | cut -f 2 -d \'); do
-+		[ "$domain" = "$_parent" ] && continue
-+		case "$domain" in
-+			*".$_parent")
-+				is_new_sub='yes'
-+				break
-+				;;
-+		esac
-+	done
-+	if [ "$is_new_sub" = 'yes' ]; then
-+		is_package_full 'WEB_SUBDOMAINS'
-+	else
-+		is_package_full 'WEB_DOMAINS'
-+	fi
-+else
-+	is_package_full 'WEB_DOMAINS'
-+fi
++# cupo de "addon domains", sino el suyo propio. web_quota_key decide contra que
++# limite cuenta este dominio (ver func/main.sh).
++is_package_full "$(web_quota_key "$domain")"
  
  if [ "$aliases" != "none" ]; then
  	ALIAS="$aliases"
@@ -242,10 +325,10 @@ index 586f8aa1c..6ee372d15 100755
  
  	# Checking dns system
 diff --git a/func/main.sh b/func/main.sh
-index 8b59d2e26..90bbbab7b 100644
+index 8b59d2e26..a78e9307b 100644
 --- a/func/main.sh
 +++ b/func/main.sh
-@@ -267,10 +267,57 @@ is_system_enabled() {
+@@ -267,10 +267,81 @@ is_system_enabled() {
  	fi
  }
  
@@ -289,6 +372,30 @@ index 8b59d2e26..90bbbab7b 100644
 +	[ -n "$_v" ]
 +}
 +
++# QemuCP: nombre del limite contra el que debe contar el dominio indicado.
++# Devuelve WEB_SUBDOMAINS si es X.DOMINIO de un dominio que ya aloja este
++# usuario y su paquete separa subdominios; WEB_DOMAINS en el resto de casos.
++# Centralizado aqui porque lo necesitan v-add-web-domain y v-add-domain, y si
++# cada uno lo decidiera por su cuenta se descuadrarian: v-add-domain
++# pre-comprueba el limite y se salta la creacion web sin avisar.
++web_quota_key() {
++	local _dom="$1" _p
++	if ! has_split_subdomain_limit; then
++		echo 'WEB_DOMAINS'
++		return
++	fi
++	for _p in $(grep -o "DOMAIN='[^']*'" "$USER_DATA/web.conf" 2> /dev/null | cut -f 2 -d \'); do
++		[ "$_dom" = "$_p" ] && continue
++		case "$_dom" in
++			*".$_p")
++				echo 'WEB_SUBDOMAINS'
++				return
++				;;
++		esac
++	done
++	echo 'WEB_DOMAINS'
++}
++
  # User package check
  is_package_full() {
  	case "$1" in
@@ -304,7 +411,7 @@ index 8b59d2e26..90bbbab7b 100644
  		WEB_ALIASES) used=$(echo $aliases | tr ',' '\n' | wc -l) ;;
  		DNS_DOMAINS) used=$(wc -l $USER_DATA/dns.conf) ;;
  		DNS_RECORDS) used=$(wc -l $USER_DATA/dns/$domain.conf) ;;
-@@ -281,6 +328,10 @@ is_package_full() {
+@@ -281,6 +352,10 @@ is_package_full() {
  	esac
  	used=$(echo "$used" | cut -f 1 -d \ )
  	limit=$(grep "^$1=" $USER_DATA/user.conf | cut -f 2 -d \')
@@ -472,7 +579,7 @@ fi   # fin de: if [ "$YA_APLICADO" = "no" ]
 echo ""
 echo "--- Verificando ---"
 ERR=0
-for F in func/main.sh bin/v-add-web-domain bin/v-change-user-package bin/v-update-user-counters; do
+for F in func/main.sh bin/v-add-web-domain bin/v-add-domain bin/v-change-user-package bin/v-update-user-counters; do
     if bash -n "$HESTIA/$F" 2>/dev/null; then ok "sintaxis bash $F"; else bad "sintaxis bash ROTA en $F"; ERR=1; fi
 done
 PHPBIN=$(command -v php || ls /usr/bin/php* 2>/dev/null | head -1)
@@ -489,8 +596,12 @@ for MARCA in count_web_domains_split has_split_subdomain_limit; do
     grep -q "$MARCA" "$HESTIA/func/main.sh" && ok "funcion $MARCA presente" \
         || { bad "falta $MARCA en func/main.sh"; ERR=1; }
 done
-grep -q "WEB_SUBDOMAINS" "$HESTIA/bin/v-add-web-domain" && ok "chequeo en v-add-web-domain" \
-    || { bad "falta el chequeo en v-add-web-domain"; ERR=1; }
+for B in v-add-web-domain v-add-domain; do
+    grep -q "web_quota_key" "$HESTIA/bin/$B" && ok "chequeo de cupo en $B" \
+        || { bad "falta el chequeo de cupo en $B"; ERR=1; }
+done
+grep -q "web_quota_key" "$HESTIA/func/main.sh" && ok "funcion web_quota_key presente" \
+    || { bad "falta web_quota_key en func/main.sh"; ERR=1; }
 grep -q "v_web_subdomains" "$HESTIA/web/templates/pages/edit_package.php" && ok "campo en el formulario de paquetes" \
     || { bad "falta el campo en el formulario"; ERR=1; }
 
