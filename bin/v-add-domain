@@ -54,7 +54,10 @@ fi
 
 # Working on web domain
 if [ -n "$WEB_SYSTEM" ]; then
-	check1=$(is_package_full 'WEB_DOMAINS')
+	# QemuCP: un subdominio cuenta contra WEB_SUBDOMAINS, no contra WEB_DOMAINS.
+	# Sin esto, con el cupo de dominios lleno pero subdominios libres, este
+	# pre-chequeo se saltaria la creacion de la parte web sin dar ningun error.
+	check1=$(is_package_full "$(web_quota_key "$domain")")
 	if [ $? -eq 0 ]; then
 		$BIN/v-add-web-domain "$user" "$domain" "$ip" 'no'
 		check_result $? "can't add web domain"

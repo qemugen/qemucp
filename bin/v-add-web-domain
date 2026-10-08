@@ -55,30 +55,9 @@ is_object_valid 'user' 'USER' "$user"
 is_object_unsuspended 'user' 'USER' "$user"
 
 # QemuCP: en cPanel un subdominio de un dominio que ya aloja la cuenta no gasta
-# cupo de "addon domains", sino el suyo propio. Si el paquete define
-# WEB_SUBDOMAINS se replica ese comportamiento: el dominio nuevo se contabiliza
-# contra WEB_SUBDOMAINS cuando es X.DOMINIO de un dominio ya alojado por este
-# mismo usuario, y contra WEB_DOMAINS en cualquier otro caso. Si el paquete no
-# define WEB_SUBDOMAINS todo cuenta en WEB_DOMAINS, como en HestiaCP original.
-if has_split_subdomain_limit; then
-	is_new_sub='no'
-	for _parent in $(grep -o "DOMAIN='[^']*'" "$USER_DATA/web.conf" 2> /dev/null | cut -f 2 -d \'); do
-		[ "$domain" = "$_parent" ] && continue
-		case "$domain" in
-			*".$_parent")
-				is_new_sub='yes'
-				break
-				;;
-		esac
-	done
-	if [ "$is_new_sub" = 'yes' ]; then
-		is_package_full 'WEB_SUBDOMAINS'
-	else
-		is_package_full 'WEB_DOMAINS'
-	fi
-else
-	is_package_full 'WEB_DOMAINS'
-fi
+# cupo de "addon domains", sino el suyo propio. web_quota_key decide contra que
+# limite cuenta este dominio (ver func/main.sh).
+is_package_full "$(web_quota_key "$domain")"
 
 if [ "$aliases" != "none" ]; then
 	ALIAS="$aliases"

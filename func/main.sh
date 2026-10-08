@@ -307,6 +307,30 @@ has_split_subdomain_limit() {
 	[ -n "$_v" ]
 }
 
+# QemuCP: nombre del limite contra el que debe contar el dominio indicado.
+# Devuelve WEB_SUBDOMAINS si es X.DOMINIO de un dominio que ya aloja este
+# usuario y su paquete separa subdominios; WEB_DOMAINS en el resto de casos.
+# Centralizado aqui porque lo necesitan v-add-web-domain y v-add-domain, y si
+# cada uno lo decidiera por su cuenta se descuadrarian: v-add-domain
+# pre-comprueba el limite y se salta la creacion web sin avisar.
+web_quota_key() {
+	local _dom="$1" _p
+	if ! has_split_subdomain_limit; then
+		echo 'WEB_DOMAINS'
+		return
+	fi
+	for _p in $(grep -o "DOMAIN='[^']*'" "$USER_DATA/web.conf" 2> /dev/null | cut -f 2 -d \'); do
+		[ "$_dom" = "$_p" ] && continue
+		case "$_dom" in
+			*".$_p")
+				echo 'WEB_SUBDOMAINS'
+				return
+				;;
+		esac
+	done
+	echo 'WEB_DOMAINS'
+}
+
 # User package check
 is_package_full() {
 	case "$1" in
