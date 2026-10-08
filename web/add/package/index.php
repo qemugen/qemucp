@@ -50,6 +50,9 @@ if (!empty($_POST["ok"])) {
 	if (!isset($_POST["v_web_domains"])) {
 		$errors[] = _("Web Domains");
 	}
+	if (!isset($_POST["v_web_subdomains"])) {
+		$errors[] = _("Web Subdomains");
+	}
 	if (!isset($_POST["v_web_aliases"])) {
 		$errors[] = _("Web Aliases");
 	}
@@ -129,6 +132,7 @@ if (!empty($_POST["ok"])) {
 		$v_dns_template = quoteshellarg($_POST["v_dns_template"]);
 		$v_shell = quoteshellarg($_POST["v_shell"]);
 		$v_web_domains = quoteshellarg($_POST["v_web_domains"]);
+		$v_web_subdomains = quoteshellarg($_POST["v_web_subdomains"]);
 		$v_web_aliases = quoteshellarg($_POST["v_web_aliases"]);
 		$v_dns_domains = quoteshellarg($_POST["v_dns_domains"]);
 		$v_dns_records = quoteshellarg($_POST["v_dns_records"]);
@@ -196,6 +200,7 @@ if (!empty($_POST["ok"])) {
 			}
 			$pkg .= "DNS_TEMPLATE=" . $v_dns_template . "\n";
 			$pkg .= "WEB_DOMAINS=" . $v_web_domains . "\n";
+			$pkg .= "WEB_SUBDOMAINS=" . $v_web_subdomains . "\n";
 			$pkg .= "WEB_ALIASES=" . $v_web_aliases . "\n";
 			$pkg .= "DNS_DOMAINS=" . $v_dns_domains . "\n";
 			$pkg .= "DNS_RECORDS=" . $v_dns_records . "\n";
@@ -296,6 +301,9 @@ if (empty($v_shell)) {
 }
 if (empty($v_web_domains)) {
 	$v_web_domains = "'1'";
+}
+if (empty($v_web_subdomains)) {
+	$v_web_subdomains = "'unlimited'";
 }
 if (empty($v_web_aliases)) {
 	$v_web_aliases = "'5'";

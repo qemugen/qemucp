@@ -33,13 +33,32 @@ is_package_available() {
 	DNS_DOMAINS='0'
 	DISK_QUOTA='0'
 	BANDWIDTH='0'
+	WEB_SUBDOMAINS=''
 
 	source_conf "$HESTIA/data/packages/$package.pkg"
 
+	# QemuCP: si el paquete destino separa subdominios, el uso actual hay que
+	# compararlo tambien separado. Los contadores U_WEB_* del usuario pueden
+	# venir todavia del esquema antiguo (U_WEB_DOMAINS = total), asi que se
+	# recalculan aqui sobre web.conf en lugar de confiar en ellos.
+	if [ -n "$WEB_SUBDOMAINS" ]; then
+		_split=$(count_web_domains_split "$USER_DATA/web.conf")
+		_used_top=$(echo "$_split" | cut -f 1 -d \ )
+		_used_sub=$(echo "$_split" | cut -f 2 -d \ )
+	else
+		_used_top="$U_WEB_DOMAINS"
+		_used_sub=0
+	fi
+
 	# Checking usage agains package limits
 	if [ "$WEB_DOMAINS" != 'unlimited' ]; then
-		if [ "$WEB_DOMAINS" -lt "$U_WEB_DOMAINS" ]; then
+		if [ "$WEB_DOMAINS" -lt "$_used_top" ]; then
 			check_result "$E_LIMIT" "Package doesn't cover WEB_DOMAIN usage"
+		fi
+	fi
+	if [ -n "$WEB_SUBDOMAINS" ] && [ "$WEB_SUBDOMAINS" != 'unlimited' ]; then
+		if [ "$WEB_SUBDOMAINS" -lt "$_used_sub" ]; then
+			check_result "$E_LIMIT" "Package doesn't cover WEB_SUBDOMAIN usage"
 		fi
 	fi
 	if [ "$DNS_DOMAINS" != 'unlimited' ]; then
@@ -87,6 +106,7 @@ BACKEND_TEMPLATE='$BACKEND_TEMPLATE'
 PROXY_TEMPLATE='$PROXY_TEMPLATE'
 DNS_TEMPLATE='$DNS_TEMPLATE'
 WEB_DOMAINS='$WEB_DOMAINS'
+WEB_SUBDOMAINS='$WEB_SUBDOMAINS'
 WEB_ALIASES='$WEB_ALIASES'
 DNS_DOMAINS='$DNS_DOMAINS'
 DNS_RECORDS='$DNS_RECORDS'
@@ -130,6 +150,7 @@ U_DISK_MAIL='$U_DISK_MAIL'
 U_DISK_DB='$U_DISK_DB'
 U_BANDWIDTH='$U_BANDWIDTH'
 U_WEB_DOMAINS='$U_WEB_DOMAINS'
+U_WEB_SUBDOMAINS='$U_WEB_SUBDOMAINS'
 U_WEB_SSL='$U_WEB_SSL'
 U_WEB_ALIASES='$U_WEB_ALIASES'
 U_DNS_DOMAINS='$U_DNS_DOMAINS'

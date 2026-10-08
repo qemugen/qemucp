@@ -40,6 +40,7 @@ $v_backend_template = $data[$v_package]["BACKEND_TEMPLATE"];
 $v_proxy_template = $data[$v_package]["PROXY_TEMPLATE"];
 $v_dns_template = $data[$v_package]["DNS_TEMPLATE"];
 $v_web_domains = $data[$v_package]["WEB_DOMAINS"];
+$v_web_subdomains = $data[$v_package]["WEB_SUBDOMAINS"] ?? "unlimited";
 $v_web_aliases = $data[$v_package]["WEB_ALIASES"];
 $v_dns_domains = $data[$v_package]["DNS_DOMAINS"];
 $v_dns_records = $data[$v_package]["DNS_RECORDS"];
@@ -163,6 +164,9 @@ if (!empty($_POST["save"])) {
 	if (!isset($_POST["v_web_domains"])) {
 		$errors[] = _("Web Domains");
 	}
+	if (!isset($_POST["v_web_subdomains"])) {
+		$errors[] = _("Web Subdomains");
+	}
 	if (!isset($_POST["v_web_aliases"])) {
 		$errors[] = _("Web Aliases");
 	}
@@ -253,6 +257,7 @@ if (!empty($_POST["save"])) {
 		$v_shell = "nologin";
 	}
 	$v_web_domains = quoteshellarg($_POST["v_web_domains"]);
+	$v_web_subdomains = quoteshellarg($_POST["v_web_subdomains"]);
 	$v_web_aliases = quoteshellarg($_POST["v_web_aliases"]);
 	$v_dns_domains = quoteshellarg($_POST["v_dns_domains"]);
 	$v_dns_records = quoteshellarg($_POST["v_dns_records"]);
@@ -312,6 +317,7 @@ if (!empty($_POST["save"])) {
 	$pkg .= "PROXY_TEMPLATE=" . $v_proxy_template . "\n";
 	$pkg .= "DNS_TEMPLATE=" . $v_dns_template . "\n";
 	$pkg .= "WEB_DOMAINS=" . $v_web_domains . "\n";
+	$pkg .= "WEB_SUBDOMAINS=" . $v_web_subdomains . "\n";
 	$pkg .= "WEB_ALIASES=" . $v_web_aliases . "\n";
 	$pkg .= "DNS_DOMAINS=" . $v_dns_domains . "\n";
 	$pkg .= "DNS_RECORDS=" . $v_dns_records . "\n";

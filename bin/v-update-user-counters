@@ -67,6 +67,7 @@ for user in $user_list; do
 	BANDWIDTH=0
 	U_BANDWIDTH=0
 	U_WEB_DOMAINS=0
+	U_WEB_SUBDOMAINS=0
 	U_WEB_SSL=0
 	U_WEB_ALIASES=0
 	U_DNS_DOMAINS=0
@@ -106,6 +107,7 @@ for user in $user_list; do
 
 	# Checking web system
 	U_WEB_DOMAINS=0
+	U_WEB_SUBDOMAINS=0
 	if [ -f $USER_DATA/web.conf ]; then
 		for domain_str in $(cat $USER_DATA/web.conf); do
 			parse_object_kv_list "$domain_str"
@@ -125,6 +127,13 @@ for user in $user_list; do
 			BANDWIDTH=$((BANDWIDTH + U_BANDWIDTH))
 		done
 		DISK=$((DISK + U_DISK_WEB))
+		# QemuCP: si el paquete separa subdominios (WEB_SUBDOMAINS), los
+		# contadores deben separarse igual que los limites, para que el panel
+		# muestre "usados/limite" coherente en ambas filas.
+		if has_split_subdomain_limit; then
+			U_WEB_DOMAINS=$(count_web_domains_split "$USER_DATA/web.conf" | cut -f 1 -d \ )
+			U_WEB_SUBDOMAINS=$(count_web_domains_split "$USER_DATA/web.conf" | cut -f 2 -d \ )
+		fi
 	fi
 
 	# Checking dns system

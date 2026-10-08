@@ -267,10 +267,57 @@ is_system_enabled() {
 	fi
 }
 
+# QemuCP: cuenta los dominios web del usuario separando dominios de nivel
+# superior (lo que cPanel llama "addon domains") de los subdominios de otro
+# dominio del MISMO usuario (lo que cPanel llama "subdomains").
+# Imprime "<dominios> <subdominios>".
+count_web_domains_split() {
+	local _conf="$1"
+	local _doms _d _p _top=0 _sub=0 _is_sub
+	[ -f "$_conf" ] || { echo "0 0"; return; }
+	_doms=$(grep -o "DOMAIN='[^']*'" "$_conf" | cut -f 2 -d \')
+	for _d in $_doms; do
+		_is_sub=0
+		for _p in $_doms; do
+			[ "$_d" = "$_p" ] && continue
+			case "$_d" in
+				*".$_p")
+					_is_sub=1
+					break
+					;;
+			esac
+		done
+		if [ "$_is_sub" -eq 1 ]; then
+			_sub=$((_sub + 1))
+		else
+			_top=$((_top + 1))
+		fi
+	done
+	echo "$_top $_sub"
+}
+
+# QemuCP: cierto si el paquete del usuario define WEB_SUBDOMAINS, es decir si
+# los subdominios tienen su propio limite como en cPanel. Si la clave no existe
+# (paquetes anteriores a este parche) se conserva el comportamiento historico:
+# WEB_DOMAINS cuenta dominios Y subdominios juntos.
+has_split_subdomain_limit() {
+	local _v
+	_v=$(grep -m 1 "^WEB_SUBDOMAINS=" "$USER_DATA/user.conf" 2> /dev/null | cut -f 2 -d \')
+	# Clave ausente o vacia = esquema antiguo (todo cuenta en WEB_DOMAINS).
+	[ -n "$_v" ]
+}
+
 # User package check
 is_package_full() {
 	case "$1" in
-		WEB_DOMAINS) used=$(wc -l $USER_DATA/web.conf) ;;
+		WEB_DOMAINS)
+			if has_split_subdomain_limit; then
+				used=$(count_web_domains_split "$USER_DATA/web.conf" | cut -f 1 -d \ )
+			else
+				used=$(wc -l $USER_DATA/web.conf)
+			fi
+			;;
+		WEB_SUBDOMAINS) used=$(count_web_domains_split "$USER_DATA/web.conf" | cut -f 2 -d \ ) ;;
 		WEB_ALIASES) used=$(echo $aliases | tr ',' '\n' | wc -l) ;;
 		DNS_DOMAINS) used=$(wc -l $USER_DATA/dns.conf) ;;
 		DNS_RECORDS) used=$(wc -l $USER_DATA/dns/$domain.conf) ;;
@@ -281,6 +328,10 @@ is_package_full() {
 	esac
 	used=$(echo "$used" | cut -f 1 -d \ )
 	limit=$(grep "^$1=" $USER_DATA/user.conf | cut -f 2 -d \')
+	# QemuCP: una clave ausente en user.conf equivale a 'unlimited'. Sin esto,
+	# un limite vacio se evalua como 0 en la comparacion aritmetica y bloquea
+	# la creacion en los usuarios cuyo paquete aun no tiene la clave nueva.
+	[ -z "$limit" ] && limit='unlimited'
 	if [ "$1" = WEB_ALIASES ]; then
 		# Used is always calculated with the new alias added
 		if [ "$limit" != 'unlimited' ] && [[ "$used" -gt "$limit" ]]; then

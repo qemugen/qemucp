@@ -84,6 +84,17 @@
 						</div>
 					</div>
 					<div class="u-mb10">
+						<label for="v_web_subdomains" class="form-label">
+							<?= tohtml( _("Web Subdomains")) ?> <span class="optional">(<?= tohtml( _("subdomains of own domains")) ?>)</span>
+						</label>
+						<div class="u-pos-relative">
+							<input type="text" class="form-control" name="v_web_subdomains" id="v_web_subdomains" value="<?= tohtml(trim($v_web_subdomains, "'")) ?>">
+							<button type="button" class="unlimited-toggle js-unlimited-toggle" title="<?= tohtml( _("Unlimited")) ?>">
+								<i class="fas fa-infinity"></i>
+							</button>
+						</div>
+					</div>
+					<div class="u-mb10">
 						<label for="v_web_aliases" class="form-label">
 							<?= tohtml( _("Web Aliases")) ?> <span class="optional">(<?= tohtml( _("per domain")) ?>)</span>
 						</label>
