@@ -464,7 +464,7 @@ index 1b90a04e7..06d9173b1 100755
          "DNS_DOMAINS": "'$DNS_DOMAINS'",
          "DNS_RECORDS": "'$DNS_RECORDS'",
 diff --git a/bin/v-update-user-counters b/bin/v-update-user-counters
-index 586f8aa1c..6ee372d15 100755
+index 586f8aa1c..a5d1ed452 100755
 --- a/bin/v-update-user-counters
 +++ b/bin/v-update-user-counters
 @@ -67,6 +67,7 @@ for user in $user_list; do
@@ -497,6 +497,14 @@ index 586f8aa1c..6ee372d15 100755
  	fi
  
  	# Checking dns system
+@@ -210,6 +219,7 @@ for user in $user_list; do
+ 	update_user_value "$user" '$U_DISK_DB' "$U_DISK_DB"
+ 	update_user_value "$user" '$U_BANDWIDTH' "$U_BANDWIDTH"
+ 	update_user_value "$user" '$U_WEB_DOMAINS' "$U_WEB_DOMAINS"
++	update_user_value "$user" '$U_WEB_SUBDOMAINS' "$U_WEB_SUBDOMAINS"
+ 	update_user_value "$user" '$U_WEB_SSL' "$U_WEB_SSL"
+ 	update_user_value "$user" '$U_WEB_ALIASES' "$U_WEB_ALIASES"
+ 	update_user_value "$user" '$U_DNS_DOMAINS' "$U_DNS_DOMAINS"
 diff --git a/func/main.sh b/func/main.sh
 index 8b59d2e26..a78e9307b 100644
 --- a/func/main.sh
