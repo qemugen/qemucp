@@ -51,10 +51,9 @@ ALLOW_LEGACY_PHP="${ALLOW_LEGACY_PHP:-no}"
 # Para cambiarla:  bash qemucp_install.sh --set-pass
 # y sustituye la linea QEMUCP_KEY_HASH por la que imprime.
 #
-# IMPORTANTE: el hash de abajo corresponde a la clave ANTIGUA, que estuvo
-# en claro en un repositorio publico y debe considerarse comprometida.
-# Se mantiene solo para no dejarte fuera. Cambiala cuanto antes.
-QEMUCP_KEY_HASH="01012bea01c5d244517b5de787b7dfd4a24438e734776461321acec562a08e60"
+# La clave se genero al azar (24 caracteres) y no esta en el repositorio:
+# solo su hash. La anterior estuvo en claro en el repo publico y ya no vale.
+QEMUCP_KEY_HASH="02db216724a954d26fdc08e7b304491a4529886180eb3c6b4ddcb82051e0e04f"
 
 _qemucp_hash() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
 

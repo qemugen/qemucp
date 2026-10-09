@@ -203,8 +203,8 @@ Clave de acceso: solo se guarda el hash SHA-256 (`QEMUCP_KEY_HASH`), porque
 el repo es público. Se pide sin mostrarla, o por `QEMUCP_KEY` en
 desatendido. **Nunca** como argumento: queda en el historial y se ve en
 `ps`. `--set-pass` genera el hash de una clave nueva (mínimo 16
-caracteres). El hash actual es el de la clave antigua, que estuvo en claro
-en el repo público: hay que rotarla.
+caracteres). La clave actual se generó al azar y solo está su hash; la
+antigua (`QemuCP2024#Cloud`) estuvo en claro en el repo y ya no sirve.
 
 ## Convenciones
 
