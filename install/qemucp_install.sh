@@ -152,6 +152,35 @@ log "Hostname configurado: $HOSTNAME"
 # ---------------------------------------------
 header "PASO 1: Preparando sistema base"
 
+# --- Usuario/grupo 'admin' preexistente ----------------------------------
+# hst-install aborta con "Username or Group allready exists" porque
+# comprueba /etc/passwd Y /etc/group. Muchas imagenes de Ubuntu traen el
+# grupo 'admin' (el antiguo grupo sudo) sin ningun usuario, y eso basta para
+# bloquear la instalacion. Se resuelve aqui, antes de empezar.
+if getent passwd admin > /dev/null 2>&1; then
+    error "Existe un usuario del sistema llamado 'admin' y QemuCP necesita ese nombre.
+  No se borra automaticamente porque podria ser una cuenta real de acceso.
+  Revisala y, si no la necesitas:  userdel -r admin
+  Luego relanza este script."
+fi
+if getent group admin > /dev/null 2>&1; then
+    # Solo se borra si esta vacio y no es el grupo primario de nadie
+    MIEMBROS=$(getent group admin | cut -d: -f4)
+    GID_ADMIN=$(getent group admin | cut -d: -f3)
+    PRIMARIO=$(awk -F: -v g="$GID_ADMIN" '$4 == g {print $1}' /etc/passwd | head -1)
+    if [[ -n "$MIEMBROS" ]]; then
+        error "El grupo 'admin' existe y tiene miembros ($MIEMBROS).
+  QemuCP necesita ese nombre. Quita los miembros o renombra el grupo, y relanza."
+    elif [[ -n "$PRIMARIO" ]]; then
+        error "El grupo 'admin' es el grupo primario del usuario '$PRIMARIO'.
+  QemuCP necesita ese nombre. Resuelvelo y relanza."
+    else
+        groupdel admin 2>/dev/null \
+            && log "Grupo 'admin' vacio eliminado (bloqueaba la instalacion)" \
+            || warn "No se pudo eliminar el grupo 'admin': la instalacion puede abortar"
+    fi
+fi
+
 timedatectl set-timezone "$TIMEZONE"
 log "Timezone: $TIMEZONE"
 
