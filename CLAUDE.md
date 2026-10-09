@@ -160,12 +160,15 @@ correctas.
 
 ## Trampas recurrentes en producción
 
-- **`_dmarc` duplicado**: el migrador trae el de cPanel y HestiaCP crea el
-  suyo. Dos TXT `v=DMARC1` hacen que el verificador no pueda decidir y
-  Proofpoint devuelve `554 5.7.5 Permanent error evaluating DMARC policy`.
-  El de cPanel se reconoce por los `\;` escapados. Visto en
-  `artifactum.com` y `ganaderiagranda.es`.
-- **MX duplicados** con prioridad `0` los dos, uno al dominio pelado.
+- **`_dmarc` y MX duplicados tras migrar**: QemuCP crea su `_dmarc` y su
+  MX, y el migrador importaba también los de cPanel. Dos `_dmarc` hacen que
+  el receptor no pueda elegir política (Proofpoint: `554 5.7.5 Permanent
+  error evaluating DMARC policy`); dos MX con prioridad 0 reparten el correo
+  al azar. Visto en `artifactum.com` y `ganaderiagranda.es`. **Corregido en
+  el migrador**: con correo local no importa los MX de cPanel que apuntan
+  dentro de la zona, y del `_dmarc` conserva solo el del cliente (su
+  política de producción), quitando el de QemuCP. Además limpia los `\;`
+  que cPanel escribe en los TXT entre comillas.
 - **Certificado SNI de correo**: Exim y Dovecot lo buscan en
   `/usr/local/hestia/ssl/mail/mail.DOMINIO.crt`. Sin él sirven el del
   hostname y los clientes avisan. Se emite con

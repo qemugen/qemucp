@@ -848,6 +848,27 @@ if [[ -n "$DNS_BASE" ]]; then
                 fi
             fi
 
+            # MX: con el correo en ESTE servidor, QemuCP ya ha creado su MX
+            # (mail.DOMINIO). Los MX de cPanel que apuntan dentro de la zona
+            # (al dominio pelado o a mail.DOMINIO) son el correo local del
+            # servidor de origen: importarlos deja dos MX con la misma
+            # prioridad y los emisores reparten al azar entre ellos.
+            # Visto en ganaderiagranda.es: "0 mail.dominio." y "0 dominio.".
+            # Con correo externo se conservan todos (Google, Microsoft...).
+            if [[ "$rtype" == "MX" && "$MAIL_EXTERNO" != "si" ]]; then
+                MX_DEST="${rec_val%.}"
+                if [[ "$MX_DEST" == "$ZONE_DOMAIN" || "$MX_DEST" == *".$ZONE_DOMAIN" ]]; then
+                    continue
+                fi
+            fi
+
+            # TXT entre comillas: cPanel escribe los ';' como '\;' en el
+            # fichero de zona. Dentro de comillas un ';' no es comentario,
+            # asi que se guarda limpio, igual que los registros de QemuCP.
+            if [[ "$rtype" == "TXT" && "$rec_val" == \"* ]]; then
+                rec_val="${rec_val//\\;/;}"
+            fi
+
             # Escribimos el registro DIRECTAMENTE en el fichero de zona de
             # HestiaCP en lugar de llamar a v-add-dns-record. Ese comando,
             # aun con restart=no, ejecuta sort_dns_records +
@@ -865,6 +886,16 @@ if [[ -n "$DNS_BASE" ]]; then
                 if grep -qF "RECORD='${rec_name:-@}' TYPE='$rtype' PRIORITY='$rec_prio' VALUE='$rec_val'" \
                     "$ZONE_CONF" 2>/dev/null; then
                     continue
+                fi
+                # DMARC: solo puede haber UNO. QemuCP crea el suyo
+                # (p=quarantine) y cPanel trae el del cliente; con los dos, el
+                # receptor no puede elegir politica y Proofpoint rechaza el
+                # correo con "554 5.7.5 Permanent error evaluating DMARC
+                # policy" (ganaderiagranda.es, artifactum.com). Se conserva
+                # el del cliente, que es la politica que tenia en produccion:
+                # cambiarla al migrar podria mandar su correo a spam.
+                if [[ "$rtype" == "TXT" && "$rec_name" == "_dmarc" ]]; then
+                    sed -i "/RECORD='_dmarc' TYPE='TXT'/d" "$ZONE_CONF" 2>/dev/null || true
                 fi
                 NEXT_ID=$(( $(awk -F"ID='" '{print $2}' "$ZONE_CONF" 2>/dev/null \
                     | cut -d"'" -f1 | sort -n | tail -1) + 1 ))

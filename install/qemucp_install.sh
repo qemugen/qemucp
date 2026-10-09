@@ -5,7 +5,8 @@
 #
 #  Uso:
 #    bash qemucp_install.sh               pide la clave de acceso (no se ve)
-#    QEMUCP_KEY='...' bash qemucp_install.sh     desatendido
+#    QEMUCP_HOSTNAME=panel.tudominio.com QEMUCP_KEY='...' bash qemucp_install.sh
+#                                         desatendido
 #    bash qemucp_install.sh --set-pass    genera el hash de una clave nueva
 #
 #  Por defecto el panel se compila e instala desde NUESTRO fork, no desde
@@ -205,25 +206,45 @@ log "RAM: ${RAM}MB"
 echo ""
 echo -e "${BLUE}  Configuracion del servidor${NC}"
 echo -e "${BLUE}--------------------------------------${NC}"
-while true; do
-    echo -ne "  ${YELLOW}Introduce el hostname del panel${NC} (ej: panel.tudominio.com): "
-    read -r HOSTNAME
-    HOSTNAME=$(echo "$HOSTNAME" | tr '[:upper:]' '[:lower:]' | xargs)
+_hostname_valido() {
+    echo "$1" | grep -qP '^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)+$'
+}
 
-    if [[ -z "$HOSTNAME" ]]; then
-        echo -e "  ${RED}[!!]${NC} El hostname no puede estar vacio."
-        continue
-    fi
+if [[ -n "${QEMUCP_HOSTNAME:-}" ]]; then
+    # Desatendido: QEMUCP_HOSTNAME=panel.tudominio.com
+    HOSTNAME="${QEMUCP_HOSTNAME,,}"
+    HOSTNAME="${HOSTNAME//[[:space:]]/}"
+    _hostname_valido "$HOSTNAME" || error "QEMUCP_HOSTNAME no es un dominio valido: $HOSTNAME"
+else
+    while true; do
+        echo -ne "  ${YELLOW}Introduce el hostname del panel${NC} (ej: panel.tudominio.com): "
+        # Sin terminal, read devuelve 1 y set -e abortaria sin explicar nada
+        if ! read -r HOSTNAME; then
+            echo ""
+            error "No hay terminal para pedir el hostname. En desatendido usa:
+  QEMUCP_HOSTNAME=panel.tudominio.com QEMUCP_KEY='...' bash $0"
+        fi
+        # Minusculas y sin espacios. No se usa xargs: con una comilla en la
+        # entrada falla ("unmatched quote") y con pipefail aborta el script.
+        HOSTNAME="${HOSTNAME,,}"
+        HOSTNAME="${HOSTNAME//[[:space:]]/}"
 
-    if ! echo "$HOSTNAME" | grep -qP '^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)+$'; then
-        echo -e "  ${RED}[!!]${NC} Formato invalido. Usa un dominio completo como: panel.tudominio.com"
-        continue
-    fi
+        if [[ -z "$HOSTNAME" ]]; then
+            echo -e "  ${RED}[!!]${NC} El hostname no puede estar vacio."
+            continue
+        fi
 
-    echo -ne "  ${YELLOW}Confirma el hostname${NC}: $HOSTNAME [s/n]: "
-    read -r CONFIRM
-    [[ "$CONFIRM" =~ ^[sS]$ ]] && break
-done
+        if ! _hostname_valido "$HOSTNAME"; then
+            echo -e "  ${RED}[!!]${NC} Formato invalido. Usa un dominio completo como: panel.tudominio.com"
+            continue
+        fi
+
+        echo -ne "  ${YELLOW}Confirma el hostname${NC}: $HOSTNAME [s/n]: "
+        CONFIRM=""
+        read -r CONFIRM || true
+        [[ "$CONFIRM" =~ ^[sS]$ ]] && break
+    done
+fi
 
 echo ""
 log "Hostname configurado: $HOSTNAME"
@@ -1694,6 +1715,10 @@ header "PASO 1: Preparando sistema base"
 # comprueba /etc/passwd Y /etc/group. Muchas imagenes de Ubuntu traen el
 # grupo 'admin' (el antiguo grupo sudo) sin ningun usuario, y eso basta para
 # bloquear la instalacion. Se resuelve aqui, antes de empezar.
+# Solo en una instalacion NUEVA: HestiaCP crea el usuario 'admin', asi que al
+# relanzar el script siempre existe y esta comprobacion lo haria abortar,
+# impidiendo la recuperacion que el propio script promete.
+if [[ ! -f /usr/local/hestia/conf/hestia.conf ]]; then
 if getent passwd admin > /dev/null 2>&1; then
     error "Existe un usuario del sistema llamado 'admin' y QemuCP necesita ese nombre.
   No se borra automaticamente porque podria ser una cuenta real de acceso.
@@ -1717,6 +1742,7 @@ if getent group admin > /dev/null 2>&1; then
             || warn "No se pudo eliminar el grupo 'admin': la instalacion puede abortar"
     fi
 fi
+fi   # fin de: solo en instalacion nueva
 
 timedatectl set-timezone "$TIMEZONE"
 log "Timezone: $TIMEZONE"
@@ -1865,7 +1891,9 @@ else
         # '~localsrc' = compilar desde la carpeta local, sin descargar nada mas
         ( cd "$FORK_SRC" && bash src/hst_autocompile.sh --hestia --noinstall --keepbuild '~localsrc' ) \
             > /var/log/qemucp-build.log 2>&1 || true
-        DEB_HESTIA=$(ls -1 "$FORK_DEBS"/hestia_*.deb 2>/dev/null | head -1)
+        # '|| true': si la compilacion fallo no hay .deb, ls devuelve 2 y con
+        # pipefail la asignacion abortaria el script antes de caer a apt.
+        DEB_HESTIA=$(ls -1 "$FORK_DEBS"/hestia_*.deb 2>/dev/null | head -1 || true)
         if [[ -n "$DEB_HESTIA" ]] && dpkg-deb -I "$DEB_HESTIA" >/dev/null 2>&1; then
             DEB_VER=$(dpkg-deb -f "$DEB_HESTIA" Version 2>/dev/null)
             log "Paquete hestia $DEB_VER compilado desde el fork ($FORK_COMMIT)"
@@ -3087,10 +3115,8 @@ header "PASO 8: Optimizando MariaDB"
 [[ -z "$RAM_MB" || "$RAM_MB" -lt 512 ]] && RAM_MB=512
 INNODB_BUFFER=$(( RAM_MB / 2 ))
 [[ $INNODB_BUFFER -lt 128 ]] && INNODB_BUFFER=128
-# Instancias de buffer pool: 1 por cada GB de buffer, minimo 1, maximo 8
-INNODB_INSTANCES=$(( INNODB_BUFFER / 1024 ))
-[[ $INNODB_INSTANCES -lt 1 ]] && INNODB_INSTANCES=1
-[[ $INNODB_INSTANCES -gt 8 ]] && INNODB_INSTANCES=8
+# innodb_buffer_pool_instances ya no se usa: MariaDB la elimino en la 10.6
+# (MDEV-23397) y desde entonces no hace nada. El fork instala la 11.8.
 
 cat > /etc/mysql/mariadb.conf.d/99-qemucp-optimize.cnf << MYSQLEOF
 # QemuCP - MariaDB optimizado para maxima compatibilidad
@@ -3124,7 +3150,6 @@ sql_mode                 = "STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AU
 # -- Motor InnoDB (predeterminado para todo) -----------------------------------
 default_storage_engine   = InnoDB
 innodb_buffer_pool_size  = ${INNODB_BUFFER}M
-innodb_buffer_pool_instances = ${INNODB_INSTANCES}
 innodb_log_file_size     = 256M
 innodb_log_buffer_size   = 64M
 innodb_flush_log_at_trx_commit = 2        # 0=max rendimiento, 1=max seguridad, 2=balance
@@ -3204,6 +3229,19 @@ default-character-set    = utf8mb4
 max_allowed_packet       = 256M
 default-character-set    = utf8mb4
 MYSQLEOF
+
+# Que MariaDB lea de verdad este fichero. HestiaCP instala my-small.cnf o
+# my-medium.cnf (con !includedir de mariadb.conf.d) o, con mas de ~3,9 GB de
+# RAM, my-large.cnf, que NO lo incluye: en los servidores grandes todo lo de
+# arriba se ignoraba sin avisar. Se incluye SOLO este fichero, para no
+# arrastrar el resto de mariadb.conf.d a una configuracion que no lo espera.
+QEMUCP_MYCNF="/etc/mysql/my.cnf"
+if [[ -f "$QEMUCP_MYCNF" ]] \
+   && ! grep -q "^!includedir /etc/mysql/mariadb.conf.d" "$QEMUCP_MYCNF" \
+   && ! grep -q "^!include /etc/mysql/mariadb.conf.d/99-qemucp-optimize.cnf" "$QEMUCP_MYCNF"; then
+    printf '\n!include /etc/mysql/mariadb.conf.d/99-qemucp-optimize.cnf\n' >> "$QEMUCP_MYCNF"
+    log "my.cnf no leia mariadb.conf.d (servidor grande): incluido 99-qemucp-optimize.cnf"
+fi
 log "MariaDB optimizado (InnoDB ${INNODB_BUFFER}MB * utf8mb4 * modo SQL compatible)"
 
 
