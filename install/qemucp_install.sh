@@ -2092,7 +2092,27 @@ header "PASO 10E: Verificando la cola de reinicios"
 CRONTAB_HW="/var/spool/cron/crontabs/hestiaweb"
 CRON_ESPERADOS="restart daily disk traffic webstats backup"
 
+# Si tenemos arreglar-crons.sh, usarlo: comprueba las 11 tareas, el modo del
+# directorio spool y el sudoers de hestiaweb, no solo las 6 de la cola.
+CRONFIX="$HESTIA/data/qemucp/arreglar-crons.sh"
+CRONFIX_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/arreglar-crons.sh"
+mkdir -p "$HESTIA/data/qemucp"
+if [[ -f "/root/arreglar-crons.sh" ]]; then
+    cp -a "/root/arreglar-crons.sh" "$CRONFIX"
+elif [[ ! -s "$CRONFIX" ]]; then
+    curl -fsSL "${CRONFIX_URL}?cb=$(date +%s)" -o "$CRONFIX" 2>/dev/null || true
+fi
+USAR_CRONFIX="no"
+if [[ -s "$CRONFIX" ]] && head -1 "$CRONFIX" | grep -q '^#!/bin/bash'; then
+    chmod +x "$CRONFIX"
+    USAR_CRONFIX="si"
+    bash "$CRONFIX" 2>&1 | tee -a /var/log/qemucp-crons.log \
+        | grep -E "FALLO|corregido|Todo correcto" | sed 's/^/  /' || true
+    log "Cola de reinicios verificada con arreglar-crons.sh"
+fi
+
 FALTANTES=""
+if [[ "$USAR_CRONFIX" == "no" ]]; then
 for Q in $CRON_ESPERADOS; do
     grep -q "v-update-sys-queue $Q" "$CRONTAB_HW" 2>/dev/null || FALTANTES="$FALTANTES $Q"
 done
@@ -2132,6 +2152,21 @@ if [[ -n "$FALTANTES" ]]; then
 else
     log "Cola de reinicios correcta ($(grep -c "v-" "$CRONTAB_HW") trabajos)"
 fi
+fi   # fin de: if [[ "$USAR_CRONFIX" == "no" ]]
+
+# Propietario y permisos SIEMPRE, con o sin tareas faltantes: si el fichero
+# no es de hestiaweb con modo 600, cron lo descarta sin registrar nada.
+if [[ -f "$CRONTAB_HW" ]]; then
+    DUENO_HW=$(stat -c '%U' "$CRONTAB_HW" 2>/dev/null || echo "?")
+    MODO_HW=$(stat -c '%a' "$CRONTAB_HW" 2>/dev/null || echo "?")
+    if [[ "$DUENO_HW" != "hestiaweb" || "$MODO_HW" != "600" ]]; then
+        chown hestiaweb:hestiaweb "$CRONTAB_HW" 2>/dev/null \
+            || chown hestiaweb "$CRONTAB_HW" 2>/dev/null || true
+        chmod 600 "$CRONTAB_HW" 2>/dev/null || true
+        log "Crontab de hestiaweb: propietario/permisos corregidos (eran $DUENO_HW/$MODO_HW)"
+    fi
+fi
+chmod 1730 /var/spool/cron/crontabs 2>/dev/null || true
 
 # El cron tiene que estar activo, o el crontab no sirve de nada
 systemctl enable cron >/dev/null 2>&1 || true
