@@ -370,106 +370,26 @@ $HESTIA/bin/v-change-user-language "$NEW_USER" es 2>/dev/null || true
 $HESTIA/bin/v-change-user-theme "$NEW_USER" flat 2>/dev/null || true
 HOOKEOF
 chmod +x "$HOOK_DIR/post_add_user.sh" 2>/dev/null || true
-log "Hook post-creacion: nuevos usuarios -> Espanol + Dark"
+# NOTA: data/hooks/post_add_user.sh tampoco lo ejecuta HestiaCP. Se deja
+# escrito por si una version futura lo soporta, pero lo que de verdad hace
+# que los usuarios nuevos salgan en espanol es LANGUAGE='es' en
+# hestia.conf (se fija mas arriba): v-add-user escribe LANGUAGE='' en el
+# user.conf, que significa "heredar del sistema".
+log "Hook post-creacion escrito (el idioma real lo fija LANGUAGE en hestia.conf)"
 
 # ---------------------------------------------
-#  HOOK POST-ACTUALIZACION HESTIACP
-#  Re-aplica personalizaciones QemuCP tras
-#  cada actualizacion automatica del panel
+#  NOTA SOBRE EL HOOK DE POST-ACTUALIZACION
 # ---------------------------------------------
-# Hook post-actualizacion: re-aplica personalizaciones QemuCP tras cada update
-# HestiaCP ejecuta este script automaticamente despues de cada actualizacion
-cat > "$HOOK_DIR/post_update.sh" << 'POSTUPDATEEOF'
-#!/bin/bash
-# QemuCP - Post-update hook
-# Se ejecuta automaticamente tras cada actualizacion de HestiaCP
-# Re-aplica todas las personalizaciones para que no se pierdan
+# Aqui habia un post_update.sh de ~90 lineas que reaplicaba la marca tras
+# cada actualizacion. Se escribia en $HESTIA/data/hooks/, una ruta que
+# HestiaCP NO EJECUTA NUNCA: el unico hook es
+#   /etc/hestiacp/hooks/post_install.sh
+# llamado al final del postinst del paquete hestia. Por eso la marca y los
+# parches se perdian en cada apt upgrade sin que nada lo avisara.
+# Ahora lo instala el PASO 10C mediante install/instalar-hook.sh, que
+# ademas de la marca reaplica los parches propios. No recrear aqui un
+# post_update.sh: seria codigo muerto.
 
-HESTIA=/usr/local/hestia
-WEB_DIR="$HESTIA/web"
-THEME_DIR="$HESTIA/web/css"
-LOG="/var/log/qemucp-update.log"
-
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Ejecutando post-update QemuCP..." >> "$LOG"
-
-# 1. Restaurar CSS de marca si fue sobreescrito
-if [[ ! -f "$THEME_DIR/custom-brand.css" ]] || ! grep -q "QemuCP" "$THEME_DIR/custom-brand.css" 2>/dev/null; then
-    # Regenerar el CSS desde la copia de seguridad
-    if [[ -f "$THEME_DIR/custom-brand.css.qemucp" ]]; then
-        cp "$THEME_DIR/custom-brand.css.qemucp" "$THEME_DIR/custom-brand.css"
-        echo "$(date '+%Y-%m-%d %H:%M:%S') - CSS de marca restaurado" >> "$LOG"
-    fi
-fi
-
-# 2. Re-inyectar CSS en header si fue sobreescrito
-for HEADER_FILE in "$WEB_DIR/templates/header.php" "$WEB_DIR/templates/header.html"; do
-    if [[ -f "$HEADER_FILE" ]] && ! grep -q "custom-brand.css" "$HEADER_FILE" 2>/dev/null; then
-        sed -i 's|</head>|    <link rel="stylesheet" href="/css/custom-brand.css">
-</head>|' "$HEADER_FILE"
-        echo "$(date '+%Y-%m-%d %H:%M:%S') - CSS re-inyectado en $(basename $HEADER_FILE)" >> "$LOG"
-    fi
-done
-
-# 3. Re-aplicar reemplazos de marca en templates actualizados
-find "$WEB_DIR" \( -name "*.php" -o -name "*.html" -o -name "*.tpl" \)     -newer "$LOG" -not -path "*/node_modules/*" 2>/dev/null | while read -r f; do
-    sed -i         -e "s|Hestia Control Panel|QemuCP Control Panel|g"         -e "s|HestiaCP|QemuCP|g"         -e "s|hestiacp\.com|qemucp.com|g"         "$f" 2>/dev/null || true
-done
-
-# 4. Re-aplicar optimizaciones en templates PHP-FPM si fueron sobreescritos
-HESTIA_PHP_TPL="$HESTIA/data/templates/web/php-fpm"
-for TPL_FILE in "$HESTIA_PHP_TPL"/*.tpl; do
-    [[ -f "$TPL_FILE" ]] || continue
-done
-
-# 5. Re-aplicar includes GeoIP2 en templates Nginx si fueron sobreescritos
-NGINX_TPL_DIR="$HESTIA/data/templates/web/nginx"
-for TPL in "$NGINX_TPL_DIR"/*.tpl "$NGINX_TPL_DIR"/*.stpl; do
-    [[ -f "$TPL" ]] || continue
-    if ! grep -q "main-rules.conf" "$TPL" 2>/dev/null; then
-        sed -i "/^server[[:space:]]*{/a\    include /etc/nginx/conf.d/server-includes/main-rules.conf;" "$TPL"
-        echo "$(date '+%Y-%m-%d %H:%M:%S') - GeoIP2 re-inyectado en $(basename $TPL)" >> "$LOG"
-    fi
-done
-
-# 6. Re-aplicar FIX SSH para File Manager (con validacion para no romper SSH)
-if ! grep -q "^Subsystem sftp internal-sftp" /etc/ssh/sshd_config 2>/dev/null; then
-    # Eliminar duplicados y reinsertar fuera de Match (mismo metodo robusto)
-    sed -i '/^[[:space:]]*Subsystem[[:space:]]\+sftp/d' /etc/ssh/sshd_config
-    if grep -q "^Match \|^# Hestia SFTP" /etc/ssh/sshd_config; then
-        FML=$(grep -n "^Match \|^# Hestia SFTP" /etc/ssh/sshd_config | head -1 | cut -d: -f1)
-        sed -i "${FML}i Subsystem sftp internal-sftp" /etc/ssh/sshd_config
-    else
-        echo "Subsystem sftp internal-sftp" >> /etc/ssh/sshd_config
-    fi
-    mkdir -p /run/sshd && chmod 0755 /run/sshd 2>/dev/null || true
-    if sshd -t 2>/dev/null; then
-        systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
-        echo "$(date '+%Y-%m-%d %H:%M:%S') - SSH fix re-aplicado" >> "$LOG"
-    else
-        echo "$(date '+%Y-%m-%d %H:%M:%S') - AVISO: sshd -t fallo, SSH no reiniciado" >> "$LOG"
-    fi
-fi
-
-# 7. Re-aplicar TODAS las personalizaciones QemuCP (WP-TOOL, Performance,
-#    pestanas del panel, list_services, paginas de login, instaladores).
-#    Descarga el rebrand del fork y lo ejecuta (idempotente).
-REBRAND_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/qemucp-rebrand.sh"
-if wget -q --timeout=30 "${REBRAND_URL}?cb=$(date +%s)" -O /tmp/qemucp-rebrand.sh 2>/dev/null; then
-    bash /tmp/qemucp-rebrand.sh >> "$LOG" 2>&1 || true
-    rm -f /tmp/qemucp-rebrand.sh 2>/dev/null || true
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - Rebrand completo re-aplicado" >> "$LOG"
-else
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - AVISO: no se pudo descargar rebrand" >> "$LOG"
-fi
-
-# 8. Recargar servicios afectados
-nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
-systemctl reload php*-fpm 2>/dev/null || true
-
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Post-update QemuCP completado" >> "$LOG"
-POSTUPDATEEOF
-chmod +x "$HOOK_DIR/post_update.sh" 2>/dev/null || true
-log "Hook post-actualizacion: personalizaciones protegidas tras updates"
 
 # ---------------------------------------------
 #  PASO 3: PERSONALIZACION DE MARCA (QemuCP)
@@ -2063,26 +1983,166 @@ if [[ -f "$FM_AUTH" ]]; then
     fi
 fi
 
-# --- Hook post-update: reaplicar los parches tras actualizar HestiaCP -----
-# El paquete sobrescribe estos ficheros en cada actualizacion.
-mkdir -p "$HESTIA/data/hooks"
-HOOK="$HESTIA/data/hooks/post_update.sh"
-if ! grep -q "QemuCP: parches post-update" "$HOOK" 2>/dev/null; then
-    cat >> "$HOOK" << 'HOOKEOF'
+# --- Hook de post-actualizacion -------------------------------------------
+# IMPORTANTE: el unico hook que HestiaCP ejecuta es
+#   /etc/hestiacp/hooks/post_install.sh
+# invocado al final del postinst del paquete hestia. La ruta
+# /usr/local/hestia/data/hooks/post_update.sh que se usaba antes NO se
+# ejecuta NUNCA, por lo que ningun parche se reaplicaba tras un apt upgrade
+# (de ahi que el session.save_path duplicado reapareciera una y otra vez).
+HOOKFIX="$HESTIA/data/qemucp/instalar-hook.sh"
+HOOKFIX_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/instalar-hook.sh"
 
-# --- QemuCP: parches post-update ---
-# File Manager: $_SESSION["root"] no existe (bug de HestiaCP)
-FM=/usr/local/hestia/web/fm/backend/Services/Auth/Adapters/HestiaAuth.php
-[ -f "$FM" ] && sed -i 's|\$_SESSION\["look"\] == \$_SESSION\["root"\] &&|$_SESSION["look"] == ($_SESSION["root"] ?? "") \&\&|' "$FM" 2>/dev/null
-# Plantillas PHP-FPM: quitar el session.save_path de fichero (deja el de Redis)
-for T in /usr/local/hestia/data/templates/web/php-fpm/*.tpl; do
-    [ -f "$T" ] || continue
-    [ "$(grep -c '^php_admin_value\[session.save_path\]' "$T")" -gt 1 ] || continue
-    sed -i '0,/^php_admin_value\[session.save_path\] = \/home\//{/^php_admin_value\[session.save_path\] = \/home\//d}' "$T"
+mkdir -p "$HESTIA/data/qemucp"
+if [[ -f "/root/instalar-hook.sh" ]]; then
+    cp -a "/root/instalar-hook.sh" "$HOOKFIX"
+else
+    curl -fsSL "${HOOKFIX_URL}?cb=$(date +%s)" -o "$HOOKFIX" 2>/dev/null || true
+fi
+
+if [[ -s "$HOOKFIX" ]] && head -1 "$HOOKFIX" | grep -q '^#!/bin/bash'; then
+    chmod +x "$HOOKFIX"
+    bash "$HOOKFIX" 2>&1 | grep -E "OK|FALLO|AVISO" | sed 's/^/  /' || true
+    log "Hook post_install instalado (reaplica los parches en cada apt upgrade)"
+else
+    warn "No se pudo obtener instalar-hook.sh"
+    warn "Los parches NO se reaplicaran tras actualizar hestia. Instalalo con:"
+    warn "  bash /root/instalar-hook.sh"
+fi
+
+
+# ---------------------------------------------
+#  PASO 10D: LIMITE DE SUBDOMINIOS (estilo cPanel)
+# ---------------------------------------------
+header "PASO 10D: Limite de subdominios separado del de dominios"
+
+# HestiaCP cuenta cualquier dominio web en WEB_DOMAINS, asi que un subdominio
+# gasta el mismo cupo que un dominio adicional y no se pueden hacer planes
+# con 0 dominios adicionales y N subdominios como en cPanel.
+# El parche anade la clave WEB_SUBDOMAINS a los paquetes y se auto-registra
+# en el hook post_install para sobrevivir a los apt upgrade de hestia.
+SUBPATCH="$HESTIA/data/qemucp/parche-subdominios.sh"
+SUBPATCH_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/parche-subdominios.sh"
+
+mkdir -p "$HESTIA/data/qemucp"
+if [[ -f "/root/parche-subdominios.sh" ]]; then
+    cp -a "/root/parche-subdominios.sh" "$SUBPATCH"
+    info "Usando el parche local /root/parche-subdominios.sh"
+else
+    curl -fsSL "${SUBPATCH_URL}?cb=$(date +%s)" -o "$SUBPATCH" 2>/dev/null || true
+fi
+
+if [[ -s "$SUBPATCH" ]] && head -1 "$SUBPATCH" | grep -q '^#!/bin/bash'; then
+    chmod +x "$SUBPATCH"
+    if bash "$SUBPATCH" >> /var/log/qemucp-subdominios.log 2>&1; then
+        log "Limite de subdominios instalado (ver /var/log/qemucp-subdominios.log)"
+        info "Los paquetes existentes NO cambian hasta que les pongas"
+        info "un valor en 'Web Subdomains' desde Paquetes -> editar"
+    else
+        warn "El parche de subdominios fallo. Revisa /var/log/qemucp-subdominios.log"
+        warn "La instalacion sigue siendo valida, solo sin ese limite separado."
+    fi
+else
+    warn "No se pudo obtener parche-subdominios.sh"
+    warn "Dejalo en /root/parche-subdominios.sh y relanza este paso a mano:"
+    warn "  bash /root/parche-subdominios.sh"
+fi
+
+
+# ---------------------------------------------
+#  PASO 10E: COLA DE REINICIOS (crons de hestiaweb)
+# ---------------------------------------------
+header "PASO 10E: Verificando la cola de reinicios"
+
+# HestiaCP no reinicia los servicios al crear un dominio: lo apunta en
+# $HESTIA/data/queue/restart.pipe y lo procesa un cron del usuario hestiaweb.
+# Si ese crontab falta o cron no corre, la zona DNS queda escrita pero named
+# nunca la recarga: el dominio "apunta" y no resuelve hasta que se guarda la
+# zona a mano desde el panel (eso si fuerza un reinicio inmediato).
+# No da ningun error, asi que hay que comprobarlo explicitamente.
+CRONTAB_HW="/var/spool/cron/crontabs/hestiaweb"
+CRON_ESPERADOS="restart daily disk traffic webstats backup"
+
+FALTANTES=""
+for Q in $CRON_ESPERADOS; do
+    grep -q "v-update-sys-queue $Q" "$CRONTAB_HW" 2>/dev/null || FALTANTES="$FALTANTES $Q"
 done
-HOOKEOF
-    chmod +x "$HOOK" 2>/dev/null || true
-    log "Hook post-update instalado"
+
+if [[ ! -f "$CRONTAB_HW" ]]; then
+    warn "No existe $CRONTAB_HW: la cola de reinicios NO funciona"
+    FALTANTES="$CRON_ESPERADOS"
+fi
+
+if [[ -n "$FALTANTES" ]]; then
+    warn "Faltan trabajos en la cola:$FALTANTES"
+    info "Regenerando el crontab de hestiaweb..."
+    mkdir -p /var/spool/cron/crontabs
+    if [[ ! -f "$CRONTAB_HW" ]]; then
+        {
+            echo 'MAILTO=""'
+            echo 'CONTENT_TYPE="text/plain; charset=utf-8"'
+        } > "$CRONTAB_HW"
+    fi
+    LE_MIN=$((RANDOM % 60)); LE_HOUR=$((RANDOM % 5))
+    add_cron() {
+        grep -q "$2" "$CRONTAB_HW" 2>/dev/null || echo "$1 sudo /usr/local/hestia/bin/$2" >> "$CRONTAB_HW"
+    }
+    add_cron '*/2 * * * *'  'v-update-sys-queue restart'
+    add_cron '10 00 * * *'  'v-update-sys-queue daily'
+    add_cron '15 02 * * *'  'v-update-sys-queue disk'
+    add_cron '10 00 * * *'  'v-update-sys-queue traffic'
+    add_cron '30 03 * * *'  'v-update-sys-queue webstats'
+    add_cron '*/5 * * * *'  'v-update-sys-queue backup'
+    add_cron '10 05 * * *'  'v-backup-users'
+    add_cron '20 00 * * *'  'v-update-user-stats'
+    add_cron '*/5 * * * *'  'v-update-sys-rrd'
+    add_cron "$LE_MIN $LE_HOUR * * *" 'v-update-letsencrypt-ssl'
+    chown hestiaweb:crontab "$CRONTAB_HW" 2>/dev/null || chown hestiaweb "$CRONTAB_HW" 2>/dev/null || true
+    chmod 600 "$CRONTAB_HW" 2>/dev/null || true
+    log "Crontab de hestiaweb regenerado ($(grep -c "v-" "$CRONTAB_HW") trabajos)"
+else
+    log "Cola de reinicios correcta ($(grep -c "v-" "$CRONTAB_HW") trabajos)"
+fi
+
+# El cron tiene que estar activo, o el crontab no sirve de nada
+systemctl enable cron >/dev/null 2>&1 || true
+if systemctl is-active --quiet cron 2>/dev/null; then
+    log "Servicio cron activo"
+else
+    systemctl restart cron >/dev/null 2>&1
+    if systemctl is-active --quiet cron 2>/dev/null; then
+        log "Servicio cron arrancado"
+    else
+        warn "cron NO arranca: los dominios nuevos no resolveran hasta"
+        warn "ejecutar 'v-restart-dns yes' a mano. Revisa: systemctl status cron"
+    fi
+fi
+
+# Vaciar lo que haya quedado encolado durante la instalacion y recargar named,
+# que el PASO 11 no toca.
+$HESTIA/bin/v-restart-dns yes >/dev/null 2>&1 || true
+$HESTIA/bin/v-restart-web yes >/dev/null 2>&1 || true
+$HESTIA/bin/v-restart-proxy yes >/dev/null 2>&1 || true
+log "Cola vaciada y DNS/web recargados"
+
+# Prueba real: crear una zona de usar y tirar y ver si named la resuelve.
+# Es la unica forma de saber que el circuito completo funciona.
+ZONA_TEST="qemucp-test-$(date +%s).local"
+if $HESTIA/bin/v-add-dns-domain admin "$ZONA_TEST" 127.0.0.1 >/dev/null 2>&1; then
+    sleep 2
+    $HESTIA/bin/v-restart-dns yes >/dev/null 2>&1 || true
+    sleep 1
+    if dig +short +time=3 +tries=1 "@127.0.0.1" "$ZONA_TEST" A 2>/dev/null | grep -q .; then
+        log "Comprobado: named sirve las zonas nuevas correctamente"
+    else
+        warn "named NO resuelve una zona recien creada."
+        warn "Los dominios nuevos no se veran hasta recargar DNS a mano."
+        warn "Revisa: named-checkconf && systemctl status named"
+    fi
+    $HESTIA/bin/v-delete-dns-domain admin "$ZONA_TEST" >/dev/null 2>&1 || true
+    $HESTIA/bin/v-restart-dns yes >/dev/null 2>&1 || true
+else
+    info "No se pudo crear la zona de prueba (se omite la comprobacion)"
 fi
 
 

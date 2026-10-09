@@ -5,11 +5,22 @@ Fork de HestiaCP para Ubuntu 24.04, en producción en varios servidores
 
 ## Lo primero que hay que entender
 
-**El paquete `hestia` de apt sobrescribe `bin/` y `func/` en cada
-actualización.** Cualquier parche sobre esos directorios desaparece en el
-primer `apt upgrade` sin avisar. Por eso los parches viven en
-`install/*.sh`, se auto-registran en `/usr/local/hestia/data/hooks/post_update.sh`
-y el instalador los ejecuta como un paso más.
+**El paquete `hestia` de apt sobrescribe `bin/`, `func/`, `web/` y las
+plantillas en cada actualización.** HestiaCP se instala desde
+`apt.hestiacp.com`, no desde este repo, así que los cambios en `bin/`,
+`func/` y `data/packages/*.pkg` del árbol git **nunca llegan a un servidor
+instalado**. Para eso están los scripts de `install/`.
+
+**El único hook que HestiaCP ejecuta es `/etc/hestiacp/hooks/post_install.sh`**,
+invocado al final de `src/deb/hestia/postinst`. La ruta
+`/usr/local/hestia/data/hooks/post_update.sh` que se usó durante un tiempo
+**no se ejecuta nunca**: tres hooks escritos ahí (marca, parches,
+post_add_user) resultaron ser código muerto, y de ahí que el
+`session.save_path` duplicado y la marca reaparecieran en cada
+actualización. Lo instala `install/instalar-hook.sh`. Ojo al orden dentro
+del hook: el `postinst` ya ha ejecutado `upgrade_rebuild_users` **antes**
+de llamarlo, así que si se tocan plantillas hay que regenerar los pools a
+mano después.
 
 Si añades un parche a `bin/` o `func/`, **tiene que** ir acompañado de su
 script en `install/` y su paso en `install/qemucp_install.sh`. Si no, no

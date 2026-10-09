@@ -839,23 +839,20 @@ if [ "$PROPIO" != "$DESTINO/parche-subdominios.sh" ]; then
     ok "Copia instalada en $DESTINO/parche-subdominios.sh"
 fi
 
-mkdir -p "$HESTIA/data/hooks"
-HOOK="$HESTIA/data/hooks/post_update.sh"
-[ -f "$HOOK" ] || { echo '#!/bin/bash' > "$HOOK"; chmod +x "$HOOK"; }
-if grep -q "parche-subdominios.sh" "$HOOK" 2>/dev/null; then
-    ok "El hook post-update ya lo reaplica"
+# El unico hook que HestiaCP ejecuta es /etc/hestiacp/hooks/post_install.sh,
+# invocado al final del postinst del paquete hestia. La ruta
+# data/hooks/post_update.sh que se usaba antes NO se ejecuta nunca.
+HOOK="/etc/hestiacp/hooks/post_install.sh"
+mkdir -p /etc/hestiacp/hooks
+if [ -e "$HOOK" ] && grep -q "parche-subdominios.sh" "$HOOK" 2>/dev/null; then
+    ok "El hook post_install ya lo reaplica"
+elif [ -e "$HOOK" ] && grep -q "QemuCP-BLOQUE-INICIO" "$HOOK" 2>/dev/null; then
+    warn "El hook de QemuCP existe pero no invoca este parche."
+    warn "Reinstalalo para que lo incluya:  bash /root/instalar-hook.sh"
 else
-    cat >> "$HOOK" << 'HOOKEOF'
-
-# --- QemuCP: reaplicar el limite de subdominios (WEB_SUBDOMAINS) ---
-# apt sobrescribe func/main.sh y bin/v-add-web-domain en cada actualizacion.
-if [ -x /usr/local/hestia/data/qemucp/parche-subdominios.sh ]; then
-    /usr/local/hestia/data/qemucp/parche-subdominios.sh \
-        >> /var/log/qemucp-subdominios.log 2>&1
-fi
-HOOKEOF
-    chmod +x "$HOOK"
-    ok "Hook post-update registrado"
+    warn "No hay hook de post-actualizacion instalado."
+    warn "Sin el, este parche se PIERDE en el proximo 'apt upgrade' de hestia."
+    warn "Instalalo con:  bash /root/instalar-hook.sh"
 fi
 
 cat <<'SIGUIENTE'
