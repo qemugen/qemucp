@@ -116,8 +116,17 @@ if [ "$MODO" = "instalar" ]; then
     # 0. Marca y personalizaciones de QemuCP. Va PRIMERO porque el rebrand
     #    reescribe plantillas de php-fpm y nginx, y los parches de abajo
     #    tienen que aplicarse sobre el resultado final.
+    #
+    #    Si el panel se instalo desde NUESTRO fork, el paquete ya trae la
+    #    marca, WP-TOOL y el dashboard de rendimiento: no hay nada que
+    #    injertar. Y hacerlo seria peligroso, porque el rebrand descarga de
+    #    la rama release EN ESE MOMENTO, que puede ir por delante del paquete
+    #    instalado, y mezclaria PHP de dos versiones (el bucle de login).
+    ORIGEN=$(cut -d' ' -f1 "$H/conf/qemucp-origen" 2>/dev/null || true)
     REBRAND_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/qemucp-rebrand.sh"
-    if [ -x "$H/data/qemucp/qemucp-rebrand.sh" ]; then
+    if [ "$ORIGEN" = "fork" ]; then
+        echo "  marca: el paquete ya es nuestro fork, no se injerta nada"
+    elif [ -x "$H/data/qemucp/qemucp-rebrand.sh" ]; then
         bash "$H/data/qemucp/qemucp-rebrand.sh" >/dev/null 2>&1 \
             && echo "  marca QemuCP reaplicada (copia local)" \
             || echo "  AVISO: fallo el rebrand local"
@@ -139,16 +148,71 @@ if [ "$MODO" = "instalar" ]; then
         echo "  File Manager parcheado"
     fi
 
-    # 2. Plantillas php-fpm: la plantilla de HestiaCP trae
-    #    session.save_path = /home/%user%/tmp y el bloque de Redis se anade
-    #    despues. Con las dos lineas, PHP usa la de fichero y revienta la
-    #    sesion en PrestaShop, Joomla y Moodle.
+    # 2. Plantillas php-fpm: deben llevar el bloque de QemuCP (sesiones en
+    #    Redis, OPcache, limites) y UNA sola linea session.save_path.
+    #    Dos situaciones posibles tras una actualizacion:
+    #    a) La plantilla perdio el bloque. Pasa si una version activa
+    #       UPGRADE_UPDATE_WEB_TEMPLATES: v-update-web-templates regenera los
+    #       PHP-*.tpl desde multiphp.tpl. Las sesiones volverian a fichero.
+    #    b) Tiene el bloque Y la linea de fichero de HestiaCP: dos
+    #       session.save_path, PHP usa la de fichero y revienta la sesion en
+    #       PrestaShop, Joomla y Moodle.
+    #    c) Tiene VARIOS bloques: el instalador antiguo anadia uno nuevo cada
+    #       vez que se relanzaba, porque su llave nunca coincidia.
+    #    Correcta = exactamente un bloque y ninguna linea de fichero. Si no lo
+    #    esta, se quitan todos los bloques y la linea de fichero y se pone uno.
+    MARCA='; -- QemuCP: Optimizaciones de rendimiento --'
     TOCADAS=0
     for T in "$H"/data/templates/web/php-fpm/*.tpl; do
         [ -f "$T" ] || continue
-        N=$(grep -c '^php_admin_value\[session.save_path\]' "$T" 2>/dev/null || true)
-        [ "${N:-0}" -gt 1 ] || continue
-        sed -i '0,/^php_admin_value\[session.save_path\] = \/home\//{/^php_admin_value\[session.save_path\] = \/home\//d}' "$T"
+        NB=$(grep -c "^$MARCA\$" "$T" 2>/dev/null || true)
+        NF=$(grep -c '^php_admin_value\[session.save_path\] = /home/' "$T" 2>/dev/null || true)
+        NC=$(grep -c '^php_admin_value\[opcache.save_comments\] = 1$' "$T" 2>/dev/null || true)
+        # Correcta: un bloque completo (marca y cierre) y ninguna linea de fichero
+        [ "${NB:-0}" -eq 1 ] && [ "${NC:-0}" -eq 1 ] && [ "${NF:-0}" -eq 0 ] && continue
+        # Un bloque sin su linea de cierre haria que el borrado por rango se
+        # llevara el resto del fichero: en ese caso no se toca y se avisa.
+        if [ "${NB:-0}" -gt "${NC:-0}" ]; then
+            echo "  AVISO: $(basename "$T") tiene un bloque QemuCP incompleto, revisalo a mano"
+            continue
+        fi
+        sed -i "/^$MARCA\$/,/^php_admin_value\[opcache.save_comments\] = 1\$/d" "$T"
+        sed -i '/^php_admin_value\[session.save_path\] = \/home\//d' "$T"
+        # quitar lineas en blanco que hayan quedado al final
+        sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$T"
+        cat >> "$T" << 'QTPLEOF'
+
+; -- QemuCP: Optimizaciones de rendimiento --
+; Memoria y uploads
+php_admin_value[memory_limit] = 512M
+php_admin_value[upload_max_filesize] = 256M
+php_admin_value[post_max_size] = 256M
+php_admin_value[max_file_uploads] = 100
+; Ejecucion
+php_admin_value[max_execution_time] = 300
+php_admin_value[max_input_time] = 300
+php_admin_value[max_input_vars] = 10000
+; Seguridad
+php_flag[display_errors] = off
+php_admin_flag[log_errors] = on
+; Sesiones via Redis
+php_admin_value[session.save_handler] = redis
+php_admin_value[session.save_path] = "tcp://127.0.0.1:6379?timeout=1&prefix=SESS_&database=1"
+php_admin_value[session.gc_maxlifetime] = 1440
+php_admin_value[session.cookie_httponly] = 1
+php_admin_value[session.cookie_secure] = 1
+; SOAP (PrestaShop)
+php_value[soap.wsdl_cache_enabled] = 1
+php_value[soap.wsdl_cache_ttl] = 86400
+; OPcache
+php_admin_value[opcache.enable] = 1
+php_admin_value[opcache.memory_consumption] = 256
+php_admin_value[opcache.interned_strings_buffer] = 32
+php_admin_value[opcache.max_accelerated_files] = 30000
+php_admin_value[opcache.validate_timestamps] = 1
+php_admin_value[opcache.revalidate_freq] = 60
+php_admin_value[opcache.save_comments] = 1
+QTPLEOF
         TOCADAS=$((TOCADAS+1))
     done
     [ "$TOCADAS" -gt 0 ] && echo "  $TOCADAS plantilla(s) php-fpm corregidas"

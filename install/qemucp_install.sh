@@ -2,7 +2,19 @@
 # =============================================================================
 #  QemuCP - Instalador personalizado basado en HestiaCP
 #  Compatible con: Ubuntu 24.04 LTS (limpio)
-#  Uso: bash qemucp_install.sh
+#
+#  Uso:
+#    bash qemucp_install.sh               pide la clave de acceso (no se ve)
+#    QEMUCP_KEY='...' bash qemucp_install.sh     desatendido
+#    bash qemucp_install.sh --set-pass    genera el hash de una clave nueva
+#
+#  Por defecto el panel se compila e instala desde NUESTRO fork, no desde
+#  apt.hestiacp.com, y se bloquea con apt-mark hold. Para la via clasica:
+#    QEMUCP_DESDE_APT=yes bash qemucp_install.sh
+#
+#  Es un unico fichero: los scripts auxiliares (hook de post-actualizacion,
+#  limite de subdominios, cola de reinicios) van incrustados y se despliegan
+#  en el PASO 0.
 # =============================================================================
 
 
@@ -18,19 +30,35 @@ ADMIN_PASS=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24 || true)
 TIMEZONE="Europe/Madrid"
 HESTIA_LANG="es"  # Idioma del panel HestiaCP (NO confundir con locale del SO)
 HESTIA_PORT="8083"
+
 PHP_VERSIONS=("7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4" "8.5")
 # Permitir PHP legacy (5.6/7.0/7.1) si el cliente lo necesita para webs antiguas.
 # ADVERTENCIA: estas versiones estan EOL y son un riesgo de seguridad.
-# Para activar: ALLOW_LEGACY_PHP="yes" bash qemucp_install.sh CLAVE
+# Para activar: ALLOW_LEGACY_PHP="yes" bash qemucp_install.sh
 ALLOW_LEGACY_PHP="${ALLOW_LEGACY_PHP:-no}"
 
 # ============================================================
-# VERIFICACION DE LICENCIA QEMUCP
+# CLAVE DE ACCESO QEMUCP
 # ============================================================
-QEMUCP_LICENSE_KEY="${1:-}"
-QEMUCP_VALID_KEY="QemuCP2024#Cloud"
+# Solo se guarda el HASH SHA-256 de la clave, nunca la clave: el fork es
+# publico y antes estaba en claro aqui mismo.
+#
+# La clave ya no se pasa como argumento. Como argumento quedaba en el
+# historial de shell y era visible en 'ps' mientras se instalaba. Ahora:
+#   - interactivo:  bash qemucp_install.sh        (la pide sin mostrarla)
+#   - desatendido:  QEMUCP_KEY='...' bash qemucp_install.sh
+#
+# Para cambiarla:  bash qemucp_install.sh --set-pass
+# y sustituye la linea QEMUCP_KEY_HASH por la que imprime.
+#
+# IMPORTANTE: el hash de abajo corresponde a la clave ANTIGUA, que estuvo
+# en claro en un repositorio publico y debe considerarse comprometida.
+# Se mantiene solo para no dejarte fuera. Cambiala cuanto antes.
+QEMUCP_KEY_HASH="01012bea01c5d244517b5de787b7dfd4a24438e734776461321acec562a08e60"
 
-if [[ "$QEMUCP_LICENSE_KEY" != "$QEMUCP_VALID_KEY" ]]; then
+_qemucp_hash() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+
+_qemucp_rechazo() {
     echo ""
     echo "  +-------------------------------------------+"
     echo "  |      QemuCP - Acceso Restringido          |"
@@ -39,10 +67,63 @@ if [[ "$QEMUCP_LICENSE_KEY" != "$QEMUCP_VALID_KEY" ]]; then
     echo "  |  Contacta: soporte@qemugen.com            |"
     echo "  +-------------------------------------------+"
     echo ""
-    echo "  Uso: bash qemucp_install.sh TU-CLAVE-DE-LICENCIA"
-    echo ""
     exit 1
+}
+
+# --set-pass: genera el hash de una clave nueva. No instala nada.
+if [[ "${1:-}" == "--set-pass" ]]; then
+    echo ""
+    read -rsp "  Clave nueva: " _P1; echo ""
+    read -rsp "  Repitela:    " _P2; echo ""
+    if [[ -z "$_P1" ]]; then echo "  Vacia, cancelado."; exit 1; fi
+    if [[ "$_P1" != "$_P2" ]]; then echo "  No coinciden."; exit 1; fi
+    if [[ ${#_P1} -lt 16 ]]; then
+        echo "  Usa al menos 16 caracteres: el hash esta en un repositorio"
+        echo "  publico y una clave corta se puede sacar por fuerza bruta."
+        exit 1
+    fi
+    echo ""
+    echo "  Sustituye la linea QEMUCP_KEY_HASH del script por esta:"
+    echo ""
+    echo "QEMUCP_KEY_HASH=\"$(_qemucp_hash "$_P1")\""
+    echo ""
+    unset _P1 _P2
+    exit 0
 fi
+
+if [[ -n "${QEMUCP_KEY:-}" ]]; then
+    # Desatendido, por variable de entorno
+    [[ "$(_qemucp_hash "$QEMUCP_KEY")" == "$QEMUCP_KEY_HASH" ]] || _qemucp_rechazo
+elif [[ -n "${1:-}" ]]; then
+    # Compatibilidad con la forma antigua: funciona, pero la clave ya esta
+    # en el historial. Se avisa y se dice como quitarla de ahi.
+    [[ "$(_qemucp_hash "$1")" == "$QEMUCP_KEY_HASH" ]] || _qemucp_rechazo
+    echo ""
+    echo "  AVISO: has pasado la clave como argumento y ha quedado en tu"
+    echo "  historial de shell. La proxima vez lanza el script sin argumentos"
+    echo "  y te la pedira sin mostrarla."
+    echo "  Para quitarla del historial al terminar:"
+    echo "      history -d \$(history | grep -m1 'qemucp_install' | awk '{print \$1}')"
+    echo ""
+    sleep 3
+else
+    _INTENTOS=0
+    while true; do
+        if ! read -rsp "  Clave de acceso QemuCP: " _ENTRADA; then
+            echo ""
+            echo "  No hay terminal para pedir la clave."
+            echo "  En modo desatendido:  QEMUCP_KEY='...' bash $0"
+            exit 1
+        fi
+        echo ""
+        [[ "$(_qemucp_hash "$_ENTRADA")" == "$QEMUCP_KEY_HASH" ]] && break
+        _INTENTOS=$((_INTENTOS+1))
+        [[ "$_INTENTOS" -ge 3 ]] && _qemucp_rechazo
+        echo "  Clave incorrecta. Te quedan $((3-_INTENTOS))."
+        sleep 2
+    done
+fi
+unset _ENTRADA QEMUCP_KEY _INTENTOS
 
 set -euo pipefail
 
@@ -99,6 +180,7 @@ NC='\033[0m'
 log()    { echo -e "${GREEN}[OK]${NC} $1"; }
 warn()   { echo -e "${YELLOW}[!]${NC} $1"; }
 error()  { echo -e "${RED}[!!]${NC} $1"; exit 1; }
+info()   { echo -e "${BLUE}[..]${NC} $1"; }
 header() {
     QEMUCP_PASO="$1" echo -e "\n${BLUE}======================================${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}======================================${NC}\n"; }
 
@@ -146,6 +228,1462 @@ done
 
 echo ""
 log "Hostname configurado: $HOSTNAME"
+
+# ---------------------------------------------
+#  PASO 0: DESPLEGAR SCRIPTS AUXILIARES
+# ---------------------------------------------
+header "PASO 0: Desplegando scripts auxiliares"
+
+# Van incrustados en este fichero: la instalacion no depende de que GitHub
+# responda a mitad del proceso, ni hay que acordarse de dejarlos en /root.
+AUX_DIR="/opt/qemucp"
+mkdir -p "$AUX_DIR"
+cat > "$AUX_DIR/instalar-hook.sh" << 'QEMUCP_EMBED_HOOK'
+#!/bin/bash
+# ============================================================================
+#  QemuCP - Hook de post-actualizacion (RUTA CORRECTA)
+#
+#  EL PROBLEMA QUE CORRIGE:
+#    Hasta ahora los parches de QemuCP se registraban en
+#        /usr/local/hestia/data/hooks/post_update.sh
+#    que HestiaCP NO EJECUTA NUNCA. El unico hook real es
+#        /etc/hestiacp/hooks/post_install.sh
+#    invocado al final de /var/lib/dpkg/info/hestia.postinst.
+#    Consecuencia: ningun parche se reaplicaba tras un 'apt upgrade', y el
+#    session.save_path duplicado reaparecia en cada actualizacion.
+#
+#  Reaplica, en este orden:
+#    1. File Manager: $_SESSION["root"] indefinido
+#    2. Plantillas php-fpm: session.save_path de fichero duplicado
+#    3. Limite de subdominios (WEB_SUBDOMAINS)
+#    4. Regeneracion de pools si se tocaron plantillas (el postinst ya hizo
+#       upgrade_rebuild_users ANTES de llegar al hook, con las plantillas sin
+#       parchear, asi que hay que rehacerlo)
+#    5. Cola de reinicios (crons de hestiaweb)
+#
+#  Uso:
+#    bash instalar-hook.sh            instala el hook
+#    bash instalar-hook.sh --probar   lo ejecuta ahora para ver que hace
+#    bash instalar-hook.sh --estado   solo informa, no cambia nada
+# ============================================================================
+
+set -u
+HESTIA="${HESTIA:-/usr/local/hestia}"
+HOOK_DIR="/etc/hestiacp/hooks"
+HOOK="$HOOK_DIR/post_install.sh"
+HOOK_VIEJO="$HESTIA/data/hooks/post_update.sh"
+MODO="instalar"
+[ "${1:-}" = "--probar" ] && MODO="probar"
+[ "${1:-}" = "--estado" ] && MODO="estado"
+
+GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; NC='\033[0m'
+ok()   { echo -e "  ${GREEN}OK${NC}     $1"; }
+bad()  { echo -e "  ${RED}FALLO${NC}  $1"; }
+warn() { echo -e "  ${YELLOW}AVISO${NC}  $1"; }
+
+echo "============================================================"
+echo " QemuCP - hook de post-actualizacion"
+echo "============================================================"
+echo ""
+
+[ -d "$HESTIA/bin" ] || { bad "No parece una instalacion de QemuCP en $HESTIA"; exit 1; }
+
+# ------------------------------------------------------------------ estado
+echo "--- Estado actual ---"
+if [ -e "$HOOK" ]; then
+    if grep -q "QemuCP" "$HOOK" 2>/dev/null; then
+        ok "$HOOK instalado"
+    else
+        warn "$HOOK existe pero no es de QemuCP (se conservara y se anadira al final)"
+    fi
+else
+    bad "$HOOK NO existe: los parches no se reaplican tras un apt upgrade"
+fi
+if [ -e "$HOOK_VIEJO" ]; then
+    warn "existe el hook antiguo en una ruta que HestiaCP no ejecuta:"
+    warn "  $HOOK_VIEJO"
+fi
+# Confirmar que el paquete realmente invoca este hook en ESTA version
+POSTINST="/var/lib/dpkg/info/hestia.postinst"
+if [ -f "$POSTINST" ]; then
+    if grep -q "$HOOK" "$POSTINST" 2>/dev/null; then
+        ok "el postinst del paquete hestia invoca $HOOK"
+    else
+        bad "el postinst instalado NO menciona $HOOK"
+        warn "revisa: grep hooks $POSTINST"
+    fi
+else
+    warn "no se encuentra $POSTINST (no se puede confirmar la invocacion)"
+fi
+
+if [ "$MODO" = "estado" ]; then
+    echo ""
+    echo "Para instalarlo:  bash $0"
+    exit 0
+fi
+
+# ---------------------------------------------------------------- instalar
+if [ "$MODO" = "instalar" ]; then
+    echo ""
+    echo "--- Instalando ---"
+    mkdir -p "$HOOK_DIR" "$HESTIA/data/qemucp"
+
+    # Si ya hay un hook de QemuCP, se reemplaza su bloque; si hay uno ajeno,
+    # se conserva y el bloque de QemuCP se anade detras.
+    if [ -e "$HOOK" ] && grep -q "QemuCP-BLOQUE-INICIO" "$HOOK" 2>/dev/null; then
+        cp -a "$HOOK" "$HOOK.bak-$(date +%Y%m%d-%H%M%S)"
+        sed -i '/# QemuCP-BLOQUE-INICIO/,/# QemuCP-BLOQUE-FIN/d' "$HOOK"
+        ok "bloque anterior de QemuCP retirado (backup guardado)"
+    fi
+    if [ ! -e "$HOOK" ]; then
+        printf '#!/bin/bash\n' > "$HOOK"
+        ok "hook creado con shebang"
+    elif ! head -1 "$HOOK" | grep -q '^#!'; then
+        # Sin shebang el postinst lo ejecuta con /bin/sh y los bashismos fallan
+        sed -i '1i #!/bin/bash' "$HOOK"
+        warn "al hook le faltaba el shebang, anadido"
+    fi
+
+    cat >> "$HOOK" << 'HOOKEOF'
+
+# QemuCP-BLOQUE-INICIO  (no editar a mano: lo regenera instalar-hook.sh)
+# Lo ejecuta el postinst del paquete hestia al final de cada instalacion o
+# actualizacion. El paquete sobrescribe bin/, func/, web/ y las plantillas,
+# asi que aqui se reaplica todo lo propio de QemuCP.
+{
+    H=/usr/local/hestia
+    echo "=== $(date '+%F %T') QemuCP post_install ==="
+
+    # 0. Marca y personalizaciones de QemuCP. Va PRIMERO porque el rebrand
+    #    reescribe plantillas de php-fpm y nginx, y los parches de abajo
+    #    tienen que aplicarse sobre el resultado final.
+    #
+    #    Si el panel se instalo desde NUESTRO fork, el paquete ya trae la
+    #    marca, WP-TOOL y el dashboard de rendimiento: no hay nada que
+    #    injertar. Y hacerlo seria peligroso, porque el rebrand descarga de
+    #    la rama release EN ESE MOMENTO, que puede ir por delante del paquete
+    #    instalado, y mezclaria PHP de dos versiones (el bucle de login).
+    ORIGEN=$(cut -d' ' -f1 "$H/conf/qemucp-origen" 2>/dev/null || true)
+    REBRAND_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/qemucp-rebrand.sh"
+    if [ "$ORIGEN" = "fork" ]; then
+        echo "  marca: el paquete ya es nuestro fork, no se injerta nada"
+    elif [ -x "$H/data/qemucp/qemucp-rebrand.sh" ]; then
+        bash "$H/data/qemucp/qemucp-rebrand.sh" >/dev/null 2>&1 \
+            && echo "  marca QemuCP reaplicada (copia local)" \
+            || echo "  AVISO: fallo el rebrand local"
+    elif wget -q --timeout=30 "${REBRAND_URL}?cb=$(date +%s)" -O /tmp/qemucp-rebrand.sh 2>/dev/null; then
+        bash /tmp/qemucp-rebrand.sh >/dev/null 2>&1 \
+            && echo "  marca QemuCP reaplicada (descargada)" \
+            || echo "  AVISO: fallo el rebrand descargado"
+        rm -f /tmp/qemucp-rebrand.sh
+    else
+        echo "  AVISO: no se pudo reaplicar la marca (sin copia local ni red)"
+    fi
+
+    # 1. File Manager: HestiaAuth.php lee $_SESSION["root"], que el panel
+    #    nunca define. Con PHP 8.x rompe la respuesta del gestor de ficheros
+    #    y el usuario ve "Error desconocido" al entrar en cualquier carpeta.
+    FM="$H/web/fm/backend/Services/Auth/Adapters/HestiaAuth.php"
+    if [ -f "$FM" ] && grep -q '\$_SESSION\["look"\] == \$_SESSION\["root"\]' "$FM" 2>/dev/null; then
+        sed -i 's|\$_SESSION\["look"\] == \$_SESSION\["root"\] &&|$_SESSION["look"] == ($_SESSION["root"] ?? "") \&\&|' "$FM"
+        echo "  File Manager parcheado"
+    fi
+
+    # 2. Plantillas php-fpm: deben llevar el bloque de QemuCP (sesiones en
+    #    Redis, OPcache, limites) y UNA sola linea session.save_path.
+    #    Dos situaciones posibles tras una actualizacion:
+    #    a) La plantilla perdio el bloque. Pasa si una version activa
+    #       UPGRADE_UPDATE_WEB_TEMPLATES: v-update-web-templates regenera los
+    #       PHP-*.tpl desde multiphp.tpl. Las sesiones volverian a fichero.
+    #    b) Tiene el bloque Y la linea de fichero de HestiaCP: dos
+    #       session.save_path, PHP usa la de fichero y revienta la sesion en
+    #       PrestaShop, Joomla y Moodle.
+    #    c) Tiene VARIOS bloques: el instalador antiguo anadia uno nuevo cada
+    #       vez que se relanzaba, porque su llave nunca coincidia.
+    #    Correcta = exactamente un bloque y ninguna linea de fichero. Si no lo
+    #    esta, se quitan todos los bloques y la linea de fichero y se pone uno.
+    MARCA='; -- QemuCP: Optimizaciones de rendimiento --'
+    TOCADAS=0
+    for T in "$H"/data/templates/web/php-fpm/*.tpl; do
+        [ -f "$T" ] || continue
+        NB=$(grep -c "^$MARCA\$" "$T" 2>/dev/null || true)
+        NF=$(grep -c '^php_admin_value\[session.save_path\] = /home/' "$T" 2>/dev/null || true)
+        NC=$(grep -c '^php_admin_value\[opcache.save_comments\] = 1$' "$T" 2>/dev/null || true)
+        # Correcta: un bloque completo (marca y cierre) y ninguna linea de fichero
+        [ "${NB:-0}" -eq 1 ] && [ "${NC:-0}" -eq 1 ] && [ "${NF:-0}" -eq 0 ] && continue
+        # Un bloque sin su linea de cierre haria que el borrado por rango se
+        # llevara el resto del fichero: en ese caso no se toca y se avisa.
+        if [ "${NB:-0}" -gt "${NC:-0}" ]; then
+            echo "  AVISO: $(basename "$T") tiene un bloque QemuCP incompleto, revisalo a mano"
+            continue
+        fi
+        sed -i "/^$MARCA\$/,/^php_admin_value\[opcache.save_comments\] = 1\$/d" "$T"
+        sed -i '/^php_admin_value\[session.save_path\] = \/home\//d' "$T"
+        # quitar lineas en blanco que hayan quedado al final
+        sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$T"
+        cat >> "$T" << 'QTPLEOF'
+
+; -- QemuCP: Optimizaciones de rendimiento --
+; Memoria y uploads
+php_admin_value[memory_limit] = 512M
+php_admin_value[upload_max_filesize] = 256M
+php_admin_value[post_max_size] = 256M
+php_admin_value[max_file_uploads] = 100
+; Ejecucion
+php_admin_value[max_execution_time] = 300
+php_admin_value[max_input_time] = 300
+php_admin_value[max_input_vars] = 10000
+; Seguridad
+php_flag[display_errors] = off
+php_admin_flag[log_errors] = on
+; Sesiones via Redis
+php_admin_value[session.save_handler] = redis
+php_admin_value[session.save_path] = "tcp://127.0.0.1:6379?timeout=1&prefix=SESS_&database=1"
+php_admin_value[session.gc_maxlifetime] = 1440
+php_admin_value[session.cookie_httponly] = 1
+php_admin_value[session.cookie_secure] = 1
+; SOAP (PrestaShop)
+php_value[soap.wsdl_cache_enabled] = 1
+php_value[soap.wsdl_cache_ttl] = 86400
+; OPcache
+php_admin_value[opcache.enable] = 1
+php_admin_value[opcache.memory_consumption] = 256
+php_admin_value[opcache.interned_strings_buffer] = 32
+php_admin_value[opcache.max_accelerated_files] = 30000
+php_admin_value[opcache.validate_timestamps] = 1
+php_admin_value[opcache.revalidate_freq] = 60
+php_admin_value[opcache.save_comments] = 1
+QTPLEOF
+        TOCADAS=$((TOCADAS+1))
+    done
+    [ "$TOCADAS" -gt 0 ] && echo "  $TOCADAS plantilla(s) php-fpm corregidas"
+
+    # 3. Limite de subdominios: el parche vive en bin/ y func/, que el
+    #    paquete acaba de sobrescribir.
+    if [ -x "$H/data/qemucp/parche-subdominios.sh" ]; then
+        "$H/data/qemucp/parche-subdominios.sh" >> /var/log/qemucp-subdominios.log 2>&1 \
+            && echo "  limite de subdominios reaplicado" \
+            || echo "  AVISO: fallo al reaplicar el limite de subdominios"
+    fi
+
+    # 4. Si se tocaron plantillas hay que regenerar los pools: el postinst
+    #    ejecuto upgrade_rebuild_users ANTES de llamar a este hook, es decir
+    #    con las plantillas aun sin parchear.
+    if [ "$TOCADAS" -gt 0 ]; then
+        for U in $(ls "$H/data/users/" 2>/dev/null); do
+            [ -f "$H/data/users/$U/web.conf" ] || continue
+            "$H/bin/v-rebuild-web-domains" "$U" no >/dev/null 2>&1 || true
+        done
+        for V in $(ls /etc/php/ 2>/dev/null); do
+            systemctl reload "php${V}-fpm" >/dev/null 2>&1 || true
+        done
+        echo "  pools php-fpm regenerados con las plantillas corregidas"
+    fi
+
+    # 5. Cola de reinicios: sin el cron de hestiaweb, los dominios nuevos no
+    #    resuelven hasta que se guarda la zona a mano.
+    if [ -x "$H/data/qemucp/arreglar-crons.sh" ]; then
+        "$H/data/qemucp/arreglar-crons.sh" >> /var/log/qemucp-crons.log 2>&1 \
+            && echo "  cola de reinicios verificada" \
+            || echo "  AVISO: fallo al verificar la cola de reinicios"
+    fi
+
+    echo "=== fin QemuCP post_install ==="
+} >> /var/log/qemucp-post-install.log 2>&1
+# QemuCP-BLOQUE-FIN
+HOOKEOF
+
+    chmod 755 "$HOOK"
+    ok "bloque de QemuCP instalado en $HOOK"
+
+    if ! bash -n "$HOOK" 2>/dev/null; then
+        bad "el hook tiene un error de sintaxis, se restaura el backup"
+        ULTIMO=$(ls -1t "$HOOK".bak-* 2>/dev/null | head -1)
+        [ -n "$ULTIMO" ] && cp -a "$ULTIMO" "$HOOK"
+        exit 1
+    fi
+    ok "sintaxis del hook correcta"
+
+    # Los scripts a los que llama el hook tienen que estar donde los busca
+    echo ""
+    echo "--- Scripts que invoca el hook ---"
+    # El rebrand se descarga si no esta en local, pero tener la copia evita
+    # depender de la red justo despues de un apt upgrade.
+    if [ ! -x "$HESTIA/data/qemucp/qemucp-rebrand.sh" ]; then
+        if [ -f /root/qemucp-rebrand.sh ]; then
+            cp -a /root/qemucp-rebrand.sh "$HESTIA/data/qemucp/"
+            chmod +x "$HESTIA/data/qemucp/qemucp-rebrand.sh"
+            ok "qemucp-rebrand.sh copiado desde /root"
+        else
+            warn "sin copia local de qemucp-rebrand.sh: el hook lo descargara"
+        fi
+    else
+        ok "qemucp-rebrand.sh presente"
+    fi
+    for S in parche-subdominios.sh arreglar-crons.sh; do
+        if [ -x "$HESTIA/data/qemucp/$S" ]; then
+            ok "$S presente"
+        else
+            warn "falta $HESTIA/data/qemucp/$S"
+            warn "  el hook lo saltara. Instalalo con:"
+            warn "  bash /root/$S"
+        fi
+    done
+
+    # Retirar el hook antiguo para que nadie confie en el
+    if [ -e "$HOOK_VIEJO" ]; then
+        mv "$HOOK_VIEJO" "$HOOK_VIEJO.NO-SE-EJECUTA-NUNCA"
+        warn "hook antiguo renombrado a $(basename "$HOOK_VIEJO").NO-SE-EJECUTA-NUNCA"
+    fi
+fi
+
+# ------------------------------------------------------------------ probar
+if [ "$MODO" = "probar" ] || [ "$MODO" = "instalar" ]; then
+    echo ""
+    echo "--- Ejecutando el hook ahora (como lo haria un apt upgrade) ---"
+    if [ -x "$HOOK" ]; then
+        "$HOOK"
+        echo "  salida registrada en /var/log/qemucp-post-install.log:"
+        tail -12 /var/log/qemucp-post-install.log 2>/dev/null | sed 's/^/    /'
+    else
+        bad "$HOOK no es ejecutable"
+    fi
+fi
+
+echo ""
+echo "============================================================"
+echo " Hecho. A partir de ahora, cada 'apt upgrade' del paquete"
+echo " hestia reaplicara los parches solo."
+echo "============================================================"
+echo ""
+echo "Comprobarlo de verdad, forzando una reinstalacion del paquete:"
+echo "  apt-get install --reinstall -y hestia"
+echo "  grep -c count_web_domains_split /usr/local/hestia/func/main.sh   # debe ser > 0"
+echo "  tail -20 /var/log/qemucp-post-install.log"
+exit 0
+QEMUCP_EMBED_HOOK
+cat > "$AUX_DIR/parche-subdominios.sh" << 'QEMUCP_EMBED_SUB'
+#!/bin/bash
+# ============================================================================
+#  QemuCP - Limite de SUBDOMINIOS separado del de dominios (estilo cPanel)
+#
+#  Problema que resuelve:
+#    HestiaCP cuenta CUALQUIER dominio web en WEB_DOMAINS. Un subdominio
+#    (tienda.cliente.com) gasta el mismo cupo que un dominio adicional
+#    (otrocliente.es), asi que no se pueden hacer planes con 0 dominios
+#    adicionales y N subdominios como en cPanel (maxaddon / maxsub).
+#
+#  Que hace:
+#    Anade la clave WEB_SUBDOMAINS a los paquetes. Un dominio nuevo cuenta
+#    contra WEB_SUBDOMAINS si es X.DOMINIO de un dominio que YA aloja el
+#    mismo usuario; contra WEB_DOMAINS en cualquier otro caso.
+#
+#  Compatibilidad:
+#    El cambio es por paquete. Mientras un paquete no tenga WEB_SUBDOMAINS
+#    con valor, sus usuarios se comportan EXACTAMENTE como ahora. Ningun
+#    cliente gana ni pierde cupo hasta que tu edites su paquete.
+#
+#  Uso:
+#    bash parche-subdominios.sh                 aplica el parche
+#    bash parche-subdominios.sh --revertir      deshace desde el backup
+#
+#  Despues de aplicarlo, para cada paquete que quieras pasar al esquema
+#  cPanel (ejemplo: 1 dominio, 10 subdominios):
+#    v-change-user-package ... no hace falta, se hace desde el panel:
+#    Paquetes -> editar -> "Web Domains" = 1 y "Web Subdomains" = 10
+#    y guardar (el panel propaga el paquete a sus usuarios).
+#  O por SSH:
+#    sed -i "/^WEB_DOMAINS=/a WEB_SUBDOMAINS='10'" /usr/local/hestia/data/packages/PLAN.pkg
+#    v-update-user-package PLAN
+# ============================================================================
+
+set -u
+HESTIA="${HESTIA:-/usr/local/hestia}"
+BACKUP="/root/qemucp-subdominios-backup-$(date +%Y%m%d-%H%M%S)"
+GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; NC='\033[0m'
+ok()   { echo -e "  ${GREEN}OK${NC}   $1"; }
+bad()  { echo -e "  ${RED}ERROR${NC} $1"; }
+warn() { echo -e "  ${YELLOW}AVISO${NC} $1"; }
+
+FICHEROS="func/main.sh bin/v-add-web-domain bin/v-add-domain bin/v-add-user \
+bin/v-add-user-package bin/v-change-user-package bin/v-update-user-counters \
+bin/v-list-user bin/v-list-user-package bin/v-list-user-packages \
+web/add/package/index.php web/edit/package/index.php \
+web/templates/pages/add_package.php web/templates/pages/edit_package.php"
+
+# ---------------------------------------------------------------- revertir
+if [ "${1:-}" = "--revertir" ]; then
+    # El PRIMER backup es el unico que contiene los ficheros sin parchear.
+    # Si se cogiera el ultimo se restauraria una version ya parcheada.
+    PRIMERO=$(ls -1d /root/qemucp-subdominios-backup-* 2>/dev/null | head -1)
+    [ -z "$PRIMERO" ] && { bad "No hay backup que restaurar"; exit 1; }
+    if grep -q "count_web_domains_split" "$PRIMERO/func/main.sh" 2>/dev/null; then
+        bad "El backup $PRIMERO ya contiene el parche: no serviria para revertir."
+        bad "Restaura func/main.sh, bin/v-add-web-domain, bin/v-change-user-package,"
+        bad "bin/v-update-user-counters y los 4 ficheros de web/ desde el paquete"
+        bad "oficial: apt-get install --reinstall hestia"
+        exit 1
+    fi
+    echo "Restaurando desde $PRIMERO"
+    for F in $FICHEROS; do
+        [ -f "$PRIMERO/$F" ] && cp -a "$PRIMERO/$F" "$HESTIA/$F" && ok "$F"
+    done
+    find "$HESTIA/bin" "$HESTIA/func" "$HESTIA/web" \
+        \( -name "*.rej" -o -name "*.orig" \) -delete 2>/dev/null
+    systemctl restart hestia 2>/dev/null
+    echo "Revertido."
+    exit 0
+fi
+
+# ----------------------------------------------------------------- --listar
+# Estado de dominios y subdominios de todos los usuarios, con su limite.
+if [ "${1:-}" = "--listar" ]; then
+    if ! grep -q "count_web_domains_split" "$HESTIA/func/main.sh" 2>/dev/null; then
+        bad "El parche no esta aplicado. Ejecuta primero: bash $0"
+        exit 1
+    fi
+    FN=$(mktemp /tmp/qemucp-fn.XXXXXX.sh)
+    sed -n '/^count_web_domains_split()/,/^}/p' "$HESTIA/func/main.sh" > "$FN"
+    # shellcheck disable=SC1090
+    . "$FN"; rm -f "$FN"
+    printf "%-16s %-12s %14s %16s   %s\n" USUARIO PLAN DOMINIOS SUBDOMINIOS ESQUEMA
+    printf "%-16s %-12s %14s %16s   %s\n" ---------------- ------------ -------------- ---------------- -------
+    for UD in "$HESTIA"/data/users/*/; do
+        [ -d "$UD" ] || continue
+        U=$(basename "$UD")
+        [ -f "$UD/web.conf" ] || continue
+        S=$(count_web_domains_split "$UD/web.conf")
+        USA_D=$(echo "$S" | cut -f1 -d' '); USA_S=$(echo "$S" | cut -f2 -d' ')
+        PL=$(grep -m1 "^PACKAGE=" "$UD/user.conf" 2>/dev/null | cut -f2 -d\')
+        LD=$(grep -m1 "^WEB_DOMAINS=" "$UD/user.conf" 2>/dev/null | cut -f2 -d\')
+        LS=$(grep -m1 "^WEB_SUBDOMAINS=" "$UD/user.conf" 2>/dev/null | cut -f2 -d\')
+        if [ -n "$LS" ]; then
+            ESQ="separado"
+            TOTD="$USA_D/$LD"; TOTS="$USA_S/$LS"
+        else
+            ESQ="heredado"
+            # En el esquema heredado el limite es conjunto
+            TOTD="$USA_D"; TOTS="$USA_S"
+            [ -n "$LD" ] && TOTD="$USA_D (cupo conjunto $((USA_D+USA_S))/$LD)"
+        fi
+        printf "%-16s %-12s %14s %16s   %s\n" "$U" "${PL:-?}" "$TOTD" "$TOTS" "$ESQ"
+    done
+    echo ""
+    echo "heredado = los subdominios gastan cupo de dominios (HestiaCP de siempre)"
+    echo "separado = cada uno con su limite (como cPanel)"
+    echo ""
+    echo "Cambiar un plan:     bash $0 --plan PLAN DOMINIOS SUBDOMINIOS"
+    echo "Cambiar un usuario:  bash $0 --usuario USUARIO DOMINIOS SUBDOMINIOS"
+    exit 0
+fi
+
+# ---------------------------------------------------------------- --usuario
+# Limites de UN usuario concreto, sin tocar su plan ni a los demas.
+if [ "${1:-}" = "--usuario" ]; then
+    USU="${2:-}"; NDOM="${3:-}"; NSUB="${4:-}"
+    UC="$HESTIA/data/users/$USU/user.conf"
+    if [ -z "$USU" ] || [ -z "$NDOM" ] || [ -z "$NSUB" ]; then
+        echo "Uso: bash $0 --usuario USUARIO DOMINIOS SUBDOMINIOS"
+        echo ""
+        echo "  DOMINIOS     dominios de nivel superior, INCLUIDO el principal."
+        echo "  SUBDOMINIOS  numero, o 'unlimited'."
+        echo ""
+        echo "Afecta solo a este usuario. Lo escribe en su user.conf, por encima"
+        echo "de lo que diga su plan."
+        exit 1
+    fi
+    [ -f "$UC" ] || { bad "No existe el usuario '$USU'"; exit 1; }
+    if ! grep -q "count_web_domains_split" "$HESTIA/func/main.sh" 2>/dev/null; then
+        bad "El parche no esta aplicado. Ejecuta primero: bash $0"
+        exit 1
+    fi
+    case "$NDOM" in ''|*[!0-9]*) bad "DOMINIOS debe ser un numero"; exit 1 ;; esac
+    [ "$NDOM" -lt 1 ] && { bad "DOMINIOS debe ser 1 o mas: el principal tambien cuenta"; exit 1; }
+    if [ "$NSUB" != "unlimited" ]; then
+        case "$NSUB" in ''|*[!0-9]*) bad "SUBDOMINIOS debe ser un numero o 'unlimited'"; exit 1 ;; esac
+    fi
+
+    cp -a "$UC" "$UC.bak-$(date +%Y%m%d-%H%M%S)"
+    sed -i "/^WEB_SUBDOMAINS=/d" "$UC"
+    sed -i "s|^WEB_DOMAINS=.*|WEB_DOMAINS='$NDOM'|" "$UC"
+    sed -i "/^WEB_DOMAINS=/a WEB_SUBDOMAINS='$NSUB'" "$UC"
+    # DNS y correo no deben limitar: solo mandan dominios y subdominios
+    for CLAVE in DNS_DOMAINS MAIL_DOMAINS; do
+        grep -q "^$CLAVE=" "$UC" && sed -i "s|^$CLAVE=.*|$CLAVE='unlimited'|" "$UC"
+    done
+    grep -q "^U_WEB_SUBDOMAINS=" "$UC" || sed -i "/^U_WEB_DOMAINS=/a U_WEB_SUBDOMAINS='0'" "$UC"
+    "$HESTIA/bin/v-update-user-counters" "$USU" 2>/dev/null || true
+    ok "Usuario '$USU': WEB_DOMAINS='$NDOM'  WEB_SUBDOMAINS='$NSUB'"
+    grep -E "^(WEB_DOMAINS|WEB_SUBDOMAINS|U_WEB_DOMAINS|U_WEB_SUBDOMAINS)=" "$UC" | sed 's/^/  /'
+    echo ""
+    warn "Esto es un ajuste individual: si mas adelante le cambias el PLAN"
+    warn "desde el panel, estos valores se sobreescriben con los del plan."
+    exit 0
+fi
+
+# ------------------------------------------------------------------- --plan
+# Ajusta un paquete a "X dominios / Y subdominios" dejando coherentes TODOS
+# los cupos implicados. Hace falta porque en HestiaCP cada subdominio es
+# tambien una zona DNS y un dominio de correo: si DNS_DOMAINS o MAIL_DOMAINS
+# se quedan cortos, el panel crea el subdominio a medias y sin dar error.
+if [ "${1:-}" = "--plan" ]; then
+    PLAN="${2:-}"; NDOM="${3:-}"; NSUB="${4:-}"
+    PKG="$HESTIA/data/packages/${PLAN}.pkg"
+    if [ -z "$PLAN" ] || [ -z "$NDOM" ] || [ -z "$NSUB" ]; then
+        echo "Uso: bash $0 --plan NOMBRE DOMINIOS SUBDOMINIOS"
+        echo ""
+        echo "  DOMINIOS     dominios de nivel superior, INCLUIDO el principal."
+        echo "               Para 'principal + 2 adicionales' pon 3."
+        echo "  SUBDOMINIOS  subdominios de sus propios dominios, o 'unlimited'."
+        echo ""
+        echo "Ejemplos:"
+        echo "  bash $0 --plan basico 1 10         1 dominio, 10 subdominios"
+        echo "  bash $0 --plan pro 3 unlimited     principal + 2 adicionales"
+        echo ""
+        echo "Paquetes disponibles:"
+        ls -1 "$HESTIA/data/packages/"*.pkg 2>/dev/null \
+            | sed 's|.*/||; s|\.pkg$||; s|^|  |'
+        exit 1
+    fi
+    [ -f "$PKG" ] || { bad "No existe el paquete '$PLAN' ($PKG)"; exit 1; }
+    case "$NDOM" in ''|*[!0-9]*) bad "DOMINIOS debe ser un numero"; exit 1 ;; esac
+    [ "$NDOM" -lt 1 ] && { bad "DOMINIOS debe ser 1 o mas: el dominio principal tambien cuenta"; exit 1; }
+    case "$NSUB" in
+        unlimited|0|[1-9]*) ;;
+        *) bad "SUBDOMINIOS debe ser un numero o 'unlimited'"; exit 1 ;;
+    esac
+    case "$NSUB" in
+        unlimited) ;;
+        *[!0-9]*) bad "SUBDOMINIOS debe ser un numero o 'unlimited'"; exit 1 ;;
+    esac
+
+    if ! grep -q "count_web_domains_split" "$HESTIA/func/main.sh" 2>/dev/null; then
+        bad "El parche no esta aplicado todavia. Ejecuta primero: bash $0"
+        exit 1
+    fi
+
+    cp -a "$PKG" "$PKG.bak-$(date +%Y%m%d-%H%M%S)"
+    sed -i "/^WEB_SUBDOMAINS=/d" "$PKG"
+    sed -i "s|^WEB_DOMAINS=.*|WEB_DOMAINS='$NDOM'|" "$PKG"
+    sed -i "/^WEB_DOMAINS=/a WEB_SUBDOMAINS='$NSUB'" "$PKG"
+    ok "WEB_DOMAINS='$NDOM'  WEB_SUBDOMAINS='$NSUB'"
+
+    # DNS y correo: cada subdominio consume tambien uno de esos cupos
+    # DNS y correo a 'unlimited': los unicos cupos que deben limitar son
+    # dominios y subdominios. Si se dejan con numero, bloquean la creacion del
+    # subdominio aunque queden subdominios libres, y encima sin dar error.
+    for CLAVE in DNS_DOMAINS MAIL_DOMAINS; do
+        ACTUAL=$(grep -m1 "^$CLAVE=" "$PKG" | cut -f2 -d\')
+        if [ "$ACTUAL" = "unlimited" ]; then
+            ok "$CLAVE ya era unlimited"
+        elif [ -z "$ACTUAL" ]; then
+            warn "$CLAVE no estaba en el paquete, se deja como esta"
+        else
+            sed -i "s|^$CLAVE=.*|$CLAVE='unlimited'|" "$PKG"
+            ok "$CLAVE: '$ACTUAL' -> 'unlimited' (no debe limitar nada)"
+        fi
+    done
+
+    echo ""
+    echo "--- Paquete '$PLAN' ---"
+    grep -E "^(WEB_DOMAINS|WEB_SUBDOMAINS|WEB_ALIASES|DNS_DOMAINS|MAIL_DOMAINS)=" "$PKG" | sed 's/^/  /'
+    echo ""
+    echo "Significa: $((NDOM - 1)) dominios adicionales (mas el principal)"
+    echo "           $NSUB subdominios de sus propios dominios"
+    echo ""
+    echo "--- Propagando a los usuarios de este plan ---"
+    if "$HESTIA/bin/v-update-user-package" "$PLAN" 2>&1 | sed 's/^/  /'; then
+        ok "Plan propagado"
+    else
+        warn "v-update-user-package devolvio error: revisa si algun usuario ya"
+        warn "supera los nuevos limites (a esos hay que subirles el plan primero)"
+    fi
+    exit 0
+fi
+
+# ---------------------------------------------------------- comprobaciones
+echo "============================================================"
+echo " Parche: limite de subdominios separado"
+echo " Instalacion: $HESTIA"
+echo "============================================================"
+echo ""
+echo "--- Comprobaciones previas ---"
+
+[ -d "$HESTIA/bin" ] || { bad "No parece una instalacion de HestiaCP/QemuCP en $HESTIA"; exit 1; }
+command -v patch >/dev/null || { bad "Falta el comando 'patch'. Instalalo: apt install -y patch"; exit 1; }
+
+FALTA=0
+for F in $FICHEROS; do
+    [ -f "$HESTIA/$F" ] || { bad "no existe $HESTIA/$F"; FALTA=1; }
+done
+[ "$FALTA" -ne 0 ] && { bad "Instalacion inesperada, no se aplica nada"; exit 1; }
+ok "Los 13 ficheros a modificar estan presentes"
+
+# Si ya esta aplicado se sale ANTES de hacer backup. De lo contrario el backup
+# guardaria los ficheros ya parcheados y --revertir dejaria de servir.
+YA_APLICADO="no"
+if grep -q "count_web_domains_split" "$HESTIA/func/main.sh" 2>/dev/null; then
+    ok "El parche ya estaba aplicado en esta instalacion"
+    YA_APLICADO="si"
+fi
+
+# ------------------------------------------------------------------ backup
+if [ "$YA_APLICADO" = "si" ]; then
+    echo ""
+    echo "--- No se reaplica (ya estaba) ---"
+fi
+if [ "$YA_APLICADO" = "no" ]; then
+echo ""
+echo "--- Backup ---"
+for F in $FICHEROS; do
+    mkdir -p "$BACKUP/$(dirname "$F")"
+    cp -a "$HESTIA/$F" "$BACKUP/$F"
+done
+ok "Copia de seguridad en $BACKUP"
+
+# ------------------------------------------------------------------ aplicar
+echo ""
+echo "--- Aplicando ---"
+PATCHFILE=$(mktemp /tmp/qemucp-sub.XXXXXX.patch)
+cat > "$PATCHFILE" <<'FIN_DEL_PARCHE'
+diff --git a/bin/v-add-domain b/bin/v-add-domain
+index be69cbe50..9e11ee13d 100755
+--- a/bin/v-add-domain
++++ b/bin/v-add-domain
+@@ -54,7 +54,10 @@ fi
+ 
+ # Working on web domain
+ if [ -n "$WEB_SYSTEM" ]; then
+-	check1=$(is_package_full 'WEB_DOMAINS')
++	# QemuCP: un subdominio cuenta contra WEB_SUBDOMAINS, no contra WEB_DOMAINS.
++	# Sin esto, con el cupo de dominios lleno pero subdominios libres, este
++	# pre-chequeo se saltaria la creacion de la parte web sin dar ningun error.
++	check1=$(is_package_full "$(web_quota_key "$domain")")
+ 	if [ $? -eq 0 ]; then
+ 		$BIN/v-add-web-domain "$user" "$domain" "$ip" 'no'
+ 		check_result $? "can't add web domain"
+diff --git a/bin/v-add-user b/bin/v-add-user
+index a0cda7871..38ce6fe1d 100755
+--- a/bin/v-add-user
++++ b/bin/v-add-user
+@@ -248,6 +248,7 @@ U_DISK_MAIL='0'
+ U_DISK_DB='0'
+ U_BANDWIDTH='0'
+ U_WEB_DOMAINS='0'
++U_WEB_SUBDOMAINS='0'
+ U_WEB_SSL='0'
+ U_WEB_ALIASES='0'
+ U_DNS_DOMAINS='0'
+diff --git a/bin/v-add-user-package b/bin/v-add-user-package
+index 816dc3970..7a6542e9f 100755
+--- a/bin/v-add-user-package
++++ b/bin/v-add-user-package
+@@ -133,6 +133,7 @@ PROXY_TEMPLATE='$PROXY_TEMPLATE'
+ BACKEND_TEMPLATE='$BACKEND_TEMPLATE'
+ DNS_TEMPLATE='$DNS_TEMPLATE'
+ WEB_DOMAINS='$WEB_DOMAINS'
++WEB_SUBDOMAINS='${WEB_SUBDOMAINS:-unlimited}'
+ WEB_ALIASES='$WEB_ALIASES'
+ DNS_DOMAINS='$DNS_DOMAINS'
+ DNS_RECORDS='$DNS_RECORDS'
+diff --git a/bin/v-add-web-domain b/bin/v-add-web-domain
+index e50498658..50ef2632b 100755
+--- a/bin/v-add-web-domain
++++ b/bin/v-add-web-domain
+@@ -53,7 +53,11 @@ check_args '2' "$#" 'USER DOMAIN [IP] [RESTART] [ALIASES] [PROXY_EXTENSIONS]'
+ is_format_valid 'user' 'domain' 'aliases' 'ip' 'proxy_ext' 'restart'
+ is_object_valid 'user' 'USER' "$user"
+ is_object_unsuspended 'user' 'USER' "$user"
+-is_package_full 'WEB_DOMAINS'
++
++# QemuCP: en cPanel un subdominio de un dominio que ya aloja la cuenta no gasta
++# cupo de "addon domains", sino el suyo propio. web_quota_key decide contra que
++# limite cuenta este dominio (ver func/main.sh).
++is_package_full "$(web_quota_key "$domain")"
+ 
+ if [ "$aliases" != "none" ]; then
+ 	ALIAS="$aliases"
+diff --git a/bin/v-change-user-package b/bin/v-change-user-package
+index b05acc641..3194328af 100755
+--- a/bin/v-change-user-package
++++ b/bin/v-change-user-package
+@@ -33,15 +33,34 @@ is_package_available() {
+ 	DNS_DOMAINS='0'
+ 	DISK_QUOTA='0'
+ 	BANDWIDTH='0'
++	WEB_SUBDOMAINS=''
+ 
+ 	source_conf "$HESTIA/data/packages/$package.pkg"
+ 
++	# QemuCP: si el paquete destino separa subdominios, el uso actual hay que
++	# compararlo tambien separado. Los contadores U_WEB_* del usuario pueden
++	# venir todavia del esquema antiguo (U_WEB_DOMAINS = total), asi que se
++	# recalculan aqui sobre web.conf en lugar de confiar en ellos.
++	if [ -n "$WEB_SUBDOMAINS" ]; then
++		_split=$(count_web_domains_split "$USER_DATA/web.conf")
++		_used_top=$(echo "$_split" | cut -f 1 -d \ )
++		_used_sub=$(echo "$_split" | cut -f 2 -d \ )
++	else
++		_used_top="$U_WEB_DOMAINS"
++		_used_sub=0
++	fi
++
+ 	# Checking usage agains package limits
+ 	if [ "$WEB_DOMAINS" != 'unlimited' ]; then
+-		if [ "$WEB_DOMAINS" -lt "$U_WEB_DOMAINS" ]; then
++		if [ "$WEB_DOMAINS" -lt "$_used_top" ]; then
+ 			check_result "$E_LIMIT" "Package doesn't cover WEB_DOMAIN usage"
+ 		fi
+ 	fi
++	if [ -n "$WEB_SUBDOMAINS" ] && [ "$WEB_SUBDOMAINS" != 'unlimited' ]; then
++		if [ "$WEB_SUBDOMAINS" -lt "$_used_sub" ]; then
++			check_result "$E_LIMIT" "Package doesn't cover WEB_SUBDOMAIN usage"
++		fi
++	fi
+ 	if [ "$DNS_DOMAINS" != 'unlimited' ]; then
+ 		if [ "$DNS_DOMAINS" -lt "$U_DNS_DOMAINS" ]; then
+ 			check_result "$E_LIMIT" "Package doesn't cover DNS_DOMAIN usage"
+@@ -87,6 +106,7 @@ BACKEND_TEMPLATE='$BACKEND_TEMPLATE'
+ PROXY_TEMPLATE='$PROXY_TEMPLATE'
+ DNS_TEMPLATE='$DNS_TEMPLATE'
+ WEB_DOMAINS='$WEB_DOMAINS'
++WEB_SUBDOMAINS='$WEB_SUBDOMAINS'
+ WEB_ALIASES='$WEB_ALIASES'
+ DNS_DOMAINS='$DNS_DOMAINS'
+ DNS_RECORDS='$DNS_RECORDS'
+@@ -130,6 +150,7 @@ U_DISK_MAIL='$U_DISK_MAIL'
+ U_DISK_DB='$U_DISK_DB'
+ U_BANDWIDTH='$U_BANDWIDTH'
+ U_WEB_DOMAINS='$U_WEB_DOMAINS'
++U_WEB_SUBDOMAINS='$U_WEB_SUBDOMAINS'
+ U_WEB_SSL='$U_WEB_SSL'
+ U_WEB_ALIASES='$U_WEB_ALIASES'
+ U_DNS_DOMAINS='$U_DNS_DOMAINS'
+diff --git a/bin/v-list-user b/bin/v-list-user
+index 66566a4de..b851364f8 100755
+--- a/bin/v-list-user
++++ b/bin/v-list-user
+@@ -32,6 +32,7 @@ json_list() {
+         "PROXY_TEMPLATE": "'$PROXY_TEMPLATE'",
+         "DNS_TEMPLATE": "'$DNS_TEMPLATE'",
+         "WEB_DOMAINS": "'$WEB_DOMAINS'",
++        "WEB_SUBDOMAINS": "'$WEB_SUBDOMAINS'",
+         "WEB_ALIASES": "'$WEB_ALIASES'",
+         "DNS_DOMAINS": "'$DNS_DOMAINS'",
+         "DNS_RECORDS": "'$DNS_RECORDS'",
+@@ -68,6 +69,7 @@ json_list() {
+         "U_DISK_DB": "'$U_DISK_DB'",
+         "U_BANDWIDTH": "'$U_BANDWIDTH'",
+         "U_WEB_DOMAINS": "'$U_WEB_DOMAINS'",
++        "U_WEB_SUBDOMAINS": "'$U_WEB_SUBDOMAINS'",
+         "U_WEB_SSL": "'$U_WEB_SSL'",
+         "U_WEB_ALIASES": "'$U_WEB_ALIASES'",
+         "U_DNS_DOMAINS": "'$U_DNS_DOMAINS'",
+@@ -104,6 +106,7 @@ shell_list() {
+ 	echo "PACKAGE:       $PACKAGE"
+ 	echo "SHELL:         $SHELL"
+ 	echo "WEB DOMAINS:   $U_WEB_DOMAINS/$WEB_DOMAINS"
++	echo "WEB SUBDOMAINS: ${U_WEB_SUBDOMAINS:-0}/${WEB_SUBDOMAINS:-n/a}"
+ 	echo "WEB ALIASES:   $U_WEB_ALIASES/$WEB_ALIASES"
+ 	echo "DNS DOMAINS:   $U_DNS_DOMAINS/$DNS_DOMAINS"
+ 	echo "DNS RECORDS:   $U_DNS_RECORDS/$DNS_RECORDS"
+diff --git a/bin/v-list-user-package b/bin/v-list-user-package
+index f0b0e3cb7..ef64d14e3 100755
+--- a/bin/v-list-user-package
++++ b/bin/v-list-user-package
+@@ -29,6 +29,7 @@ json_list() {
+         "PROXY_TEMPLATE": "'$PROXY_TEMPLATE'",
+         "DNS_TEMPLATE": "'$DNS_TEMPLATE'",
+         "WEB_DOMAINS": "'$WEB_DOMAINS'",
++        "WEB_SUBDOMAINS": "'$WEB_SUBDOMAINS'",
+         "WEB_ALIASES": "'$WEB_ALIASES'",
+         "DNS_DOMAINS": "'$DNS_DOMAINS'",
+         "DNS_RECORDS": "'$DNS_RECORDS'",
+@@ -61,6 +62,7 @@ shell_list() {
+ 	echo "PROXY TEMPLATE:   $PROXY_TEMPLATE"
+ 	echo "DNS TEMPLATE:     $DNS_TEMPLATE"
+ 	echo "WEB DOMAINS:      $WEB_DOMAINS"
++	echo "WEB SUBDOMAINS:   $WEB_SUBDOMAINS"
+ 	echo "WEB ALIASES:      $WEB_ALIASES"
+ 	echo "DNS DOMAINS:      $DNS_DOMAINS"
+ 	echo "DNS RECORDS:      $DNS_RECORDS"
+diff --git a/bin/v-list-user-packages b/bin/v-list-user-packages
+index 1b90a04e7..06d9173b1 100755
+--- a/bin/v-list-user-packages
++++ b/bin/v-list-user-packages
+@@ -27,12 +27,16 @@ json_list() {
+ 	echo "{"
+ 	for package in $packages; do
+ 		PACKAGE=${package/.pkg/}
++		# QemuCP: limpiar antes de cada source_conf. Es un bucle, y un paquete
++		# sin WEB_SUBDOMAINS heredaria el valor del paquete anterior.
++		WEB_SUBDOMAINS=''
+ 		source_conf "$HESTIA/data/packages/$PACKAGE.pkg"
+ 		echo -n '    "'$PACKAGE'": {
+         "WEB_TEMPLATE": "'$WEB_TEMPLATE'",
+         "PROXY_TEMPLATE": "'$PROXY_TEMPLATE'",
+         "DNS_TEMPLATE": "'$DNS_TEMPLATE'",
+         "WEB_DOMAINS": "'$WEB_DOMAINS'",
++        "WEB_SUBDOMAINS": "'$WEB_SUBDOMAINS'",
+         "WEB_ALIASES": "'$WEB_ALIASES'",
+         "DNS_DOMAINS": "'$DNS_DOMAINS'",
+         "DNS_RECORDS": "'$DNS_RECORDS'",
+diff --git a/bin/v-update-user-counters b/bin/v-update-user-counters
+index 586f8aa1c..a5d1ed452 100755
+--- a/bin/v-update-user-counters
++++ b/bin/v-update-user-counters
+@@ -67,6 +67,7 @@ for user in $user_list; do
+ 	BANDWIDTH=0
+ 	U_BANDWIDTH=0
+ 	U_WEB_DOMAINS=0
++	U_WEB_SUBDOMAINS=0
+ 	U_WEB_SSL=0
+ 	U_WEB_ALIASES=0
+ 	U_DNS_DOMAINS=0
+@@ -106,6 +107,7 @@ for user in $user_list; do
+ 
+ 	# Checking web system
+ 	U_WEB_DOMAINS=0
++	U_WEB_SUBDOMAINS=0
+ 	if [ -f $USER_DATA/web.conf ]; then
+ 		for domain_str in $(cat $USER_DATA/web.conf); do
+ 			parse_object_kv_list "$domain_str"
+@@ -125,6 +127,13 @@ for user in $user_list; do
+ 			BANDWIDTH=$((BANDWIDTH + U_BANDWIDTH))
+ 		done
+ 		DISK=$((DISK + U_DISK_WEB))
++		# QemuCP: si el paquete separa subdominios (WEB_SUBDOMAINS), los
++		# contadores deben separarse igual que los limites, para que el panel
++		# muestre "usados/limite" coherente en ambas filas.
++		if has_split_subdomain_limit; then
++			U_WEB_DOMAINS=$(count_web_domains_split "$USER_DATA/web.conf" | cut -f 1 -d \ )
++			U_WEB_SUBDOMAINS=$(count_web_domains_split "$USER_DATA/web.conf" | cut -f 2 -d \ )
++		fi
+ 	fi
+ 
+ 	# Checking dns system
+@@ -210,6 +219,7 @@ for user in $user_list; do
+ 	update_user_value "$user" '$U_DISK_DB' "$U_DISK_DB"
+ 	update_user_value "$user" '$U_BANDWIDTH' "$U_BANDWIDTH"
+ 	update_user_value "$user" '$U_WEB_DOMAINS' "$U_WEB_DOMAINS"
++	update_user_value "$user" '$U_WEB_SUBDOMAINS' "$U_WEB_SUBDOMAINS"
+ 	update_user_value "$user" '$U_WEB_SSL' "$U_WEB_SSL"
+ 	update_user_value "$user" '$U_WEB_ALIASES' "$U_WEB_ALIASES"
+ 	update_user_value "$user" '$U_DNS_DOMAINS' "$U_DNS_DOMAINS"
+diff --git a/func/main.sh b/func/main.sh
+index 8b59d2e26..a78e9307b 100644
+--- a/func/main.sh
++++ b/func/main.sh
+@@ -267,10 +267,81 @@ is_system_enabled() {
+ 	fi
+ }
+ 
++# QemuCP: cuenta los dominios web del usuario separando dominios de nivel
++# superior (lo que cPanel llama "addon domains") de los subdominios de otro
++# dominio del MISMO usuario (lo que cPanel llama "subdomains").
++# Imprime "<dominios> <subdominios>".
++count_web_domains_split() {
++	local _conf="$1"
++	local _doms _d _p _top=0 _sub=0 _is_sub
++	[ -f "$_conf" ] || { echo "0 0"; return; }
++	_doms=$(grep -o "DOMAIN='[^']*'" "$_conf" | cut -f 2 -d \')
++	for _d in $_doms; do
++		_is_sub=0
++		for _p in $_doms; do
++			[ "$_d" = "$_p" ] && continue
++			case "$_d" in
++				*".$_p")
++					_is_sub=1
++					break
++					;;
++			esac
++		done
++		if [ "$_is_sub" -eq 1 ]; then
++			_sub=$((_sub + 1))
++		else
++			_top=$((_top + 1))
++		fi
++	done
++	echo "$_top $_sub"
++}
++
++# QemuCP: cierto si el paquete del usuario define WEB_SUBDOMAINS, es decir si
++# los subdominios tienen su propio limite como en cPanel. Si la clave no existe
++# (paquetes anteriores a este parche) se conserva el comportamiento historico:
++# WEB_DOMAINS cuenta dominios Y subdominios juntos.
++has_split_subdomain_limit() {
++	local _v
++	_v=$(grep -m 1 "^WEB_SUBDOMAINS=" "$USER_DATA/user.conf" 2> /dev/null | cut -f 2 -d \')
++	# Clave ausente o vacia = esquema antiguo (todo cuenta en WEB_DOMAINS).
++	[ -n "$_v" ]
++}
++
++# QemuCP: nombre del limite contra el que debe contar el dominio indicado.
++# Devuelve WEB_SUBDOMAINS si es X.DOMINIO de un dominio que ya aloja este
++# usuario y su paquete separa subdominios; WEB_DOMAINS en el resto de casos.
++# Centralizado aqui porque lo necesitan v-add-web-domain y v-add-domain, y si
++# cada uno lo decidiera por su cuenta se descuadrarian: v-add-domain
++# pre-comprueba el limite y se salta la creacion web sin avisar.
++web_quota_key() {
++	local _dom="$1" _p
++	if ! has_split_subdomain_limit; then
++		echo 'WEB_DOMAINS'
++		return
++	fi
++	for _p in $(grep -o "DOMAIN='[^']*'" "$USER_DATA/web.conf" 2> /dev/null | cut -f 2 -d \'); do
++		[ "$_dom" = "$_p" ] && continue
++		case "$_dom" in
++			*".$_p")
++				echo 'WEB_SUBDOMAINS'
++				return
++				;;
++		esac
++	done
++	echo 'WEB_DOMAINS'
++}
++
+ # User package check
+ is_package_full() {
+ 	case "$1" in
+-		WEB_DOMAINS) used=$(wc -l $USER_DATA/web.conf) ;;
++		WEB_DOMAINS)
++			if has_split_subdomain_limit; then
++				used=$(count_web_domains_split "$USER_DATA/web.conf" | cut -f 1 -d \ )
++			else
++				used=$(wc -l $USER_DATA/web.conf)
++			fi
++			;;
++		WEB_SUBDOMAINS) used=$(count_web_domains_split "$USER_DATA/web.conf" | cut -f 2 -d \ ) ;;
+ 		WEB_ALIASES) used=$(echo $aliases | tr ',' '\n' | wc -l) ;;
+ 		DNS_DOMAINS) used=$(wc -l $USER_DATA/dns.conf) ;;
+ 		DNS_RECORDS) used=$(wc -l $USER_DATA/dns/$domain.conf) ;;
+@@ -281,6 +352,10 @@ is_package_full() {
+ 	esac
+ 	used=$(echo "$used" | cut -f 1 -d \ )
+ 	limit=$(grep "^$1=" $USER_DATA/user.conf | cut -f 2 -d \')
++	# QemuCP: una clave ausente en user.conf equivale a 'unlimited'. Sin esto,
++	# un limite vacio se evalua como 0 en la comparacion aritmetica y bloquea
++	# la creacion en los usuarios cuyo paquete aun no tiene la clave nueva.
++	[ -z "$limit" ] && limit='unlimited'
+ 	if [ "$1" = WEB_ALIASES ]; then
+ 		# Used is always calculated with the new alias added
+ 		if [ "$limit" != 'unlimited' ] && [[ "$used" -gt "$limit" ]]; then
+diff --git a/web/add/package/index.php b/web/add/package/index.php
+index 32d5e2507..bb2b10b09 100644
+--- a/web/add/package/index.php
++++ b/web/add/package/index.php
+@@ -50,6 +50,9 @@ if (!empty($_POST["ok"])) {
+ 	if (!isset($_POST["v_web_domains"])) {
+ 		$errors[] = _("Web Domains");
+ 	}
++	if (!isset($_POST["v_web_subdomains"])) {
++		$errors[] = _("Web Subdomains");
++	}
+ 	if (!isset($_POST["v_web_aliases"])) {
+ 		$errors[] = _("Web Aliases");
+ 	}
+@@ -129,6 +132,7 @@ if (!empty($_POST["ok"])) {
+ 		$v_dns_template = quoteshellarg($_POST["v_dns_template"]);
+ 		$v_shell = quoteshellarg($_POST["v_shell"]);
+ 		$v_web_domains = quoteshellarg($_POST["v_web_domains"]);
++		$v_web_subdomains = quoteshellarg($_POST["v_web_subdomains"]);
+ 		$v_web_aliases = quoteshellarg($_POST["v_web_aliases"]);
+ 		$v_dns_domains = quoteshellarg($_POST["v_dns_domains"]);
+ 		$v_dns_records = quoteshellarg($_POST["v_dns_records"]);
+@@ -196,6 +200,9 @@ if (!empty($_POST["ok"])) {
+ 			}
+ 			$pkg .= "DNS_TEMPLATE=" . $v_dns_template . "\n";
+ 			$pkg .= "WEB_DOMAINS=" . $v_web_domains . "\n";
++			if (trim($_POST["v_web_subdomains"]) !== "") {
++				$pkg .= "WEB_SUBDOMAINS=" . $v_web_subdomains . "\n";
++			}
+ 			$pkg .= "WEB_ALIASES=" . $v_web_aliases . "\n";
+ 			$pkg .= "DNS_DOMAINS=" . $v_dns_domains . "\n";
+ 			$pkg .= "DNS_RECORDS=" . $v_dns_records . "\n";
+@@ -297,6 +304,9 @@ if (empty($v_shell)) {
+ if (empty($v_web_domains)) {
+ 	$v_web_domains = "'1'";
+ }
++if (empty($v_web_subdomains)) {
++	$v_web_subdomains = "'unlimited'";
++}
+ if (empty($v_web_aliases)) {
+ 	$v_web_aliases = "'5'";
+ }
+diff --git a/web/edit/package/index.php b/web/edit/package/index.php
+index 6085f5e9d..e02cb361a 100644
+--- a/web/edit/package/index.php
++++ b/web/edit/package/index.php
+@@ -40,6 +40,10 @@ $v_backend_template = $data[$v_package]["BACKEND_TEMPLATE"];
+ $v_proxy_template = $data[$v_package]["PROXY_TEMPLATE"];
+ $v_dns_template = $data[$v_package]["DNS_TEMPLATE"];
+ $v_web_domains = $data[$v_package]["WEB_DOMAINS"];
++// Vacio = paquete heredado: los subdominios siguen contando como dominios.
++// No se rellena con "unlimited" para que editar otro campo del paquete no
++// cambie el esquema sin que el administrador lo pida expresamente.
++$v_web_subdomains = $data[$v_package]["WEB_SUBDOMAINS"] ?? "";
+ $v_web_aliases = $data[$v_package]["WEB_ALIASES"];
+ $v_dns_domains = $data[$v_package]["DNS_DOMAINS"];
+ $v_dns_records = $data[$v_package]["DNS_RECORDS"];
+@@ -163,6 +167,9 @@ if (!empty($_POST["save"])) {
+ 	if (!isset($_POST["v_web_domains"])) {
+ 		$errors[] = _("Web Domains");
+ 	}
++	if (!isset($_POST["v_web_subdomains"])) {
++		$errors[] = _("Web Subdomains");
++	}
+ 	if (!isset($_POST["v_web_aliases"])) {
+ 		$errors[] = _("Web Aliases");
+ 	}
+@@ -253,6 +260,7 @@ if (!empty($_POST["save"])) {
+ 		$v_shell = "nologin";
+ 	}
+ 	$v_web_domains = quoteshellarg($_POST["v_web_domains"]);
++	$v_web_subdomains = quoteshellarg($_POST["v_web_subdomains"]);
+ 	$v_web_aliases = quoteshellarg($_POST["v_web_aliases"]);
+ 	$v_dns_domains = quoteshellarg($_POST["v_dns_domains"]);
+ 	$v_dns_records = quoteshellarg($_POST["v_dns_records"]);
+@@ -312,6 +320,9 @@ if (!empty($_POST["save"])) {
+ 	$pkg .= "PROXY_TEMPLATE=" . $v_proxy_template . "\n";
+ 	$pkg .= "DNS_TEMPLATE=" . $v_dns_template . "\n";
+ 	$pkg .= "WEB_DOMAINS=" . $v_web_domains . "\n";
++	if (trim($_POST["v_web_subdomains"]) !== "") {
++		$pkg .= "WEB_SUBDOMAINS=" . $v_web_subdomains . "\n";
++	}
+ 	$pkg .= "WEB_ALIASES=" . $v_web_aliases . "\n";
+ 	$pkg .= "DNS_DOMAINS=" . $v_dns_domains . "\n";
+ 	$pkg .= "DNS_RECORDS=" . $v_dns_records . "\n";
+diff --git a/web/templates/pages/add_package.php b/web/templates/pages/add_package.php
+index 111df452d..671315575 100644
+--- a/web/templates/pages/add_package.php
++++ b/web/templates/pages/add_package.php
+@@ -81,6 +81,17 @@
+ 							</button>
+ 						</div>
+ 					</div>
++					<div class="u-mb10">
++						<label for="v_web_subdomains" class="form-label">
++							<?= tohtml( _("Web Subdomains")) ?> <span class="optional">(<?= tohtml( _("subdomains of own domains; empty = count as domains")) ?>)</span>
++						</label>
++						<div class="u-pos-relative">
++							<input type="text" class="form-control" name="v_web_subdomains" id="v_web_subdomains" value="<?= tohtml(trim($v_web_subdomains, "'")) ?>">
++							<button type="button" class="unlimited-toggle js-unlimited-toggle" title="<?= tohtml( _("Unlimited")) ?>">
++								<i class="fas fa-infinity"></i>
++							</button>
++						</div>
++					</div>
+ 					<div class="u-mb10">
+ 						<label for="v_web_aliases" class="form-label">
+ 							<?= tohtml( _("Web Aliases")) ?> <span class="optional">(<?= tohtml( _("per domain")) ?>)</span>
+diff --git a/web/templates/pages/edit_package.php b/web/templates/pages/edit_package.php
+index 0272fd99b..cbcb57ab5 100644
+--- a/web/templates/pages/edit_package.php
++++ b/web/templates/pages/edit_package.php
+@@ -83,6 +83,17 @@
+ 							</button>
+ 						</div>
+ 					</div>
++					<div class="u-mb10">
++						<label for="v_web_subdomains" class="form-label">
++							<?= tohtml( _("Web Subdomains")) ?> <span class="optional">(<?= tohtml( _("subdomains of own domains; empty = count as domains")) ?>)</span>
++						</label>
++						<div class="u-pos-relative">
++							<input type="text" class="form-control" name="v_web_subdomains" id="v_web_subdomains" value="<?= tohtml(trim($v_web_subdomains, "'")) ?>">
++							<button type="button" class="unlimited-toggle js-unlimited-toggle" title="<?= tohtml( _("Unlimited")) ?>">
++								<i class="fas fa-infinity"></i>
++							</button>
++						</div>
++					</div>
+ 					<div class="u-mb10">
+ 						<label for="v_web_aliases" class="form-label">
+ 							<?= tohtml( _("Web Aliases")) ?> <span class="optional">(<?= tohtml( _("per domain")) ?>)</span>
+FIN_DEL_PARCHE
+
+cd "$HESTIA" || exit 1
+SALIDA=$(patch -p1 --forward -F3 --no-backup-if-mismatch -r - < "$PATCHFILE" 2>&1)
+RES=$?
+echo "$SALIDA" | sed 's/^/  /'
+rm -f "$PATCHFILE"
+# -r - descarta los .rej; por si alguna version de patch los deja igualmente:
+find "$HESTIA/bin" "$HESTIA/func" "$HESTIA/web" \
+    \( -name "*.rej" -o -name "*.orig" \) -delete 2>/dev/null
+
+# patch devuelve 1 cuando algun trozo ya estaba aplicado (--forward): eso no
+# es un fallo. Solo es fallo si quedaron .rej o si algo no se pudo aplicar.
+if echo "$SALIDA" | grep -q "FAILED\|malformed\|can't find file"; then
+    bad "El parche no se aplico limpiamente. Restaurando el backup..."
+    # Aviso visible en el panel: si esto ocurre tras un apt upgrade, el limite
+    # de subdominios deja de aplicarse y hay que enterarse, no descubrirlo
+    # cuando un cliente cree dominios que no deberia poder crear.
+    "$HESTIA/bin/v-add-user-notification" admin \
+        "QemuCP: limite de subdominios DESACTIVADO" \
+        "El parche no se pudo reaplicar sobre esta version de HestiaCP. Los paquetes con WEB_SUBDOMAINS han dejado de limitar subdominios. Revisa /var/log/qemucp-subdominios.log" \
+        2>/dev/null || true
+    for F in $FICHEROS; do cp -a "$BACKUP/$F" "$HESTIA/$F"; done
+    find "$HESTIA" -name "*.rej" -newer "$BACKUP" -delete 2>/dev/null
+    bad "Sin cambios. Revisa la version de QemuCP: este parche es para 1.10.5."
+    exit 1
+fi
+[ "$RES" -ne 0 ] && warn "patch devolvio $RES (normal si ya estaba aplicado)"
+
+fi   # fin de: if [ "$YA_APLICADO" = "no" ]
+
+# -------------------------------------------------------------- verificacion
+echo ""
+echo "--- Verificando ---"
+ERR=0
+for F in func/main.sh bin/v-add-web-domain bin/v-add-domain bin/v-add-user bin/v-add-user-package bin/v-change-user-package bin/v-update-user-counters bin/v-list-user bin/v-list-user-package bin/v-list-user-packages; do
+    if bash -n "$HESTIA/$F" 2>/dev/null; then ok "sintaxis bash $F"; else bad "sintaxis bash ROTA en $F"; ERR=1; fi
+done
+PHPBIN=$(command -v php || ls /usr/bin/php* 2>/dev/null | head -1)
+if [ -n "$PHPBIN" ]; then
+    for F in web/add/package/index.php web/edit/package/index.php \
+             web/templates/pages/add_package.php web/templates/pages/edit_package.php; do
+        if $PHPBIN -l "$HESTIA/$F" >/dev/null 2>&1; then ok "sintaxis php $F"; else bad "sintaxis php ROTA en $F"; ERR=1; fi
+    done
+else
+    warn "No se encontro el binario php, no se comprueba la sintaxis PHP"
+fi
+
+for MARCA in count_web_domains_split has_split_subdomain_limit; do
+    grep -q "$MARCA" "$HESTIA/func/main.sh" && ok "funcion $MARCA presente" \
+        || { bad "falta $MARCA en func/main.sh"; ERR=1; }
+done
+for B in v-add-web-domain v-add-domain; do
+    grep -q "web_quota_key" "$HESTIA/bin/$B" && ok "chequeo de cupo en $B" \
+        || { bad "falta el chequeo de cupo en $B"; ERR=1; }
+done
+grep -q "web_quota_key" "$HESTIA/func/main.sh" && ok "funcion web_quota_key presente" \
+    || { bad "falta web_quota_key en func/main.sh"; ERR=1; }
+grep -q "v_web_subdomains" "$HESTIA/web/templates/pages/edit_package.php" && ok "campo en el formulario de paquetes" \
+    || { bad "falta el campo en el formulario"; ERR=1; }
+
+if [ "$ERR" -ne 0 ]; then
+    echo ""
+    bad "Verificacion con errores. Restaurando el backup..."
+    for F in $FICHEROS; do cp -a "$BACKUP/$F" "$HESTIA/$F"; done
+    systemctl restart hestia 2>/dev/null
+    bad "Revertido. Nada quedo modificado."
+    exit 1
+fi
+
+# -------------------------------------------- prueba real sin tocar nada
+echo ""
+echo "--- Conteo actual por usuario (solo informativo) ---"
+# Se carga SOLO la funcion de conteo. No se hace 'source func/main.sh' porque
+# arrastra hestia.conf y los codigos de error del panel y aborta el script.
+FN=$(mktemp /tmp/qemucp-fn.XXXXXX.sh)
+sed -n '/^count_web_domains_split()/,/^}/p' "$HESTIA/func/main.sh" > "$FN"
+# shellcheck disable=SC1090
+. "$FN"
+rm -f "$FN"
+printf "  %-16s %10s %13s  %s\n" USUARIO DOMINIOS SUBDOMINIOS ESQUEMA
+for UD in "$HESTIA"/data/users/*/; do
+    [ -d "$UD" ] || continue
+    U=$(basename "$UD")
+    [ -f "$UD/web.conf" ] || continue
+    S=$(count_web_domains_split "$UD/web.conf")
+    LIM=$(grep -m1 "^WEB_SUBDOMAINS=" "$UD/user.conf" 2>/dev/null | cut -f2 -d\')
+    if [ -n "$LIM" ]; then ESQ="separado (limite $LIM)"; else ESQ="antiguo (todo en WEB_DOMAINS)"; fi
+    printf "  %-16s %10s %13s  %s\n" "$U" "$(echo "$S" | cut -f1 -d' ')" "$(echo "$S" | cut -f2 -d' ')" "$ESQ"
+done
+
+systemctl restart hestia 2>/dev/null && ok "Panel reiniciado"
+
+# ------------------------------------------------- persistencia tras apt upgrade
+# El paquete hestia sobrescribe bin/ y func/ en cada actualizacion, asi que sin
+# esto el limite de subdominios desaparece en silencio al primer apt upgrade.
+echo ""
+echo "--- Persistencia tras actualizar HestiaCP ---"
+DESTINO="$HESTIA/data/qemucp"
+mkdir -p "$DESTINO"
+PROPIO=$(readlink -f "$0")
+if [ "$PROPIO" != "$DESTINO/parche-subdominios.sh" ]; then
+    cp -a "$PROPIO" "$DESTINO/parche-subdominios.sh"
+    chmod +x "$DESTINO/parche-subdominios.sh"
+    ok "Copia instalada en $DESTINO/parche-subdominios.sh"
+fi
+
+# El unico hook que HestiaCP ejecuta es /etc/hestiacp/hooks/post_install.sh,
+# invocado al final del postinst del paquete hestia. La ruta
+# data/hooks/post_update.sh que se usaba antes NO se ejecuta nunca.
+HOOK="/etc/hestiacp/hooks/post_install.sh"
+mkdir -p /etc/hestiacp/hooks
+if [ -e "$HOOK" ] && grep -q "parche-subdominios.sh" "$HOOK" 2>/dev/null; then
+    ok "El hook post_install ya lo reaplica"
+elif [ -e "$HOOK" ] && grep -q "QemuCP-BLOQUE-INICIO" "$HOOK" 2>/dev/null; then
+    warn "El hook de QemuCP existe pero no invoca este parche."
+    warn "Reinstalalo para que lo incluya:  bash /root/instalar-hook.sh"
+else
+    warn "No hay hook de post-actualizacion instalado."
+    warn "Sin el, este parche se PIERDE en el proximo 'apt upgrade' de hestia."
+    warn "Instalalo con:  bash /root/instalar-hook.sh"
+fi
+
+cat <<'SIGUIENTE'
+
+============================================================
+ Parche aplicado
+============================================================
+
+Ahora mismo NADA ha cambiado para tus clientes: todos los paquetes
+siguen en el esquema antiguo hasta que les pongas un valor.
+
+Para pasar un plan al esquema cPanel, desde el panel:
+  Paquetes -> editar el plan -> aparecen dos campos:
+      Web Domains      -> dominios adicionales (0 = ninguno)
+      Web Subdomains   -> subdominios de sus propios dominios
+  Guardar. El panel propaga el plan a los usuarios que lo tengan.
+
+Por SSH, equivalente (plan "basico": 0 adicionales, 10 subdominios):
+  P=/usr/local/hestia/data/packages/basico.pkg
+  sed -i "/^WEB_SUBDOMAINS=/d" $P
+  sed -i "/^WEB_DOMAINS=/a WEB_SUBDOMAINS='10'" $P
+  sed -i "s/^WEB_DOMAINS=.*/WEB_DOMAINS='1'/" $P
+  v-update-user-package basico
+
+  Ojo: WEB_DOMAINS='1' es el dominio PRINCIPAL. Para "sin dominios
+  adicionales" el valor es 1, no 0, porque el principal tambien cuenta
+  como dominio de nivel superior.
+
+Comprobar que funciona, con un usuario de ese plan:
+  v-add-web-domain USUARIO sub1.sudominio.com     <- debe dejar
+  v-add-web-domain USUARIO otrodominio.es         <- debe dar
+                   "WEB_DOMAINS limit is reached"
+
+Deshacer todo:
+  bash parche-subdominios.sh --revertir
+
+SIGUIENTE
+exit 0
+QEMUCP_EMBED_SUB
+cat > "$AUX_DIR/arreglar-crons.sh" << 'QEMUCP_EMBED_CRON'
+#!/bin/bash
+# ============================================================================
+#  QemuCP - Cola de reinicios y crons del sistema
+#
+#  Problema que resuelve:
+#    HestiaCP NO reinicia los servicios al crear un dominio: los apunta en
+#    /usr/local/hestia/data/queue/restart.pipe y los procesa un cron del
+#    usuario hestiaweb:
+#        */2 * * * * sudo /usr/local/hestia/bin/v-update-sys-queue restart
+#    Si ese crontab falta, esta incompleto o tiene mal el propietario o los
+#    permisos, cron lo ignora EN SILENCIO. Resultado: creas una web, la zona
+#    queda escrita en named.conf pero BIND no la ha leido, y el dominio no
+#    resuelve aunque este apuntando. Al guardar la zona desde el panel se
+#    fuerza un reinicio inmediato y entonces "empieza a funcionar sin tocar
+#    nada".
+#
+#  Uso:
+#    bash arreglar-crons.sh              comprueba y corrige
+#    bash arreglar-crons.sh --verificar  solo comprueba, no cambia nada
+# ============================================================================
+
+set -u
+HESTIA="${HESTIA:-/usr/local/hestia}"
+CRONTAB="/var/spool/cron/crontabs/hestiaweb"
+SOLO_VER="no"
+[ "${1:-}" = "--verificar" ] && SOLO_VER="si"
+
+GREEN='\033[0;32m'; RED='\033[0;31m'; YELLOW='\033[1;33m'; NC='\033[0m'
+ok()   { echo -e "  ${GREEN}OK${NC}     $1"; }
+bad()  { echo -e "  ${RED}FALLO${NC}  $1"; }
+warn() { echo -e "  ${YELLOW}AVISO${NC}  $1"; }
+
+# Las 11 tareas que instala HestiaCP, en el mismo orden y con el mismo horario.
+# Se identifican por el COMANDO, no por la linea completa, para no duplicar una
+# tarea cuyo horario se haya cambiado a proposito.
+TAREAS=(
+    "*/2 * * * *|v-update-sys-queue restart"
+    "10 00 * * *|v-update-sys-queue daily"
+    "15 02 * * *|v-update-sys-queue disk"
+    "10 00 * * *|v-update-sys-queue traffic"
+    "30 03 * * *|v-update-sys-queue webstats"
+    "*/5 * * * *|v-update-sys-queue backup"
+    "10 05 * * *|v-backup-users"
+    "20 00 * * *|v-update-user-stats"
+    "*/5 * * * *|v-update-sys-rrd"
+    "__LE__|v-update-letsencrypt-ssl"
+    "41 4 * * *|v-update-sys-hestia-all"
+)
+
+echo "============================================================"
+echo " QemuCP - cola de reinicios y crons"
+[ "$SOLO_VER" = "si" ] && echo " MODO VERIFICACION - no se cambia nada"
+echo "============================================================"
+echo ""
+
+[ -d "$HESTIA/bin" ] || { bad "No parece una instalacion de QemuCP en $HESTIA"; exit 1; }
+id hestiaweb >/dev/null 2>&1 || { bad "El usuario hestiaweb no existe: instalacion incompleta"; exit 1; }
+
+PROBLEMAS=0
+
+# ------------------------------------------------------- 1. servicio cron
+echo "--- Servicio cron ---"
+SRV="cron"
+systemctl list-unit-files 2>/dev/null | grep -q "^crond" && SRV="crond"
+if systemctl is-active --quiet "$SRV" 2>/dev/null; then
+    ok "$SRV activo"
+else
+    bad "$SRV NO esta activo: ninguna tarea programada se ejecuta"
+    PROBLEMAS=$((PROBLEMAS+1))
+    if [ "$SOLO_VER" = "no" ]; then
+        systemctl enable --now "$SRV" 2>/dev/null \
+            && ok "$SRV arrancado y habilitado al inicio" \
+            || bad "no se pudo arrancar $SRV"
+    fi
+fi
+
+# --------------------------------------- 2. permisos del directorio spool
+echo ""
+echo "--- Directorio de crontabs ---"
+SPOOL="/var/spool/cron/crontabs"
+if [ -d "$SPOOL" ]; then
+    MODO=$(stat -c '%a' "$SPOOL")
+    if [ "$MODO" = "1730" ]; then
+        ok "$SPOOL con permisos 1730"
+    else
+        warn "$SPOOL tiene permisos $MODO (lo normal es 1730)"
+        [ "$SOLO_VER" = "no" ] && { chmod 1730 "$SPOOL"; chown root:crontab "$SPOOL" 2>/dev/null; ok "corregido a 1730"; }
+    fi
+else
+    bad "$SPOOL no existe"
+    PROBLEMAS=$((PROBLEMAS+1))
+    [ "$SOLO_VER" = "no" ] && { mkdir -p "$SPOOL"; chmod 1730 "$SPOOL"; chown root:crontab "$SPOOL" 2>/dev/null; ok "creado"; }
+fi
+
+# ------------------------------------------------ 3. crontab de hestiaweb
+echo ""
+echo "--- Crontab de hestiaweb ---"
+if [ ! -f "$CRONTAB" ]; then
+    bad "$CRONTAB NO EXISTE: esta es la causa de que los dominios nuevos no resuelvan"
+    PROBLEMAS=$((PROBLEMAS+1))
+    if [ "$SOLO_VER" = "no" ]; then
+        printf 'MAILTO=""\nCONTENT_TYPE="text/plain; charset=utf-8"\n' > "$CRONTAB"
+        ok "creado con las cabeceras"
+    fi
+else
+    ok "existe ($(grep -c "v-" "$CRONTAB" 2>/dev/null) tareas de QemuCP)"
+fi
+
+if [ -f "$CRONTAB" ]; then
+    grep -q '^MAILTO=' "$CRONTAB" || {
+        warn "falta la cabecera MAILTO"
+        [ "$SOLO_VER" = "no" ] && sed -i '1i MAILTO=""' "$CRONTAB"
+    }
+
+    # Minuto y hora aleatorios para la renovacion de Let's Encrypt, igual que
+    # hace HestiaCP: si todos los servidores renuevan a la misma hora, se
+    # concentran las peticiones contra la CA.
+    LE_MIN=$(( (RANDOM % 60) ))
+    LE_HOUR=$(( (RANDOM % 7) + 1 ))
+
+    FALTAN=0
+    for T in "${TAREAS[@]}"; do
+        HORARIO="${T%%|*}"
+        CMD="${T##*|}"
+        [ "$HORARIO" = "__LE__" ] && HORARIO="$LE_MIN $LE_HOUR * * *"
+        if grep -qF "$CMD" "$CRONTAB" 2>/dev/null; then
+            continue
+        fi
+        FALTAN=$((FALTAN+1))
+        if [ "$SOLO_VER" = "si" ]; then
+            warn "falta: $CMD"
+        else
+            echo "$HORARIO sudo $HESTIA/bin/$CMD" >> "$CRONTAB"
+            ok "anadida: $CMD"
+        fi
+    done
+    if [ "$FALTAN" -eq 0 ]; then
+        ok "las 11 tareas estan presentes"
+    else
+        PROBLEMAS=$((PROBLEMAS+1))
+    fi
+
+    # ------------------------------------------- 4. propietario y permisos
+    echo ""
+    echo "--- Propietario y permisos del crontab ---"
+    DUENO=$(stat -c '%U:%G' "$CRONTAB")
+    MODO=$(stat -c '%a' "$CRONTAB")
+    # Con otro propietario o con permisos de mas, cron descarta el fichero
+    # sin registrar nada en ningun log.
+    if [ "$DUENO" != "hestiaweb:hestiaweb" ] && [ "$DUENO" != "hestiaweb:crontab" ]; then
+        bad "propietario $DUENO (cron lo ignora en silencio)"
+        PROBLEMAS=$((PROBLEMAS+1))
+        [ "$SOLO_VER" = "no" ] && { chown hestiaweb:hestiaweb "$CRONTAB"; ok "corregido a hestiaweb:hestiaweb"; }
+    else
+        ok "propietario $DUENO"
+    fi
+    if [ "$MODO" != "600" ]; then
+        bad "permisos $MODO (deben ser 600)"
+        PROBLEMAS=$((PROBLEMAS+1))
+        [ "$SOLO_VER" = "no" ] && { chmod 600 "$CRONTAB"; ok "corregido a 600"; }
+    else
+        ok "permisos 600"
+    fi
+fi
+
+# ----------------------------------------------- 5. sudoers de hestiaweb
+echo ""
+echo "--- Permiso sudo de hestiaweb ---"
+if sudo -u hestiaweb -n "$HESTIA/bin/v-list-sys-config" >/dev/null 2>&1 \
+   || grep -rq "hestiaweb.*$HESTIA/bin" /etc/sudoers /etc/sudoers.d/ 2>/dev/null; then
+    ok "hestiaweb puede ejecutar los comandos del panel con sudo"
+else
+    bad "hestiaweb no puede usar sudo: las tareas fallarian aunque el cron corra"
+    PROBLEMAS=$((PROBLEMAS+1))
+    warn "revisa /etc/sudoers.d/hestia"
+fi
+
+# -------------------------------------------------- 6. cola pendiente
+echo ""
+echo "--- Cola de reinicios pendiente ---"
+PIPE="$HESTIA/data/queue/restart.pipe"
+if [ -s "$PIPE" ]; then
+    warn "hay $(wc -l < "$PIPE") reinicio(s) sin aplicar:"
+    sed 's/^/        /' "$PIPE" | head -5
+    if [ "$SOLO_VER" = "no" ]; then
+        "$HESTIA/bin/v-update-sys-queue" restart 2>/dev/null \
+            && ok "cola procesada" || warn "no se pudo procesar la cola"
+    fi
+else
+    ok "cola vacia"
+fi
+
+if [ "$SOLO_VER" = "no" ]; then
+    systemctl restart "$SRV" 2>/dev/null && ok "$SRV reiniciado para releer el crontab"
+fi
+
+# ------------------------------------------------------------- resumen
+echo ""
+echo "============================================================"
+if [ "$PROBLEMAS" -eq 0 ]; then
+    echo -e " ${GREEN}Todo correcto.${NC} La cola de reinicios funciona: al crear una web,"
+    echo " BIND y Nginx recargan solos en menos de 2 minutos."
+elif [ "$SOLO_VER" = "si" ]; then
+    echo -e " ${RED}$PROBLEMAS problema(s).${NC} Ejecuta sin --verificar para corregirlos:"
+    echo "   bash $0"
+else
+    echo -e " ${GREEN}$PROBLEMAS problema(s) corregido(s).${NC}"
+    echo ""
+    echo " Compruebalo creando un dominio de prueba: debe resolver solo,"
+    echo " sin que tengas que guardar la zona:"
+    echo "   v-add-domain admin pruebacron.tudominio.com"
+    echo "   sleep 150"
+    echo "   dig +short A pruebacron.tudominio.com @127.0.0.1"
+    echo "   v-delete-domain admin pruebacron.tudominio.com"
+fi
+echo "============================================================"
+echo ""
+echo "Atajo mientras tanto, tras crear cualquier web:"
+echo "  v-restart-dns yes && v-restart-web yes && v-restart-proxy yes"
+exit 0
+QEMUCP_EMBED_CRON
+chmod +x "$AUX_DIR"/*.sh
+for S in instalar-hook.sh parche-subdominios.sh arreglar-crons.sh; do
+    bash -n "$AUX_DIR/$S" || error "El script incrustado $S tiene un error de sintaxis"
+done
+log "3 scripts auxiliares desplegados en $AUX_DIR y verificados"
 
 # ---------------------------------------------
 #  PASO 1: PREPARAR SISTEMA BASE
@@ -297,7 +1835,54 @@ sed -i "s|curl -s -O https://raw.githubusercontent.com/qemugen/qemucp/release/in
 
 log "Instalador modificado: apunta al fork qemugen/qemucp (version check neutralizado)"
 
+# ---------------------------------------------------------------------------
+# PAQUETE hestia COMPILADO DESDE NUESTRO FORK
+# ---------------------------------------------------------------------------
+# Por defecto HestiaCP se instala desde apt.hestiacp.com. Eso significa que
+# el panel que corre en el servidor NO es nuestro fork: es el de upstream, y
+# cuando publican version nueva nos cambia los ficheros sin avisar (de ahi
+# los bucles de login). Aqui compilamos el .deb de 'hestia' desde nuestra
+# rama release con el compilador oficial (src/hst_autocompile.sh) y lo
+# instalamos con --with-debs. hestia-nginx y hestia-php siguen viniendo de
+# apt: son el nginx y el php internos del panel, no llevan nada nuestro.
+#
+# Para forzar la instalacion clasica desde apt:  QEMUCP_DESDE_APT=yes
+FORK_REPO="https://github.com/qemugen/qemucp.git"
+FORK_RAMA="release"
+FORK_SRC="/opt/qemucp-src"
+FORK_DEBS="/tmp/hestiacp-src/deb"
+HST_ARGS_DEBS=()
+INSTALADO_DESDE="apt"
+
+if [[ "${QEMUCP_DESDE_APT:-no}" == "yes" ]]; then
+    warn "QEMUCP_DESDE_APT=yes: se instala HestiaCP desde apt.hestiacp.com"
+else
+    info "Compilando el paquete hestia desde el fork ($FORK_RAMA)..."
+    info "  (tarda unos minutos: instala Node y compila los assets del panel)"
+    rm -rf "$FORK_SRC" "$FORK_DEBS"
+    if git clone -q --depth 1 -b "$FORK_RAMA" "$FORK_REPO" "$FORK_SRC" 2>/dev/null; then
+        FORK_COMMIT=$(git -C "$FORK_SRC" rev-parse --short HEAD 2>/dev/null || echo "?")
+        info "  fork clonado en el commit $FORK_COMMIT"
+        # '~localsrc' = compilar desde la carpeta local, sin descargar nada mas
+        ( cd "$FORK_SRC" && bash src/hst_autocompile.sh --hestia --noinstall --keepbuild '~localsrc' ) \
+            > /var/log/qemucp-build.log 2>&1 || true
+        DEB_HESTIA=$(ls -1 "$FORK_DEBS"/hestia_*.deb 2>/dev/null | head -1)
+        if [[ -n "$DEB_HESTIA" ]] && dpkg-deb -I "$DEB_HESTIA" >/dev/null 2>&1; then
+            DEB_VER=$(dpkg-deb -f "$DEB_HESTIA" Version 2>/dev/null)
+            log "Paquete hestia $DEB_VER compilado desde el fork ($FORK_COMMIT)"
+            HST_ARGS_DEBS=(-D "$FORK_DEBS")
+            INSTALADO_DESDE="fork"
+        else
+            warn "La compilacion desde el fork fallo (ver /var/log/qemucp-build.log)"
+            warn "Se continua con el paquete de apt.hestiacp.com"
+        fi
+    else
+        warn "No se pudo clonar $FORK_REPO: se usa el paquete de apt"
+    fi
+fi
+
 bash hst-install.sh \
+    "${HST_ARGS_DEBS[@]}" \
     -y no \
     -e "$ADMIN_EMAIL" \
     -p "$ADMIN_PASS" \
@@ -323,6 +1908,17 @@ bash hst-install.sh \
     -f
 
 log "QemuCP instalado correctamente"
+
+if [[ "$INSTALADO_DESDE" == "fork" ]]; then
+    # Sin esto, el primer 'apt upgrade' cambiaria nuestro paquete por el de
+    # upstream y volveriamos al punto de partida.
+    apt-mark hold hestia >/dev/null 2>&1 \
+        && log "Paquete hestia bloqueado (apt-mark hold): solo se actualiza desde el fork" \
+        || warn "No se pudo bloquear el paquete hestia: un apt upgrade lo sustituiria"
+    echo "fork $FORK_COMMIT $(date '+%F %T')" > /usr/local/hestia/conf/qemucp-origen 2>/dev/null || true
+else
+    echo "apt $(date '+%F %T')" > /usr/local/hestia/conf/qemucp-origen 2>/dev/null || true
+fi
 
 # ---------------------------------------------
 #  VERIFICACION CRITICA: coherencia de version
@@ -1165,8 +2761,13 @@ for TPL_FILE in "$HESTIA_PHP_TPL"/*.tpl; do
     [[ -f "$TPL_FILE" ]] || continue
 cp "$TPL_FILE" "$TPL_BACKUP_DIR/$(basename "$TPL_FILE").bak" 2>/dev/null || true
 
-    # Insertar optimizaciones si no estan ya
-    if ! grep -q "memory_limit = 512M" "$TPL_FILE" 2>/dev/null; then
+    # Insertar optimizaciones si no estan ya.
+    # La llave es la linea de comentario del bloque. Antes era
+    # "memory_limit = 512M", que NUNCA coincidia con su propio bloque (lo
+    # escrito es "memory_limit] = 512M", con corchete): cada vez que se
+    # relanzaba el instalador se anadia otro bloque con otra linea
+    # session.save_path a todas las plantillas.
+    if ! grep -q "^; -- QemuCP: Optimizaciones de rendimiento --" "$TPL_FILE" 2>/dev/null; then
         # La plantilla de HestiaCP YA trae session.save_path apuntando a
         # /home/%user%/tmp. Si se deja esa linea y se anade la de Redis,
         # el pool acaba con DOS session.save_path y PHP toma el equivocado:
@@ -2020,14 +3621,8 @@ fi
 # ejecuta NUNCA, por lo que ningun parche se reaplicaba tras un apt upgrade
 # (de ahi que el session.save_path duplicado reapareciera una y otra vez).
 HOOKFIX="$HESTIA/data/qemucp/instalar-hook.sh"
-HOOKFIX_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/instalar-hook.sh"
-
 mkdir -p "$HESTIA/data/qemucp"
-if [[ -f "/root/instalar-hook.sh" ]]; then
-    cp -a "/root/instalar-hook.sh" "$HOOKFIX"
-else
-    curl -fsSL "${HOOKFIX_URL}?cb=$(date +%s)" -o "$HOOKFIX" 2>/dev/null || true
-fi
+cp -a "$AUX_DIR/instalar-hook.sh" "$HOOKFIX"
 
 if [[ -s "$HOOKFIX" ]] && head -1 "$HOOKFIX" | grep -q '^#!/bin/bash'; then
     chmod +x "$HOOKFIX"
@@ -2051,15 +3646,8 @@ header "PASO 10D: Limite de subdominios separado del de dominios"
 # El parche anade la clave WEB_SUBDOMAINS a los paquetes y se auto-registra
 # en el hook post_install para sobrevivir a los apt upgrade de hestia.
 SUBPATCH="$HESTIA/data/qemucp/parche-subdominios.sh"
-SUBPATCH_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/parche-subdominios.sh"
-
 mkdir -p "$HESTIA/data/qemucp"
-if [[ -f "/root/parche-subdominios.sh" ]]; then
-    cp -a "/root/parche-subdominios.sh" "$SUBPATCH"
-    info "Usando el parche local /root/parche-subdominios.sh"
-else
-    curl -fsSL "${SUBPATCH_URL}?cb=$(date +%s)" -o "$SUBPATCH" 2>/dev/null || true
-fi
+cp -a "$AUX_DIR/parche-subdominios.sh" "$SUBPATCH"
 
 if [[ -s "$SUBPATCH" ]] && head -1 "$SUBPATCH" | grep -q '^#!/bin/bash'; then
     chmod +x "$SUBPATCH"
@@ -2095,13 +3683,8 @@ CRON_ESPERADOS="restart daily disk traffic webstats backup"
 # Si tenemos arreglar-crons.sh, usarlo: comprueba las 11 tareas, el modo del
 # directorio spool y el sudoers de hestiaweb, no solo las 6 de la cola.
 CRONFIX="$HESTIA/data/qemucp/arreglar-crons.sh"
-CRONFIX_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/arreglar-crons.sh"
 mkdir -p "$HESTIA/data/qemucp"
-if [[ -f "/root/arreglar-crons.sh" ]]; then
-    cp -a "/root/arreglar-crons.sh" "$CRONFIX"
-elif [[ ! -s "$CRONFIX" ]]; then
-    curl -fsSL "${CRONFIX_URL}?cb=$(date +%s)" -o "$CRONFIX" 2>/dev/null || true
-fi
+cp -a "$AUX_DIR/arreglar-crons.sh" "$CRONFIX"
 USAR_CRONFIX="no"
 if [[ -s "$CRONFIX" ]] && head -1 "$CRONFIX" | grep -q '^#!/bin/bash'; then
     chmod +x "$CRONFIX"
@@ -2484,6 +4067,10 @@ echo -e "  ? Elimina /root/qemucp-credentials.txt tras anotar la contrasena"
 echo -e "  ? Para anadir/quitar paises edita countries.list y recarga nginx"
 echo ""
 echo -e "${GREEN}==========================================================${NC}"
+
+# Temporales de la instalacion. Los scripts auxiliares ya estan copiados en
+# $HESTIA/data/qemucp, que es desde donde los usa el hook post_install.
+rm -rf /opt/qemucp /opt/qemucp-src /tmp/hestiacp-src 2>/dev/null || true
 
 # Autoborrado del script de instalacion (al final, tras completar todos los pasos)
 rm -f "$0" 2>/dev/null || true

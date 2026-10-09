@@ -5,11 +5,33 @@ Fork de HestiaCP para Ubuntu 24.04, en producción en varios servidores
 
 ## Lo primero que hay que entender
 
-**El paquete `hestia` de apt sobrescribe `bin/`, `func/`, `web/` y las
-plantillas en cada actualización.** HestiaCP se instala desde
-`apt.hestiacp.com`, no desde este repo, así que los cambios en `bin/`,
-`func/` y `data/packages/*.pkg` del árbol git **nunca llegan a un servidor
-instalado**. Para eso están los scripts de `install/`.
+**El panel se compila e instala desde este fork, no desde apt.**
+`install/qemucp_install.sh` clona la rama `release`, compila el `.deb` de
+`hestia` con `src/hst_autocompile.sh --hestia --noinstall --keepbuild '~localsrc'`
+(unos 45 s, deja el paquete en `/tmp/hestiacp-src/deb/`), lo instala con
+`hst-install.sh -D <dir>` y lo bloquea con `apt-mark hold hestia`.
+`hestia-nginx` y `hestia-php` siguen viniendo de apt: el instalador de
+HestiaCP cae a apt para ellos si no están en el directorio de `-D`.
+Consecuencias:
+
+- Lo que se cambie en `bin/`, `func/`, `web/` o `install/common/packages/`
+  **llega al servidor** dentro del paquete. Comprobado extrayendo el `.deb`.
+- Upstream no puede pisar nada: una versión nueva de HestiaCP no se instala
+  hasta que se sincronice el fork y se recompile.
+- `web/inc/vendor` **no va en el paquete**, tampoco en el oficial: lo crea
+  `v-add-sys-dependencies` (composer) al final de `hst-install`. Un
+  `PHP Fatal error ... vendor/autoload.php` en un árbol de pruebas es por
+  eso, no un fallo del paquete.
+- `/usr/local/hestia/conf/qemucp-origen` dice si se instaló desde `fork` o
+  desde `apt` (`QEMUCP_DESDE_APT=yes`, o si la compilación falla). El hook
+  lo usa: en instalaciones desde el fork **no** ejecuta
+  `qemucp-rebrand.sh`, porque todo lo que injerta ya va en el paquete, y
+  descargarlo de `release` en ese momento podría mezclar PHP de dos
+  versiones.
+
+Actualizar un servidor: sincronizar upstream en el fork, recompilar y
+`dpkg -i` el `.deb` (el `hold` no bloquea `dpkg -i`). El `postinst` llama al
+hook al final.
 
 **El único hook que HestiaCP ejecuta es `/etc/hestiacp/hooks/post_install.sh`**,
 invocado al final de `src/deb/hestia/postinst`. La ruta
@@ -99,6 +121,17 @@ nada". Atajo: `v-restart-dns yes`.
   de Redis sin quitarla. Rompía PrestaShop, Joomla y Moodle. Se arregla en
   las plantillas de `data/templates/web/php-fpm/*.tpl`, **no** en los pools
   generados, o vuelve en el siguiente rebuild.
+  **Causa principal, encontrada después**: la llave de idempotencia del
+  instalador era `grep -q "memory_limit = 512M"`, pero lo escrito es
+  `php_admin_value[memory_limit] = 512M` (con `]`). No coincidía nunca, así
+  que cada vez que se relanzaba el instalador se añadía otro bloque con otra
+  línea `session.save_path`. La llave es ahora la línea de comentario
+  `; -- QemuCP: Optimizaciones de rendimiento --`. El hook normaliza las
+  plantillas a exactamente un bloque completo. **Al escribir una llave de
+  idempotencia, comprobar que coincide con el texto que se escribe.**
+- **`info()` no estaba definida** y el instalador la llamaba en ocho sitios;
+  con `set -e`, cualquiera que se ejecutase abortaba la instalación con
+  "command not found". Al añadir un helper, buscar que esté definido.
 - **File Manager "Error desconocido"**: `HestiaAuth.php` lee
   `$_SESSION["root"]`, clave que el panel nunca define.
 - **Bucle de login** (`array_reverse(): null given`): el fork pinned a una
@@ -155,6 +188,23 @@ correctas.
   `localhost:143 --nossl2 --notls2` y evitar de raíz los errores de
   certificado. Si el origen limita conexiones, `--maxsleep 2 --timeout 120`
   y `sleep 45` entre cuentas.
+
+## El instalador
+
+Un único fichero, `install/qemucp_install.sh`. Los scripts auxiliares
+(`instalar-hook.sh`, `parche-subdominios.sh`, `arreglar-crons.sh`) van
+**incrustados** como heredocs y se despliegan en el PASO 0 en `/opt/qemucp`;
+los pasos 10C/10D/10E los copian a `$HESTIA/data/qemucp`, desde donde los usa
+el hook. Si se edita uno de esos scripts en `install/`, **hay que
+reincrustarlo** en el instalador: el PASO 0 debe dejarlos byte a byte
+idénticos a los sueltos.
+
+Clave de acceso: solo se guarda el hash SHA-256 (`QEMUCP_KEY_HASH`), porque
+el repo es público. Se pide sin mostrarla, o por `QEMUCP_KEY` en
+desatendido. **Nunca** como argumento: queda en el historial y se ve en
+`ps`. `--set-pass` genera el hash de una clave nueva (mínimo 16
+caracteres). El hash actual es el de la clave antigua, que estuvo en claro
+en el repo público: hay que rotarla.
 
 ## Convenciones
 
