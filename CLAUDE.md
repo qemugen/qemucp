@@ -172,25 +172,35 @@ nada". Atajo: `v-restart-dns yes`.
   versión mientras apt sirve otra. Mantener `install/hst-install-ubuntu.sh`
   sincronizado con upstream.
 
-## Migrador de cPanel (`install/migrate/cpanel-import.sh`)
+## Migrador de cPanel (`install/migrate/cpanel-import.sh`, v2.0)
 
-Crea la cuenta con el paquete `default` (ambos cupos `unlimited`), así que
-ningún límite bloquea una importación. Clasifica como subdominio solo lo
-que acaba en `.DOMINIO_PRINCIPAL`; los subdominios de addons van a la lista
-de addons, pero eso solo afecta a sus logs y a dónde copia ficheros — el
-conteo de cupos se recalcula aparte.
+Uso: `bash cpanel-import.sh backup.tar.gz [usuario] [plan]`. Probado en CI
+con `test/cpanel-import.bats` sobre el backup sintético
+`test/fixtures/make-cpanel-backup.sh` (añadir ahí cada caso nuevo que
+falle en producción).
 
-Fallos ya corregidos, no reintroducir: permisos de correo
-(`Debian-exim:mail` en el directorio, `dovecot:mail` en `passwd`, modo
-`660`); registros DNS A/CNAME/TXT descartados por estar el bloque de
-escritura dentro de un `if [[ -n "$rec_prio" ]]`; `grep -c` devolviendo 1
-sin coincidencias y abortando bajo `set -e`; `case` con continuaciones de
-línea (bash no las parsea); versión de PHP mal resuelta (`8_1` en vez de
-`8.1`); dominios con guion descartados por el regex; `.php-fpm.yaml`
-registrado como alias; MX local no borrado cuando la prioridad no era 10;
-correo externo detectado por lista fija de proveedores en vez de por
-destino del MX; falta de `exit 0` marcando como fallidas las migraciones
-correctas.
+- Tipos de dominio desde `userdata/main`: addon (su subdominio interno
+  `addon.principal.com` NO se crea), subdominios (también de addons y de
+  aparcados), aparcados → alias del principal con `www`. Padres antes que
+  hijos. Carpeta web de cada uno desde `documentroot` de su userdata.
+- Antes de crear nada comprueba que el plan cubre dominios/subdominios
+  (contando igual que `count_web_domains_split`), BBDD, correo, zonas,
+  crons. `QEMUCP_IGNORAR_LIMITES=si` para forzar.
+- Correo externo = MX preferente fuera del origen (también `mail.dominio`
+  si en la zona apunta a otra IP). Forzar: `QEMUCP_CORREO_LOCAL=`/
+  `QEMUCP_CORREO_EXTERNO=`. Externo: no se crea dominio de correo, se
+  respetan MX/SPF/registros de correo del cliente (la plantilla se quita
+  ANTES de importar).
+- Contraseñas originales en el campo MD5 de `mail/DOM.conf` (si solo se
+  tocan en `passwd`, cualquier rebuild las machaca). Reenviadores de `va/`,
+  alias de dominio de `vad/` (cuentas solo-reenvío), catch-all, cuenta por
+  defecto, cuotas, mdbox → `doveadm import`.
+- DNS: solo los A que apuntan al origen pasan a este servidor (IP NAT si la
+  hay); un SPF y un DMARC; DKIM propio; CAA con letsencrypt; sin registros
+  de cPanel; cada subdominio web con su registro.
+- Reejecutable: no duplica DNS, crons ni alias; las BBDD se vacían y
+  reimportan. Recarga web/proxy/php-fpm al final (todo se crea con
+  restart=no). Informe en `/root/qemucp-import-USUARIO-*.txt`.
 
 ## Trampas recurrentes en producción
 

@@ -75,7 +75,22 @@ log "Backup: $BACKUP ($(du -sh "$BACKUP" | cut -f1))"
 
 # -- Descomprimir ------------------------------------------------
 header "Descomprimiendo backup"
-WORK_DIR=$(mktemp -d /tmp/cpanel-import-XXXXXX)
+# Espacio: el backup se descomprime (hasta ~3 veces su tamano) y luego se
+# copia a /home. Sin espacio la importacion se corta a medias.
+# QEMUCP_TMP=/ruta para descomprimir en otro disco.
+TMP_BASE="${QEMUCP_TMP:-/tmp}"
+BK_MB=$(( $(stat -c %s "$BACKUP") / 1048576 + 1 ))
+LIBRE_TMP=$(df -Pm "$TMP_BASE" | awk 'NR==2 {print $4}')
+LIBRE_HOME=$(df -Pm /home | awk 'NR==2 {print $4}')
+if [[ "$(df -P "$TMP_BASE" | awk 'NR==2 {print $1}')" == "$(df -P /home | awk 'NR==2 {print $1}')" ]]; then
+    NECESITA=$(( BK_MB * 6 ))   # mismo disco: descomprimido + copia final
+else
+    NECESITA=$(( BK_MB * 3 ))
+    [[ "$LIBRE_HOME" -ge $(( BK_MB * 3 )) ]] || error "No hay espacio en /home: libres ${LIBRE_HOME}MB, hacen falta unos $(( BK_MB * 3 ))MB"
+fi
+[[ "$LIBRE_TMP" -ge "$NECESITA" ]] \
+    || error "No hay espacio para descomprimir en $TMP_BASE: libres ${LIBRE_TMP}MB, hacen falta unos ${NECESITA}MB (usa QEMUCP_TMP=/otra/ruta)"
+WORK_DIR=$(mktemp -d "$TMP_BASE/cpanel-import-XXXXXX")
 tar -xzf "$BACKUP" -C "$WORK_DIR" 2>/dev/null || tar -xf "$BACKUP" -C "$WORK_DIR" 2>/dev/null \
     || error "Error descomprimiendo backup"
 
@@ -965,7 +980,19 @@ for MAIL_DOMAIN in "${MAIL_DOMS[@]:-}"; do
         DEST_MAIL="$DEST_HOME/mail/$MAIL_DOMAIN/$ACCOUNT"
         if [[ -n "$MAIL_BASE" && -d "$SRC_MAIL" ]]; then
             mkdir -p "$DEST_MAIL"
-            rsync -a "$SRC_MAIL/" "$DEST_MAIL/" >> "$LOG" 2>&1 || pendiente "Error copiando el buzon de $ACCOUNT@$MAIL_DOMAIN"
+            if [[ -d "$SRC_MAIL/storage" ]] && ls "$SRC_MAIL/storage"/m.* >/dev/null 2>&1; then
+                # cPanel puede guardar los buzones en mdbox; QemuCP usa maildir
+                MDB_OK="no"
+                if command -v doveadm >/dev/null 2>&1; then
+                    mkdir -p "$DEST_MAIL"; chown -R "$CPANEL_USER:mail" "$DEST_MAIL"
+                    # Importa del mdbox del backup al buzon (maildir) de la cuenta
+                    doveadm import -s -u "$ACCOUNT@$MAIL_DOMAIN" "mdbox:$SRC_MAIL" "" all >> "$LOG" 2>&1 && MDB_OK="si"
+                fi
+                [[ "$MDB_OK" == "si" ]] && info "  $ACCOUNT@$MAIL_DOMAIN: buzon mdbox convertido" \
+                    || pendiente "$ACCOUNT@$MAIL_DOMAIN esta en formato mdbox y no se pudo convertir: migrarlo con imapsync"
+            else
+                rsync -a "$SRC_MAIL/" "$DEST_MAIL/" >> "$LOG" 2>&1 || pendiente "Error copiando el buzon de $ACCOUNT@$MAIL_DOMAIN"
+            fi
         fi
     done
     unset SHADOW_HASHES CUOTAS
