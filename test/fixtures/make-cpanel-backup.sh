@@ -12,6 +12,8 @@
 #                         MX al hostname del hosting viejo (correo local)
 #   blog.principal-ci.com subdominio del principal
 #   shop.adicional-ci.com subdominio de un dominio adicional
+#   otro-ci.org           dominio adicional cuyo MX es mail.otro-ci.org pero
+#                         ese nombre apunta a OTRO servidor (correo externo)
 #   aparcado-ci.net       dominio aparcado + reenvio de dominio a principal
 #   promo.aparcado-ci.net subdominio de un dominio aparcado (en QemuCP gasta
 #                         un dominio: el aparcado es solo un alias)
@@ -36,6 +38,7 @@ DNS=principal-ci.com
 DNS1=adicional-ci.com
 DNS2=tienda-ci.es
 DNS3=aparcado-ci.net
+DNS4=otro-ci.org
 IP=$ORIGIN
 PLAN=default
 USER=$U
@@ -50,12 +53,14 @@ cat > "$B/userdata/main" << 'EOF'
 addon_domains:
   adicional-ci.com: adicional-ci.principal-ci.com
   tienda-ci.es: tienda.principal-ci.com
+  otro-ci.org: otro-ci.principal-ci.com
 cp_php_magic_include_path.conf: 0
 main_domain: principal-ci.com
 parked_domains:
   - aparcado-ci.net
 sub_domains:
   - adicional-ci.principal-ci.com
+  - otro-ci.principal-ci.com
   - blog.principal-ci.com
   - promo.aparcado-ci.net
   - shop.adicional-ci.com
@@ -83,6 +88,7 @@ EOF
 ud principal-ci.com "/home/$U/public_html" "aparcado-ci.net www.aparcado-ci.net www.principal-ci.com" ea-php81
 ud adicional-ci.principal-ci.com "/home/$U/adicional-ci.com" "adicional-ci.com www.adicional-ci.com www.adicional-ci.principal-ci.com" ea-php82
 ud tienda.principal-ci.com "/home/$U/public_html/tienda" "tienda-ci.es www.tienda-ci.es www.tienda.principal-ci.com"
+ud otro-ci.principal-ci.com "/home/$U/otro-ci.org" "otro-ci.org www.otro-ci.org www.otro-ci.principal-ci.com"
 ud blog.principal-ci.com "/home/$U/public_html/blog" "www.blog.principal-ci.com"
 ud promo.aparcado-ci.net "/home/$U/public_html/promo" "www.promo.aparcado-ci.net"
 ud shop.adicional-ci.com "/home/$U/shop.adicional-ci.com" "www.shop.adicional-ci.com"
@@ -100,6 +106,8 @@ echo '<?php echo "blog"; ?>'      > "$H/public_html/blog/index.php"
 echo '<?php echo "promo"; ?>'     > "$H/public_html/promo/index.php"
 echo '<?php echo "adicional"; ?>' > "$H/adicional-ci.com/index.php"
 echo '<?php echo "shop"; ?>'      > "$H/shop.adicional-ci.com/index.php"
+mkdir -p "$H/otro-ci.org"
+echo '<?php echo "otro"; ?>'      > "$H/otro-ci.org/index.php"
 printf '#!/bin/bash\necho copia\n' > "$H/scripts/backup.sh"
 chmod 755 "$H/scripts/backup.sh"
 cat > "$H/public_html/.htaccess" << 'EOF'
@@ -252,6 +260,17 @@ aparcado-ci.net.	14400	IN	A	$ORIGIN
 aparcado-ci.net.	14400	IN	MX	0	aparcado-ci.net.
 promo	14400	IN	A	$ORIGIN
 www	14400	IN	CNAME	aparcado-ci.net.
+EOF
+
+cat > "$B/dnszones/otro-ci.org.db" << EOF
+\$TTL 14400
+otro-ci.org.	86400	IN	SOA	ns1.hostingviejo.com. admin.hostingviejo.com. 2024010101 3600 1800 1209600 86400
+otro-ci.org.	86400	IN	NS	ns1.hostingviejo.com.
+otro-ci.org.	14400	IN	A	$ORIGIN
+otro-ci.org.	14400	IN	MX	10	mail.otro-ci.org.
+mail	14400	IN	A	192.0.2.25
+webmail	14400	IN	CNAME	correo.proveedor-ci.com.
+www	14400	IN	CNAME	otro-ci.org.
 EOF
 
 # ---- SSL vigente (autofirmado para la prueba) ---------------------------

@@ -402,7 +402,22 @@ for zd in "${!ZONA_TSV[@]}"; do
     [[ -z "$MXT" ]] && continue
     if csv_tiene "${QEMUCP_CORREO_LOCAL:-}" "$zd"; then continue; fi
     if csv_tiene "${QEMUCP_CORREO_EXTERNO:-}" "$zd"; then CORREO_EXTERNO["$zd"]="$MXT"; continue; fi
-    [[ "$MXT" == "$zd" || "$MXT" == *".$zd" ]] && continue
+    # MX dentro del propio dominio (mail.dominio.com): es local salvo que ese
+    # nombre apunte, en la propia zona, a una IP que no es del servidor de
+    # origen (correo en otro servidor con un nombre del dominio).
+    if [[ "$MXT" == "$zd" || "$MXT" == *".$zd" ]]; then
+        MX_IPS=$(awk -F'\t' -v h="$MXT" '$1 == h && $2 == "A" { print $3 }' "${ZONA_TSV[$zd]}")
+        MX_FUERA=""
+        if [[ -n "$MX_IPS" ]]; then
+            MX_FUERA="si"
+            for ip in $MX_IPS; do en_lista "$ip" "${ORIGIN_IPS[@]:-}" && MX_FUERA=""; done
+        fi
+        if [[ -n "$MX_FUERA" ]]; then
+            CORREO_EXTERNO["$zd"]="$MXT"
+            warn "MX de $zd: $MXT apunta a $(echo $MX_IPS), que no es el servidor cPanel"
+        fi
+        continue
+    fi
     LOCAL_MX="no"
     for ip in $(getent ahostsv4 "$MXT" 2>/dev/null | awk '{print $1}' | sort -u); do
         en_lista "$ip" "${ORIGIN_IPS[@]:-}" && { LOCAL_MX="si"; break; }
@@ -607,7 +622,9 @@ for D in "${SUB_DOMAINS[@]:-}"; do [[ -n "$D" ]] && create_domain "$D"; done
 # Dominios aparcados: alias del principal (con su www)
 for PK in "${PARKED_DOMAINS[@]:-}"; do
     [[ -z "$PK" ]] && continue
-    if grep -q "ALIAS='[^']*\b${PK//./\\.}\b" "$HESTIA/data/users/$CPANEL_USER/web.conf" 2>/dev/null; then
+    ALIAS_ACT=$( { grep "^DOMAIN='$MAIN_DOMAIN'" "$HESTIA/data/users/$CPANEL_USER/web.conf" 2>/dev/null || true; } \
+                 | grep -oP "ALIAS='\K[^']*" || true)
+    if csv_tiene "$ALIAS_ACT" "$PK"; then
         info "Alias $PK ya estaba en $MAIN_DOMAIN"
         continue
     fi
@@ -761,6 +778,7 @@ quitar_prefijo() {
     echo "$n"
 }
 
+MYSQL_CLI=$(command -v mariadb || command -v mysql || echo mysql)
 if [[ -n "$MYSQL_DIR" ]]; then
     for SQL_FILE in "$MYSQL_DIR"/*.sql.gz "$MYSQL_DIR"/*.sql; do
         [[ -f "$SQL_FILE" ]] || continue
@@ -782,8 +800,13 @@ if [[ -n "$MYSQL_DIR" ]]; then
                 continue
             fi
         else
-            warn "  DB $DB_FINAL ya existe - se regenera su contrasena"
+            warn "  DB $DB_FINAL ya existe: se vacia y se vuelve a importar del backup (contrasena nueva)"
             $BIN/v-change-database-password "$CPANEL_USER" "$DB_FINAL" "$DB_PASS" >> "$LOG" 2>&1 || true
+            # Los permisos de MySQL van por nombre: borrar y crear la base de
+            # datos los conserva. Sin esto, un dump sin DROP TABLE falla con
+            # "Table already exists" al reimportar.
+            $MYSQL_CLI -e "DROP DATABASE \`$DB_FINAL\`; CREATE DATABASE \`$DB_FINAL\`" >> "$LOG" 2>&1 \
+                || pendiente "No se pudo vaciar $DB_FINAL para reimportarla"
         fi
         echo "DB: $DB_FINAL | User: $DB_USER_FINAL | Pass: $DB_PASS" >> "$CREDS_FILE"
         DB_CREATED+=("${DB_FINAL}:${DB_USER_FINAL}:${DB_PASS}")
@@ -794,8 +817,8 @@ if [[ -n "$MYSQL_DIR" ]]; then
         ERRF="$WORK_DIR/mysql-$DB_CLEAN.err"
         if { if [[ "$SQL_FILE" == *.gz ]]; then gunzip -c "$SQL_FILE"; else cat "$SQL_FILE"; fi; } \
             | sed -E 's/DEFINER=`[^`]+`@`[^`]+`//g; s/DEFINER=[^ *]+@[^ *]+//g' \
-            | mysql "$DB_FINAL" 2> "$ERRF"; then
-            TABLAS=$(mysql -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_FINAL'" 2>/dev/null || echo "?")
+            | $MYSQL_CLI "$DB_FINAL" 2> "$ERRF"; then
+            TABLAS=$($MYSQL_CLI -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_FINAL'" 2>/dev/null || echo "?")
             log "  Datos importados en $DB_FINAL ($TABLAS tablas)"
         else
             pendiente "Error importando $DB_FINAL: $(head -c 200 "$ERRF")"
@@ -1207,6 +1230,23 @@ for ZD in $(printf '%s\n' "${!ZONA_TSV[@]}" | sort); do
     EXT="${CORREO_EXTERNO[$ZD]:-}"
     SPF_CLIENTE=""; DMARC_CLIENTE=""; APEX_EXTERNA=""; CAA_ISSUE=(); REC_COUNT=0
 
+    # Correo externo: fuera los registros de correo de la PLANTILLA de QemuCP
+    # antes de importar los del cliente (si el cliente tenia uno igual, se
+    # vuelve a escribir al importar). Despues no se puede distinguir cual es
+    # de la plantilla y cual del cliente.
+    if [[ -n "$EXT" ]]; then
+        zona_borrar "$ZONE_CONF" "RECORD='@' TYPE='MX' PRIORITY='0' VALUE='mail.${ZD}.'"
+        for s in _submission._tcp _imap._tcp _imaps._tcp _pop3._tcp _pop3s._tcp; do
+            sed -i "/RECORD='$s' TYPE='SRV' .*VALUE='[0-9]* [0-9]* mail\.${ZD//./\\.}\.'/d" "$ZONE_CONF"
+        done
+        if awk -F'\t' -v h="mail.$ZD" '$1 == h { f = 1 } END { exit !f }' "$TSV"; then
+            zona_borrar "$ZONE_CONF" "RECORD='mail' TYPE='A' PRIORITY='' VALUE='$SERVER_IP_DNS'"
+        fi
+        if awk -F'\t' -v h="webmail.$ZD" '$1 == h { f = 1 } END { exit !f }' "$TSV"; then
+            zona_borrar "$ZONE_CONF" "RECORD='webmail' TYPE='CNAME' PRIORITY='' VALUE='mail.${ZD}.'"
+        fi
+    fi
+
     while IFS=$'\t' read -r n t v; do
         case "$t" in A|AAAA|CNAME|MX|TXT|SRV|CAA|NS) ;; *) continue ;; esac
         if [[ "$n" == "$ZD" ]]; then rn="@"
@@ -1263,11 +1303,6 @@ for ZD in $(printf '%s\n' "${!ZONA_TSV[@]}" | sort); do
 
     # ---- Correo: MX, SRV, SPF, DMARC, DKIM -----------------------
     if [[ -n "$EXT" ]]; then
-        zona_borrar "$ZONE_CONF" "TYPE='MX' PRIORITY='0' VALUE='mail.${ZD}.'"
-        sed -i "/TYPE='MX' PRIORITY='[0-9]*' VALUE='mail\.${ZD//./\\.}\.'/d" "$ZONE_CONF"
-        for s in _submission._tcp _imap._tcp _imaps._tcp _pop3._tcp _pop3s._tcp; do
-            sed -i "/RECORD='$s' TYPE='SRV' .*mail\.${ZD//./\\.}\.'/d" "$ZONE_CONF"
-        done
         info "  $ZD: correo externo ($EXT): MX del proveedor, sin MX/SRV locales"
     else
         # mail y webmail siempre a ESTE servidor (si no, falla el SSL de correo)
@@ -1334,6 +1369,17 @@ for ZD in $(printf '%s\n' "${!ZONA_TSV[@]}" | sort); do
         zona_escribir "$ZONE_CONF" @ A '' "$APEX_EXTERNA" || true
         pendiente "$ZD apuntaba a $APEX_EXTERNA (no es el servidor cPanel): se mantiene esa IP. Si la web se aloja aqui, cambia el A de @ a $SERVER_IP_DNS"
     fi
+
+    # Cada web de esta zona (subdominios) debe tener su registro: si la zona
+    # de cPanel no lo traia, la web no resolveria.
+    for W in "${WEB_CREADOS[@]:-}"; do
+        [[ -n "$W" && "$W" == *".$ZD" && -z "${ZONA_TSV[$W]:-}" ]] || continue
+        WR="${W%.$ZD}"
+        if ! grep -q "RECORD='$WR' " "$ZONE_CONF"; then
+            zona_escribir "$ZONE_CONF" "$WR" A '' "$SERVER_IP_DNS" || true
+            info "  $ZD: anadido $WR (la web $W no tenia registro DNS)"
+        fi
+    done
 
     # CNAME + otro registro con el mismo nombre: BIND rechaza la zona entera
     for N in $(grep -oP "RECORD='\K[^']+" "$ZONE_CONF" | sort -u); do
@@ -1581,6 +1627,11 @@ fi
 header "Reconstruyendo configuracion"
 $BIN/v-rebuild-user "$CPANEL_USER" 'no' >> "$LOG" 2>&1 && log "Configuracion reconstruida" || warn "v-rebuild-user devolvio error (ver $LOG)"
 $BIN/v-update-user-counters "$CPANEL_USER" >> "$LOG" 2>&1 || true
+# Todo se ha creado con restart='no': hay que recargar los servicios para que
+# las webs (y las versiones de PHP asignadas) se sirvan ya.
+for R in v-restart-web-backend v-restart-web v-restart-proxy; do
+    [[ -x "$BIN/$R" ]] && { $BIN/$R >> "$LOG" 2>&1 || pendiente "$R fallo (ver $LOG)"; }
+done
 
 # Las contrasenas originales deben seguir en passwd tras la reconstruccion
 PASS_PERDIDAS=0
@@ -1682,7 +1733,20 @@ header "SSL de Let's Encrypt (cuando el DNS apunte aqui)"
 for DOM in "${WEB_CREADOS[@]:-}"; do
     [[ -z "$DOM" ]] && continue
     MAILSSL="no"; $BIN/v-list-mail-domain "$CPANEL_USER" "$DOM" &>/dev/null && MAILSSL="yes"
-    echo "  $BIN/v-add-letsencrypt-domain $CPANEL_USER $DOM www.$DOM $MAILSSL" | tee -a "$LOG"
+    # Todos los alias del dominio (www y los aparcados): si no, el certificado
+    # no los cubre y el https de los aparcados falla.
+    ALI=$( { grep "^DOMAIN='$DOM'" "$HESTIA/data/users/$CPANEL_USER/web.conf" 2>/dev/null || true; } \
+          | grep -oP "ALIAS='\K[^']*" || true)
+    # ...pero solo los que existen en el DNS: un alias sin registro (p.ej.
+    # www.blog.dominio.com) hace fallar el certificado entero.
+    ALI_OK=()
+    for a in ${ALI//,/ }; do
+        if ! command -v dig >/dev/null 2>&1 || [[ -n "$(dig +short +time=2 +tries=1 @127.0.0.1 "$a" A 2>/dev/null)" ]]; then
+            ALI_OK+=("$a")
+        fi
+    done
+    ALI=$(IFS=,; echo "${ALI_OK[*]:-}")
+    echo "  $BIN/v-add-letsencrypt-domain $CPANEL_USER $DOM '$ALI' $MAILSSL" | tee -a "$LOG"
 done
 [[ ${#SSL_OK[@]} -gt 0 ]] && info "Mientras tanto ya tienen el SSL de cPanel: ${SSL_OK[*]}"
 

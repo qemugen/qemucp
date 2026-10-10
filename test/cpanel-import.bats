@@ -22,10 +22,10 @@ setup_file() {
     # Plan antiguo (sin WEB_SUBDOMAINS): dominios y subdominios juntos
     cp "$H/data/packages/default.pkg" "$H/data/packages/cimigviejo.pkg"
     sed -i "/^WEB_SUBDOMAINS=/d; s/^WEB_DOMAINS=.*/WEB_DOMAINS='5'/" "$H/data/packages/cimigviejo.pkg"
-    # Plan JUSTO: 4 dominios y 2 subdominios. Si el migrador contara distinto
+    # Plan JUSTO: 5 dominios y 2 subdominios. Si el migrador contara distinto
     # que QemuCP, aqui fallaria la creacion de algun dominio.
     cp "$H/data/packages/default.pkg" "$H/data/packages/cimigjusto.pkg"
-    sed -i "s/^WEB_DOMAINS=.*/WEB_DOMAINS='4'/; s/^WEB_SUBDOMAINS=.*/WEB_SUBDOMAINS='2'/" "$H/data/packages/cimigjusto.pkg"
+    sed -i "s/^WEB_DOMAINS=.*/WEB_DOMAINS='5'/; s/^WEB_SUBDOMAINS=.*/WEB_SUBDOMAINS='2'/" "$H/data/packages/cimigjusto.pkg"
     set +e
     bash "$MIG" "$BK" cpclient cimig > /tmp/cpanel-ci/plan-corto.log 2>&1
     echo $? > /tmp/cpanel-ci/plan-corto.rc
@@ -42,6 +42,8 @@ teardown_file() {
 }
 
 ip_srv() { v-list-sys-ips plain | awk '{print $1}' | head -1; }
+# IP que llevan los DNS: la publica si el servidor esta tras NAT
+ip_dns() { local i n; i=$(ip_srv); n=$(grep -oP "^NAT='\K[^']*" "$H/data/ips/$i" 2>/dev/null || true); echo "${n:-$i}"; }
 q() { dig +short +time=2 +tries=2 @127.0.0.1 "$@"; }
 web_doms() { v-list-web-domains "$U" plain | cut -f1 | sort | tr '\n' ' '; }
 mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1='\K[^']*"; }
@@ -50,16 +52,16 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
     cat /tmp/cpanel-ci/plan-corto.log | tail -5
     [ "$(cat /tmp/cpanel-ci/plan-corto.rc)" -ne 0 ]
     grep -q "se queda corto" /tmp/cpanel-ci/plan-corto.log
-    grep -q "Dominios: el backup necesita 4 y el plan permite 1" /tmp/cpanel-ci/plan-corto.log
+    grep -q "Dominios: el backup necesita 5 y el plan permite 1" /tmp/cpanel-ci/plan-corto.log
 }
 
 @test "migrador: plan antiguo (sin limite de subdominios) cuenta todo junto" {
     tail -5 /tmp/cpanel-ci/plan-viejo.log
     [ "$(cat /tmp/cpanel-ci/plan-viejo.rc)" -ne 0 ]
-    grep -q "Dominios (incluye subdominios en este plan): el backup necesita 6 y el plan permite 5" /tmp/cpanel-ci/plan-viejo.log
+    grep -q "Dominios (incluye subdominios en este plan): el backup necesita 7 y el plan permite 5" /tmp/cpanel-ci/plan-viejo.log
 }
 
-@test "migrador: con un plan justo (4 dominios + 2 subdominios) entra todo" {
+@test "migrador: con un plan justo (5 dominios + 2 subdominios) entra todo" {
     grep -q "El plan 'cimigjusto' cubre todo" "$OUT"
     ! grep -q "No se pudo crear el dominio web" "$OUT"
 }
@@ -72,19 +74,19 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
 
 @test "migrador: dominios adicionales y subdominios correctos, sin los subdominios internos de cPanel" {
     echo "web: $(web_doms)"
-    [ "$(web_doms)" = "adicional-ci.com blog.principal-ci.com principal-ci.com promo.aparcado-ci.net shop.adicional-ci.com tienda-ci.es " ]
+    [ "$(web_doms)" = "adicional-ci.com blog.principal-ci.com otro-ci.org principal-ci.com promo.aparcado-ci.net shop.adicional-ci.com tienda-ci.es " ]
 }
 
-@test "migrador: contadores del usuario 4 dominios / 2 subdominios (promo.aparcado cuenta como dominio)" {
+@test "migrador: contadores del usuario 5 dominios / 2 subdominios (promo.aparcado cuenta como dominio)" {
     v-update-user-counters "$U"
     run v-list-user "$U" json
     echo "$output" | grep -E 'U_WEB_(SUB)?DOMAINS'
-    echo "$output" | grep -q '"U_WEB_DOMAINS": "4"'
+    echo "$output" | grep -q '"U_WEB_DOMAINS": "5"'
     echo "$output" | grep -q '"U_WEB_SUBDOMAINS": "2"'
 }
 
 @test "migrador: dominio aparcado como alias del principal (con www)" {
-    a=$(v-list-web-domain "$U" principal-ci.com plain | cut -f3)
+    a=$(v-list-web-domain "$U" principal-ci.com json | grep -oP '"ALIAS": "\K[^"]*')
     echo "alias: $a"
     [[ ",$a," == *",aparcado-ci.net,"* ]]
     [[ ",$a," == *",www.aparcado-ci.net,"* ]]
@@ -107,7 +109,10 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
 @test "migrador: resto del home copiado con su ruta (scripts de cron)" {
     [ -x "/home/$U/scripts/backup.sh" ]
     [ "$(stat -c %U /home/$U/scripts/backup.sh)" = "$U" ]
-    [ "$(stat -c %U /home/$U)" = "$U" ]
+    # QemuCP deja el home como lo necesita la jaula SFTP (root o el usuario);
+    # lo que no puede pasar es que el backup le ponga otro dueno.
+    o=$(stat -c %U /home/$U); echo "home: $o"
+    [ "$o" = "$U" ] || [ "$o" = "root" ]
 }
 
 @test "migrador: .htaccess de cPanel adaptado (no descarga los .php, sin error 500)" {
@@ -121,8 +126,8 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
 
 @test "migrador: la web principal se sirve (PHP ejecutado, no descargado)" {
     run curl -s --max-time 10 -H "Host: principal-ci.com" "http://$(ip_srv)/index.php"
-    echo "$output"
-    [ "$output" = "principal" ]
+    echo "$output" | head -5
+    [ "$output" = "principal" ] || { tail -20 /var/log/apache2/domains/principal-ci.com.error.log /var/log/apache2/error.log 2>/dev/null; false; }
 }
 
 @test "migrador: version de PHP de cPanel asignada" {
@@ -205,11 +210,11 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
 
 @test "migrador: DNS principal - zona valida, web y correo a este servidor" {
     named-checkzone principal-ci.com /home/$U/conf/dns/principal-ci.com.db
-    [ "$(q principal-ci.com A)" = "$(ip_srv)" ]
+    [ "$(q principal-ci.com A)" = "$(ip_dns)" ]
     [ "$(q principal-ci.com MX)" = "0 mail.principal-ci.com." ]
-    [ "$(q mail.principal-ci.com A)" = "$(ip_srv)" ]
-    [ "$(q blog.principal-ci.com A)" = "$(ip_srv)" ]
-    [ "$(q sinttl.principal-ci.com A)" = "$(ip_srv)" ]
+    [ "$(q mail.principal-ci.com A)" = "$(ip_dns)" ]
+    [ "$(q blog.principal-ci.com A)" = "$(ip_dns)" ]
+    [ "$(q sinttl.principal-ci.com A)" = "$(ip_dns)" ]
     [ -z "$(q principal-ci.com AAAA)" ]
 }
 
@@ -223,7 +228,7 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
     q principal-ci.com TXT
     [ "$(q principal-ci.com TXT | grep -c v=spf1)" -eq 1 ]
     q principal-ci.com TXT | grep v=spf1 | grep -q "include:sendgrid.net"
-    q principal-ci.com TXT | grep v=spf1 | grep -q "ip4:$(ip_srv)"
+    q principal-ci.com TXT | grep v=spf1 | grep -q "ip4:$(ip_dns)"
     ! q principal-ci.com TXT | grep -q "198.51.100.10"
 }
 
@@ -249,7 +254,19 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
     q adicional-ci.com TXT | grep -q "include:_spf.google.com"
     [ -z "$(q _dmarc.adicional-ci.com TXT)" ]
     [ -z "$(q _imap._tcp.adicional-ci.com SRV)" ]
-    [ "$(q shop.adicional-ci.com A)" = "$(ip_srv)" ]
+    [ "$(q shop.adicional-ci.com A)" = "$(ip_dns)" ]
+}
+
+@test "migrador: MX dentro del dominio pero en otro servidor = correo externo, intacto" {
+    q otro-ci.org MX
+    [ "$(q otro-ci.org MX)" = "10 mail.otro-ci.org." ]
+    [ "$(q mail.otro-ci.org A)" = "192.0.2.25" ]
+    [ "$(q webmail.otro-ci.org CNAME)" = "correo.proveedor-ci.com." ]
+    ! v-list-mail-domain "$U" otro-ci.org >/dev/null 2>&1
+    [ "$(q otro-ci.org TXT | grep -c v=spf1)" -eq 0 ]
+    [ -z "$(q _imap._tcp.otro-ci.org SRV)" ]
+    [ "$(q otro-ci.org A)" = "$(ip_dns)" ]
+    grep -q otro /home/$U/web/otro-ci.org/public_html/index.php
 }
 
 @test "migrador: DNS con MX al hostname del hosting viejo pasa a correo local" {
@@ -291,6 +308,6 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
     [ "$status" -eq 0 ]
     [ "$(wc -l < "$H/data/users/$U/dns/principal-ci.com.conf")" -eq "$R1" ]
     [ "$(wc -l < "$H/data/users/$U/cron.conf")" -eq "$C1" ]
-    [ "$(web_doms)" = "adicional-ci.com blog.principal-ci.com principal-ci.com promo.aparcado-ci.net shop.adicional-ci.com tienda-ci.es " ]
+    [ "$(web_doms)" = "adicional-ci.com blog.principal-ci.com otro-ci.org principal-ci.com promo.aparcado-ci.net shop.adicional-ci.com tienda-ci.es " ]
     doveadm auth test info@principal-ci.com 'ClaveInfo2024!'
 }
