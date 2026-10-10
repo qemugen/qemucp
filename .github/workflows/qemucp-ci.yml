@@ -7,6 +7,9 @@ name: QemuCP - instalacion completa y pruebas
 # El informe se publica en la rama 'ci-resultados' (RESULTADO.md + logs), para
 # poder leerlo sin entrar en GitHub Actions.
 
+# Un commit con '[rapido]' en el mensaje solo instala, pasa las pruebas
+# QemuCP y el migrador (para iterar deprisa); el resultado final sale en rojo
+# a proposito porque se han saltado fases.
 on:
   push:
     branches: [release]
@@ -85,14 +88,24 @@ jobs:
       # cambio del fork ha roto algo del nucleo.
       - name: Bateria de pruebas de HestiaCP
         id: upstream
+        if: ${{ !contains(github.event.head_commit.message, '[rapido]') }}
         continue-on-error: true
         run: docker exec qemucp-ci bash -lc 'set -o pipefail; cd /hestiacp-git && bats --tap test/test.bats 2>&1 | tee ci-out/06-pruebas-hestiacp.tap'
+
+      # Migrador de cPanel con un backup sintetico que reune los casos reales:
+      # dominios adicionales, subdominios, aparcados, reenviadores, alias de
+      # dominio, correo externo/interno, crons, bases de datos y DNS.
+      - name: Migrador de cPanel
+        id: migrador
+        continue-on-error: true
+        run: docker exec qemucp-ci bash -lc 'set -o pipefail; cd /hestiacp-git && bats --tap test/cpanel-import.bats 2>&1 | tee ci-out/15-migrador.tap'
 
       # Relanzar el instalador sobre el servidor ya instalado: debe detectar la
       # instalacion y no romper ni duplicar nada (ahi nacia el session.save_path
       # duplicado de produccion).
       - name: Relanzar el instalador sobre lo ya instalado
         id: relanzar
+        if: ${{ !contains(github.event.head_commit.message, '[rapido]') }}
         continue-on-error: true
         run: |
           docker exec qemucp-ci bash -lc '
@@ -106,6 +119,7 @@ jobs:
 
       - name: Pruebas QemuCP (2a pasada, tras relanzar)
         id: pruebas2
+        if: ${{ !contains(github.event.head_commit.message, '[rapido]') }}
         continue-on-error: true
         run: docker exec qemucp-ci bash -lc 'set -o pipefail; cd /hestiacp-git && bats --tap test/qemucp.bats 2>&1 | tee ci-out/04-pruebas-tras-relanzar.tap'
 
@@ -114,6 +128,7 @@ jobs:
       # dpkg. El postinst real debe llamar al hook y dejarla bien.
       - name: Actualizacion del paquete y hook post_install
         id: hook
+        if: ${{ !contains(github.event.head_commit.message, '[rapido]') }}
         continue-on-error: true
         run: |
           docker exec qemucp-ci bash -lc '
@@ -144,6 +159,7 @@ jobs:
       # plantilla y se quita el hold para comprobar que lo deja todo bien.
       - name: Actualizar con qemucp_install.sh --actualizar
         id: actualizar
+        if: ${{ !contains(github.event.head_commit.message, '[rapido]') }}
         continue-on-error: true
         run: |
           docker exec qemucp-ci bash -lc '
@@ -167,6 +183,7 @@ jobs:
 
       - name: Pruebas QemuCP (3a pasada, tras --actualizar)
         id: pruebas3
+        if: ${{ !contains(github.event.head_commit.message, '[rapido]') }}
         continue-on-error: true
         run: docker exec qemucp-ci bash -lc 'set -o pipefail; cd /hestiacp-git && bats --tap test/qemucp.bats 2>&1 | tee ci-out/14-pruebas-tras-actualizar.tap'
 
@@ -181,6 +198,9 @@ jobs:
             cat /usr/local/hestia/conf/qemucp-origen > 10-origen.txt 2>&1 || true
             tail -n 300 /root/hst_install_backups/hst_install-*.log > 11-hst-install.log 2>/dev/null || true
             cat /var/log/qemucp-build.log > 12-compilacion.log 2>/dev/null || true
+            mkdir -p migrador; cp /tmp/cpanel-ci/*.log migrador/ 2>/dev/null || true
+            cp /root/qemucp-import-cpclient-*.txt migrador/ 2>/dev/null || true
+            cp /var/log/qemucp-cpanel-import.log migrador/ 2>/dev/null || true
           ' || true
           sudo chown -R "$(id -u):$(id -g)" ci-out || true
 
@@ -206,9 +226,10 @@ jobs:
             echo "| Actualizacion + hook | $(est '${{ steps.hook.outcome }}') |"
             echo "| Actualizar (--actualizar) | $(est '${{ steps.actualizar.outcome }}') |"
             echo "| Pruebas tras actualizar | $(est '${{ steps.pruebas3.outcome }}') — $(cuenta ci-out/14-pruebas-tras-actualizar.tap) |"
+            echo "| Migrador de cPanel | $(est '${{ steps.migrador.outcome }}') — $(cuenta ci-out/15-migrador.tap) |"
             echo "| Bateria de HestiaCP | $(est '${{ steps.upstream.outcome }}') — $(cuenta ci-out/06-pruebas-hestiacp.tap) |"
             echo ""
-            for f in 02-pruebas-qemucp 04-pruebas-tras-relanzar 14-pruebas-tras-actualizar 06-pruebas-hestiacp; do
+            for f in 02-pruebas-qemucp 04-pruebas-tras-relanzar 14-pruebas-tras-actualizar 15-migrador 06-pruebas-hestiacp; do
               if [ -f "ci-out/$f.tap" ] && grep -q '^not ok ' "ci-out/$f.tap"; then
                 echo "## Fallos en $f"; echo ""; fallos "ci-out/$f.tap"; echo ""
               fi
@@ -244,7 +265,8 @@ jobs:
           [ "${{ steps.hook.outcome }}" = "success" ] &&
           [ "${{ steps.actualizar.outcome }}" = "success" ] &&
           [ "${{ steps.pruebas3.outcome }}" = "success" ] &&
-          [ "${{ steps.upstream.outcome }}" = "success" ]
+          [ "${{ steps.upstream.outcome }}" = "success" ] &&
+          [ "${{ steps.migrador.outcome }}" = "success" ]
 
       - name: Limpiar
         if: always()

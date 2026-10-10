@@ -1,21 +1,40 @@
 #!/bin/bash
 # ============================================================
 # QemuCP - Importador de Backup Oficial cPanel
-# Version: 1.2
-# Uso: bash cpanel-import.sh /ruta/backup_cpanel.tar.gz [usuario_destino]
-# Importa: ficheros web, bases de datos MySQL, correo, DNS
+# Version: 2.0
+#
+# Uso: bash cpanel-import.sh /ruta/backup_cpanel.tar.gz [usuario_destino] [plan]
+#
+#   usuario_destino  por defecto, el mismo usuario que en cPanel
+#   plan             plan de QemuCP para el usuario nuevo (por defecto 'default')
+#                    Antes de crear nada se comprueba que el plan cubre los
+#                    dominios, subdominios, bases de datos... del backup.
+#
+# Variables opcionales:
+#   QEMUCP_PLAN=plan                 igual que el tercer argumento
+#   QEMUCP_IGNORAR_LIMITES=si        importar aunque el plan se quede corto
+#   QEMUCP_CORREO_LOCAL=dom1,dom2    forzar correo LOCAL en esos dominios
+#   QEMUCP_CORREO_EXTERNO=dom1,dom2  forzar correo EXTERNO en esos dominios
+#
+# Importa: dominio principal, dominios adicionales, subdominios (tambien los
+# de los dominios adicionales), dominios aparcados (alias), ficheros, bases de
+# datos, cuentas de correo con su contrasena original, reenviadores,
+# reenviadores de dominio, cuenta por defecto, crons, zonas DNS y SSL vigente.
+# Al terminar comprueba cada zona DNS y lista lo que haya que revisar a mano.
 # ============================================================
 
 set -euo pipefail
 
 BACKUP="${1:-}"
 FORCE_USER="${2:-}"
+PLAN="${3:-${QEMUCP_PLAN:-default}}"
 HESTIA="/usr/local/hestia"
 BIN="$HESTIA/bin"
 LOG="/var/log/qemucp-cpanel-import.log"
 WORK_DIR=""
-DB_CREATED=()  # Array de "DB_FINAL:DB_USER:DB_PASS" creadas en esta ejecucion
+DB_CREATED=()  # "DB_FINAL:DB_USER:DB_PASS" creadas en esta ejecucion
 CREDS_FILE="/root/qemucp-import-credentials.txt"
+PENDIENTES=()  # cosas que hay que revisar a mano (se listan al final)
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -30,15 +49,26 @@ header() { echo -e "\n${BLUE}========================================${NC}" | te
            echo -e "${BLUE} $1${NC}" | tee -a "$LOG"
            echo -e "${BLUE}========================================${NC}" | tee -a "$LOG"; }
 info()   { echo -e "  -> $1" | tee -a "$LOG"; }
+pendiente() { PENDIENTES+=("$1"); warn "$1"; }
+
+DOM_RE='^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$'
+es_dominio() { [[ "$1" =~ $DOM_RE ]]; }
+# Numero de etiquetas (blog.dominio.com = 3): los padres se crean antes que
+# sus subdominios, porque QemuCP decide si algo es subdominio mirando si su
+# dominio padre ya existe en la cuenta.
+etiquetas() { local s="${1//[^.]/}"; echo $(( ${#s} + 1 )); }
+en_lista() { local x="$1"; shift; local i; for i in "$@"; do [[ "$i" == "$x" ]] && return 0; done; return 1; }
 
 # -- Validaciones ------------------------------------------------
 [[ $EUID -ne 0 ]] && error "Ejecuta como root"
-[[ -z "$BACKUP" ]] && error "Uso: bash cpanel-import.sh /ruta/backup.tar.gz [usuario_destino]"
+[[ -z "$BACKUP" ]] && error "Uso: bash cpanel-import.sh /ruta/backup.tar.gz [usuario_destino] [plan]"
 [[ ! -f "$BACKUP" ]] && error "Fichero no encontrado: $BACKUP"
 [[ ! -f "$HESTIA/conf/hestia.conf" ]] && error "QemuCP no instalado"
+for _h in rsync openssl; do
+    command -v "$_h" >/dev/null 2>&1 || DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$_h" >/dev/null 2>&1 \
+        || error "Falta $_h y no se pudo instalar"
+done
 
-echo "" >> "$CREDS_FILE"
-echo "=== Importacion $(date) ===" >> "$CREDS_FILE"
 echo "QemuCP cPanel Import - $(date)" > "$LOG"
 header "QemuCP - Importador de Backup cPanel"
 log "Backup: $BACKUP ($(du -sh "$BACKUP" | cut -f1))"
@@ -46,7 +76,8 @@ log "Backup: $BACKUP ($(du -sh "$BACKUP" | cut -f1))"
 # -- Descomprimir ------------------------------------------------
 header "Descomprimiendo backup"
 WORK_DIR=$(mktemp -d /tmp/cpanel-import-XXXXXX)
-tar -xzf "$BACKUP" -C "$WORK_DIR" 2>/dev/null || error "Error descomprimiendo backup"
+tar -xzf "$BACKUP" -C "$WORK_DIR" 2>/dev/null || tar -xf "$BACKUP" -C "$WORK_DIR" 2>/dev/null \
+    || error "Error descomprimiendo backup"
 
 # Detectar directorio raiz
 BACKUP_PATH="$WORK_DIR"
@@ -55,1041 +86,1337 @@ FIRST=$(ls "$WORK_DIR" | head -1)
 log "Raiz del backup: $BACKUP_PATH"
 log "Contenido: $(ls "$BACKUP_PATH" | tr '\n' ' ')"
 
+# Algunas versiones de cPanel guardan el home como homedir.tar aparte
+if [[ ! -d "$BACKUP_PATH/homedir" && -f "$BACKUP_PATH/homedir.tar" ]]; then
+    mkdir -p "$BACKUP_PATH/homedir"
+    tar -xf "$BACKUP_PATH/homedir.tar" -C "$BACKUP_PATH/homedir" 2>/dev/null \
+        && log "homedir.tar descomprimido" || warn "No se pudo descomprimir homedir.tar"
+fi
+HOMEDIR="$BACKUP_PATH/homedir"
+
 # -- Detectar usuario cPanel ------------------------------------
-# Fuente 1: fichero cp/username
-CPANEL_USER=""
-[[ -f "$BACKUP_PATH/cp/username" ]] && \
-    CPANEL_USER=$(cat "$BACKUP_PATH/cp/username" | tr -d ' \n\r')
-
-# Fuente 2: nombre del fichero (varios formatos de cPanel)
-if [[ -z "$CPANEL_USER" ]]; then
-    FILENAME=$(basename "$BACKUP" .tar.gz)
-    # Formato cPanel estandar: backup-M.D.YYYY_HH-MM-SS_usuario
-    CPANEL_USER=$(echo "$FILENAME" | sed 's/^backup-[0-9.]*_[0-9-]*_//')
-    # Formato cpbackup: cpbackup-YYYY-MM-DD_usuario
-    [[ "$CPANEL_USER" == "$FILENAME" ]] &&         CPANEL_USER=$(echo "$FILENAME" | sed 's/^cpbackup-[0-9-]*_//')
-    # Si sigue sin cambiar, coger la ultima parte despues del ultimo _
-    [[ "$CPANEL_USER" == "$FILENAME" ]] &&         CPANEL_USER=$(echo "$FILENAME" | awk -F_ '{print $NF}')
+ORIG_USER=""
+[[ -f "$BACKUP_PATH/cp/username" ]] && ORIG_USER=$(tr -d ' \n\r' < "$BACKUP_PATH/cp/username")
+if [[ -z "$ORIG_USER" ]]; then
+    for f in "$BACKUP_PATH"/cp/*; do
+        [[ -f "$f" ]] || continue
+        grep -q "^DNS=" "$f" 2>/dev/null && { ORIG_USER=$(basename "$f"); break; }
+    done
 fi
-
-# Limpiar: minusculas, solo alfanumerico y guion bajo
-CPANEL_USER=$(echo "$CPANEL_USER" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_')
-CPANEL_USER=$(echo "$CPANEL_USER" | sed 's/^_*//;s/_*$//')
-[[ -n "$FORCE_USER" ]] && CPANEL_USER="$FORCE_USER"
+if [[ -z "$ORIG_USER" ]]; then
+    FILENAME=$(basename "$BACKUP"); FILENAME="${FILENAME%.tar.gz}"; FILENAME="${FILENAME%.tar}"
+    ORIG_USER=$(echo "$FILENAME" | sed 's/^backup-[0-9.]*_[0-9-]*_//')
+    [[ "$ORIG_USER" == "$FILENAME" ]] && ORIG_USER=$(echo "$FILENAME" | sed 's/^cpbackup-[0-9-]*_//')
+    [[ "$ORIG_USER" == "$FILENAME" ]] && ORIG_USER=$(echo "$FILENAME" | awk -F_ '{print $NF}')
+fi
+ORIG_USER=$(echo "$ORIG_USER" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_' | sed 's/^_*//;s/_*$//')
+CPANEL_USER="${FORCE_USER:-$ORIG_USER}"
 [[ -z "$CPANEL_USER" ]] && error "No se pudo detectar el usuario. Usa: bash cpanel-import.sh backup.tar.gz usuario"
+log "Usuario cPanel: $ORIG_USER -> usuario QemuCP: $CPANEL_USER"
+CP_USER_FILE="$BACKUP_PATH/cp/$ORIG_USER"
 
-log "Usuario detectado: $CPANEL_USER"
-
-# -- Crear usuario en QemuCP ------------------------------------
-header "Creando usuario en QemuCP"
-
-if $BIN/v-list-user "$CPANEL_USER" &>/dev/null 2>&1; then
-    warn "Usuario $CPANEL_USER ya existe en QemuCP - se importaran datos sobre el existente"
-else
-    USER_PASS=$(openssl rand -base64 12 | tr -d '/+=')
-    USER_EMAIL=$(cat "$BACKUP_PATH/cp/contactemail" 2>/dev/null ||                  cat "$BACKUP_PATH/cp/email" 2>/dev/null ||                  echo "")
-    USER_EMAIL=$(echo "$USER_EMAIL" | tr -d ' 
-
-' | head -c 100)
-
-    # Validar email - si no tiene formato valido usar uno generado
-    if [[ -z "$USER_EMAIL" ]] || ! echo "$USER_EMAIL" | grep -qP '^[^@]+@[^@]+\.[^@]+$'; then
-        USER_EMAIL="${CPANEL_USER}@${MAIN_DOMAIN:-example.com}"
-        warn "Email no encontrado, usando: $USER_EMAIL"
-    fi
-
-    $BIN/v-add-user "$CPANEL_USER" "$USER_PASS" "$USER_EMAIL" "default" \
-        2>/dev/null && log "Usuario $CPANEL_USER creado" || \
-        error "No se pudo crear el usuario $CPANEL_USER"
-
-    echo "Usuario panel: $CPANEL_USER | Pass: $USER_PASS | Email: $USER_EMAIL" >> "$CREDS_FILE"
-fi
-
-# -- Detectar dominios ------------------------------------------
+# ============================================================
+#  DOMINIOS
+# ============================================================
+# Fuente principal: userdata/main, que es donde cPanel guarda QUE es cada
+# dominio:
+#   main_domain: principal.com
+#   addon_domains:
+#     adicional.com: adicional.principal.com     <- subdominio interno
+#   parked_domains:
+#     - aparcado.com
+#   sub_domains:
+#     - adicional.principal.com                  <- el interno, NO se crea
+#     - blog.principal.com
+#     - tienda.adicional.com
+# Cada dominio adicional lleva un subdominio interno: NO es una web del
+# cliente y no debe crearse (gastaria cupo de subdominios). La carpeta web
+# del adicional esta en userdata/<subdominio interno>.
 header "Detectando dominios"
 
 MAIN_DOMAIN=""
 ADDON_DOMAINS=()
 SUB_DOMAINS=()
-
-# Dominio principal desde cp/ o userdata/main
-if [[ -f "$BACKUP_PATH/cp/main_domain" ]]; then
-    MAIN_DOMAIN=$(cat "$BACKUP_PATH/cp/main_domain" | tr -d ' \n\r')
-elif [[ -f "$BACKUP_PATH/userdata/main" ]]; then
-    MAIN_DOMAIN=$(grep "^main_domain:" "$BACKUP_PATH/userdata/main" 2>/dev/null | \
-        awk '{print $2}' | tr -d '"' | tr -d ' \n\r' || true)
-fi
-
-log "Dominio principal: ${MAIN_DOMAIN:-no detectado}"
-
-# NOTA sobre tipos de dominio en cPanel:
-#   - addon domain  -> tiene su propio docroot (carpeta web independiente)
-#   - parked/alias  -> comparte el docroot del dominio principal
-# Las entradas DNS1..DNSn de cp/USUARIO incluyen AMBOS tipos. Distinguimos
-# despues comprobando si existe docroot propio; los que no lo tengan se
-# crean como ALIAS del dominio principal (que es lo que son).
 PARKED_DOMAINS=()
+declare -A ADDON_LINK=()     # adicional -> subdominio interno
+declare -A DOCROOT_ORIG=()   # dominio -> carpeta web en el servidor cPanel
 
-# FUENTE 1 (la mas fiable en backups cPanel clasicos): fichero cp/USUARIO
-# Contiene DNS=dominio_principal y DNS1..DNSn=addon/parked domains
-CP_USER_FILE="$BACKUP_PATH/cp/$CPANEL_USER"
-if [[ -f "$CP_USER_FILE" ]]; then
-    while IFS='=' read -r key val; do
-        key=$(echo "$key" | tr -d ' \r')
-        val=$(echo "$val" | tr -d ' \r')
-        [[ -z "$val" ]] && continue
-        # DNS = dominio principal; DNS1, DNS2... = adicionales
-        if [[ "$key" =~ ^DNS[0-9]+$ ]]; then
-            [[ "$val" == "$MAIN_DOMAIN" ]] && continue
-            if [[ "$val" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
-                if [[ -n "$MAIN_DOMAIN" && "$val" == *".$MAIN_DOMAIN" ]]; then
-                    SUB_DOMAINS+=("$val")
-                else
-                    ADDON_DOMAINS+=("$val")
-                fi
-            fi
-        fi
-    done < <(grep -E "^DNS[0-9]*=" "$CP_USER_FILE" 2>/dev/null || true)
-fi
-
-# FUENTE 2: zonas DNS del backup (dnszones/*.db) - respaldo fiable
-if [[ -d "$BACKUP_PATH/dnszones" ]]; then
-    for Z in "$BACKUP_PATH/dnszones"/*.db; do
-        [[ -f "$Z" ]] || continue
-        zdom=$(basename "$Z" .db)
-        [[ "$zdom" == "$MAIN_DOMAIN" ]] && continue
-        if [[ "$zdom" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
-            if [[ -n "$MAIN_DOMAIN" && "$zdom" == *".$MAIN_DOMAIN" ]]; then
-                SUB_DOMAINS+=("$zdom")
-            else
-                ADDON_DOMAINS+=("$zdom")
-            fi
-        fi
-    done
-fi
-
-# FUENTE 3: addons/
-if [[ -d "$BACKUP_PATH/addons" ]]; then
-    while IFS='=' read -r addon_domain docroot; do
-        addon_domain=$(echo "$addon_domain" | tr -d ' \n\r')
-        [[ -n "$addon_domain" && "$addon_domain" =~ ^[a-z0-9] ]] && \
-            ADDON_DOMAINS+=("$addon_domain")
-    done < <(cat "$BACKUP_PATH/addons" 2>/dev/null || true)
-fi
-
-# Dominios desde userdata/ (fuente mas fiable en backups cPanel EA4).
-# userdata/ puede tener ENTRADAS como directorios o como ficheros por dominio.
-if [[ -d "$BACKUP_PATH/userdata" ]]; then
-    for f in "$BACKUP_PATH/userdata"/*; do
-        domain=$(basename "$f")
-        # Ignorar metadatos y ficheros SSL/cache
-        [[ "$domain" == "main" ]] && continue
-        [[ "$domain" =~ _SSL$ ]] && continue
-        [[ "$domain" == "cache" ]] && continue
-        [[ "$domain" == "$MAIN_DOMAIN" ]] && continue
-        # En userdata/ hay ficheros que NO son dominios: DOMINIO.php-fpm.yaml,
-        # DOMINIO.php-fpm.yaml.transferred, DOMINIO_SSL, cache.json...
-        # Si se toman por dominios acaban dados de alta como alias (visto en
-        # produccion: "Alias de sif-fgv.es: sif-fgv.es.php-fpm.yaml").
-        case "$domain" in
-            *.php-fpm.yaml|*.php-fpm.yaml.transferred|*.yaml|*.yaml.*|\
-            *_SSL|*.cache|*.json|*.bak|*.orig|*.transferred|main|scope|cache)
-                continue ;;
+UD_MAIN="$BACKUP_PATH/userdata/main"
+if [[ -f "$UD_MAIN" ]]; then
+    while read -r kind a b; do
+        case "$kind" in
+            main)   MAIN_DOMAIN="$a" ;;
+            addon)  es_dominio "$a" && { ADDON_DOMAINS+=("$a"); ADDON_LINK["$a"]="$b"; } ;;
+            parked) es_dominio "$a" && PARKED_DOMAINS+=("$a") ;;
+            sub)    es_dominio "$a" && SUB_DOMAINS+=("$a") ;;
         esac
-        # Validar formato de dominio (el TLD debe ser un TLD real, no .yaml)
-        if [[ "$domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
-            # Clasificar: si es X.MAINDOMAIN es subdominio; si no, addon
-            if [[ -n "$MAIN_DOMAIN" && "$domain" == *".$MAIN_DOMAIN" ]]; then
-                SUB_DOMAINS+=("$domain")
-            else
-                ADDON_DOMAINS+=("$domain")
-            fi
+    done < <(awk '
+        { gsub(/\r/, "") }
+        /^[ \t]*-[ \t]+[^ \t]/ {
+            v = $0; sub(/^[ \t]*-[ \t]+/, "", v); gsub(/["\047 \t]/, "", v)
+            if (sec == "parked_domains") print "parked", tolower(v)
+            else if (sec == "sub_domains") print "sub", tolower(v)
+            next
+        }
+        /^[^ \t#-][^:]*:/ {
+            sec = $0; sub(/:.*/, "", sec)
+            v = $0; sub(/^[^:]*:[ \t]*/, "", v); gsub(/["\047 \t]/, "", v)
+            if (sec == "main_domain" && v != "") print "main", tolower(v)
+            next
+        }
+        /^[ \t]+[^ \t-][^:]*:/ {
+            if (sec == "addon_domains") {
+                k = $0; sub(/^[ \t]+/, "", k); v = k
+                sub(/:.*/, "", k); sub(/^[^:]*:[ \t]*/, "", v)
+                gsub(/["\047 \t]/, "", k); gsub(/["\047 \t]/, "", v)
+                print "addon", tolower(k), tolower(v)
+            }
+        }' "$UD_MAIN")
+    log "Tipos de dominio leidos de userdata/main"
+fi
+
+# Respaldo para backups sin userdata/main (muy antiguos o incompletos)
+if [[ -z "$MAIN_DOMAIN" ]]; then
+    warn "Sin userdata/main: se deducen los tipos de dominio (revisar el resultado)"
+    [[ -f "$BACKUP_PATH/cp/main_domain" ]] && MAIN_DOMAIN=$(tr -d ' \n\r' < "$BACKUP_PATH/cp/main_domain")
+    [[ -z "$MAIN_DOMAIN" && -f "$CP_USER_FILE" ]] && \
+        MAIN_DOMAIN=$( { grep -m1 "^DNS=" "$CP_USER_FILE" || true; } | cut -d= -f2 | tr -d ' \r')
+    MAIN_DOMAIN="${MAIN_DOMAIN,,}"
+    CANDIDATOS=()
+    if [[ -f "$CP_USER_FILE" ]]; then
+        while IFS='=' read -r _k v; do CANDIDATOS+=("$(echo "${v,,}" | tr -d ' \r')"); done \
+            < <(grep -E "^DNS[0-9]+=" "$CP_USER_FILE" 2>/dev/null || true)
+    fi
+    for Z in "$BACKUP_PATH"/dnszones/*.db; do [[ -f "$Z" ]] && CANDIDATOS+=("$(basename "${Z,,}" .db)"); done
+    for c in $(printf '%s\n' "${CANDIDATOS[@]:-}" | sort -u); do
+        es_dominio "$c" || continue
+        [[ "$c" == "$MAIN_DOMAIN" ]] && continue
+        if [[ -f "$BACKUP_PATH/userdata/$c" ]] || [[ -d "$HOMEDIR/$c" ]] || [[ -d "$HOMEDIR/public_html/$c" ]]; then
+            ADDON_DOMAINS+=("$c")
+        else
+            PARKED_DOMAINS+=("$c")
         fi
     done
-fi
-
-# Subdominios
-if [[ -f "$BACKUP_PATH/sds" ]] || [[ -f "$BACKUP_PATH/sds2" ]]; then
-    while IFS= read -r line; do
-        sub=$(echo "$line" | awk -F= '{print $1}' | tr -d ' ')
-        [[ -n "$sub" && "$sub" =~ \. ]] && SUB_DOMAINS+=("$sub")
-    done < <(cat "$BACKUP_PATH/sds" "$BACKUP_PATH/sds2" 2>/dev/null || true)
-fi
-
-# Eliminar duplicados
-# Deduplicar ambas listas y evitar que un dominio este en las dos
-ADDON_DOMAINS=($(printf '%s\n' "${ADDON_DOMAINS[@]:-}" | sort -u))
-SUB_DOMAINS=($(printf '%s\n' "${SUB_DOMAINS[@]:-}" | sort -u))
-# Quitar de ADDON los que ya esten en SUB (un dominio no puede ser ambos)
-if [[ ${#SUB_DOMAINS[@]} -gt 0 ]]; then
-    NEW_ADDONS=()
-    for a in "${ADDON_DOMAINS[@]:-}"; do
-        skip=0
-        for s in "${SUB_DOMAINS[@]:-}"; do [[ "$a" == "$s" ]] && skip=1 && break; done
-        [[ $skip -eq 0 ]] && NEW_ADDONS+=("$a")
+    for f in "$BACKUP_PATH"/userdata/*; do
+        [[ -f "$f" ]] || continue
+        d=$(basename "$f")
+        case "$d" in main|cache|*.yaml|*.yaml.*|*_SSL|*.json|*.cache|*.bak|*.transferred) continue ;; esac
+        es_dominio "$d" || continue
+        [[ "$d" == "$MAIN_DOMAIN" ]] && continue
+        en_lista "$d" "${ADDON_DOMAINS[@]:-}" && continue
+        SUB_DOMAINS+=("$d")
     done
-    ADDON_DOMAINS=("${NEW_ADDONS[@]:-}")
 fi
-log "Addon domains: ${ADDON_DOMAINS[*]:-ninguno}"
+[[ -z "$MAIN_DOMAIN" ]] && error "No se pudo detectar el dominio principal del backup"
+
+# Quitar de los subdominios los internos de los adicionales
+LINKED=" ${ADDON_LINK[*]:-} "
+SUBS_TMP=()
+for s in "${SUB_DOMAINS[@]:-}"; do
+    [[ -z "$s" ]] && continue
+    [[ "$LINKED" == *" $s "* ]] && continue
+    en_lista "$s" "${ADDON_DOMAINS[@]:-}" && continue
+    SUBS_TMP+=("$s")
+done
+SUB_DOMAINS=("${SUBS_TMP[@]:-}")
+# Orden: los adicionales por nombre y los subdominios de menos a mas niveles
+ADDON_DOMAINS=($(printf '%s\n' "${ADDON_DOMAINS[@]:-}" | grep -v '^$' | sort -u || true))
+PARKED_DOMAINS=($(printf '%s\n' "${PARKED_DOMAINS[@]:-}" | grep -v '^$' | sort -u || true))
+SUB_DOMAINS=($(for s in "${SUB_DOMAINS[@]:-}"; do [[ -n "$s" ]] && echo "$(etiquetas "$s") $s"; done \
+    | sort -n -k1,1 -k2,2 | awk '{print $2}' | uniq))
+
+# Carpeta web de cada dominio en el servidor de origen
+ud_docroot() {  # $1 = fichero userdata
+    [[ -f "$1" ]] || return 0
+    { grep -a -m1 "^documentroot:" "$1" || true; } | sed 's/^documentroot:[[:space:]]*//; s/[[:space:]]*$//' | tr -d "\"'"
+}
+DOCROOT_ORIG["$MAIN_DOMAIN"]=$(ud_docroot "$BACKUP_PATH/userdata/$MAIN_DOMAIN")
+[[ -z "${DOCROOT_ORIG[$MAIN_DOMAIN]}" ]] && DOCROOT_ORIG["$MAIN_DOMAIN"]="/home/$ORIG_USER/public_html"
+for a in "${ADDON_DOMAINS[@]:-}"; do
+    [[ -z "$a" ]] && continue
+    dr=$(ud_docroot "$BACKUP_PATH/userdata/${ADDON_LINK[$a]:-none}")
+    [[ -z "$dr" ]] && dr=$(ud_docroot "$BACKUP_PATH/userdata/$a")
+    if [[ -z "$dr" ]]; then
+        for p in "$a" "public_html/$a" "${a%%.*}" "public_html/${a%%.*}"; do
+            [[ -d "$HOMEDIR/$p" ]] && { dr="/home/$ORIG_USER/$p"; break; }
+        done
+    fi
+    DOCROOT_ORIG["$a"]="$dr"
+done
+for s in "${SUB_DOMAINS[@]:-}"; do
+    [[ -z "$s" ]] && continue
+    dr=$(ud_docroot "$BACKUP_PATH/userdata/$s")
+    if [[ -z "$dr" ]]; then
+        for p in "public_html/${s%%.*}" "${s%%.*}" "$s"; do
+            [[ -d "$HOMEDIR/$p" ]] && { dr="/home/$ORIG_USER/$p"; break; }
+        done
+    fi
+    DOCROOT_ORIG["$s"]="$dr"
+done
+# Ruta dentro del backup de una carpeta del servidor de origen
+ruta_backup() {  # /home/usuario/public_html/x -> $HOMEDIR/public_html/x
+    local p="$1"
+    [[ -z "$p" ]] && return 0
+    p="${p#/home/$ORIG_USER/}"; p="${p#/home*/$ORIG_USER/}"
+    [[ "$p" == /* ]] && p="${p#/*/*/}"
+    echo "$HOMEDIR/${p%/}"
+}
+
+WEB_DOMAINS_ALL=("$MAIN_DOMAIN")
+for d in "${ADDON_DOMAINS[@]:-}" "${SUB_DOMAINS[@]:-}"; do [[ -n "$d" ]] && WEB_DOMAINS_ALL+=("$d"); done
+
+log "Dominio principal: $MAIN_DOMAIN"
+log "Dominios adicionales (${#ADDON_DOMAINS[@]}): ${ADDON_DOMAINS[*]:-ninguno}"
 log "Subdominios: ${SUB_DOMAINS[*]:-ninguno}"
+log "Dominios aparcados / alias: ${PARKED_DOMAINS[*]:-ninguno}"
+for d in "${WEB_DOMAINS_ALL[@]}"; do info "$d -> ${DOCROOT_ORIG[$d]:-(sin carpeta en el backup)}"; done
 
-# -- Crear dominios web -----------------------------------------
-header "Creando dominios web"
+# ============================================================
+#  ZONAS DNS: PARSEO Y CLASIFICACION DEL CORREO
+# ============================================================
+# Normaliza un fichero de zona BIND a "nombre<TAB>tipo<TAB>valor" con nombres
+# absolutos (sin punto final). Resuelve $ORIGIN, nombre omitido (se hereda el
+# anterior), TTL y clase opcionales, parentesis multilinea y comentarios.
+normalizar_zona() {  # $1 fichero  $2 dominio
+    awk -v dom="${2,,}" '
+    function quitar_comentario(s,   i, c, q, out) {
+        q = 0; out = ""
+        for (i = 1; i <= length(s); i++) {
+            c = substr(s, i, 1)
+            if (c == "\"" && substr(s, i - 1, 1) != "\\") q = !q
+            if (c == ";" && !q && substr(s, i - 1, 1) != "\\") break
+            out = out c
+        }
+        return out
+    }
+    function absoluto(n) {
+        if (n == "@" || n == "") return origin
+        if (n ~ /\.$/) return tolower(n)
+        return tolower(n) "." origin
+    }
+    BEGIN { origin = dom "."; last = origin; depth = 0; buf = "" }
+    {
+        l = quitar_comentario($0); gsub(/\r/, "", l)
+        if (depth > 0) {
+            buf = buf " " l; t = l; o = gsub(/\(/, "", t); t = l; c = gsub(/\)/, "", t)
+            depth += o - c; if (depth > 0) next
+            l = buf; buf = ""; blank = sb
+        } else {
+            t = l; o = gsub(/\(/, "", t); t = l; c = gsub(/\)/, "", t)
+            if (o > c) { depth = o - c; buf = l; sb = (l ~ /^[ \t]/); next }
+            blank = (l ~ /^[ \t]/)
+        }
+        gsub(/[()]/, " ", l)
+        if (l ~ /^[ \t]*$/) next
+        if (l ~ /^\$ORIGIN/) { split(l, f, /[ \t]+/); origin = absoluto(f[2]); next }
+        if (l ~ /^\$/) next
+        rest = l
+        if (blank) { name = last; sub(/^[ \t]+/, "", rest) }
+        else { match(rest, /^[^ \t]+/); name = absoluto(substr(rest, 1, RLENGTH)); rest = substr(rest, RLENGTH + 1); sub(/^[ \t]+/, "", rest) }
+        last = name
+        type = ""
+        while (rest != "") {
+            match(rest, /^[^ \t]+/); tok = substr(rest, 1, RLENGTH)
+            nrest = substr(rest, RLENGTH + 1); sub(/^[ \t]+/, "", nrest)
+            if (tok ~ /^[0-9]+[smhdwSMHDW]?$/ && type == "") { rest = nrest; continue }
+            if (toupper(tok) ~ /^(IN|CH|HS)$/) { rest = nrest; continue }
+            type = toupper(tok); rest = nrest; break
+        }
+        if (type == "") next
+        val = rest; sub(/[ \t]+$/, "", val)
+        if (type == "CNAME" || type == "NS") val = absoluto(val)
+        else if (type == "MX") { split(val, f, /[ \t]+/); val = f[1] " " absoluto(f[2]) }
+        else if (type == "SRV") { split(val, f, /[ \t]+/); val = f[1] " " f[2] " " f[3] " " absoluto(f[4]) }
+        sub(/\.$/, "", name)
+        print name "\t" type "\t" val
+    }' "$1"
+}
 
-# Obtener IP real del servidor registrada en QemuCP
-SERVER_IP=$($BIN/v-list-ips plain 2>/dev/null | awk '{print $1}' | grep -v "^$" | head -1 || true)
-[[ -z "$SERVER_IP" ]] && SERVER_IP=$(hostname -I | awk '{print $1}' || true)
-[[ -z "$SERVER_IP" ]] && SERVER_IP=$(curl -s --max-time 5 ifconfig.me 2>/dev/null || true)
-[[ -z "$SERVER_IP" ]] && error "No se pudo detectar la IP del servidor"
-log "IP del servidor: $SERVER_IP"
+ZONAS_DIR=""
+for D in "$BACKUP_PATH/dnszones" "$BACKUP_PATH/dns"; do [[ -d "$D" ]] && { ZONAS_DIR="$D"; break; }; done
+declare -A ZONA_TSV=()
+if [[ -n "$ZONAS_DIR" ]]; then
+    for Z in "$ZONAS_DIR"/*.db; do
+        [[ -f "$Z" ]] || continue
+        zd=$(basename "${Z,,}" .db)
+        es_dominio "$zd" || continue
+        ZONA_TSV["$zd"]="$WORK_DIR/zona-$zd.tsv"
+        normalizar_zona "$Z" "$zd" > "${ZONA_TSV[$zd]}"
+    done
+fi
 
-create_domain() {
-    local user="$1"
-    local domain="$2"
-    # Validar formato
-    if [[ ! "$domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
-        warn "Formato invalido, saltando: $domain"
-        return
-    fi
-    if $BIN/v-list-web-domain "$user" "$domain" &>/dev/null 2>&1; then
-        warn "Dominio $domain ya existe"
+es_ip_privada() { [[ "$1" =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|127\.) ]]; }
+
+# IPs del servidor de ORIGEN: solo los registros que apuntan a ellas se
+# cambian a este servidor. Un A que apunta a otro sitio (tienda, CRM, una
+# web alojada fuera) se respeta tal cual.
+ORIGIN_IPS=()
+ORIGIN_IP6=()
+if [[ -f "$CP_USER_FILE" ]]; then
+    ip=$( { grep -m1 "^IP=" "$CP_USER_FILE" || true; } | cut -d= -f2 | tr -d ' \r')
+    [[ -n "$ip" ]] && ORIGIN_IPS+=("$ip")
+fi
+for f in "$BACKUP_PATH"/userdata/*; do
+    [[ -f "$f" ]] || continue
+    ip=$( { grep -a -m1 "^ip:" "$f" || true; } | awk '{print $2}' | tr -d "\"' \r")
+    [[ "$ip" =~ ^[0-9.]+$ ]] && ORIGIN_IPS+=("$ip")
+done
+# El dominio principal estaba alojado en el origen: su A tambien es del origen
+# (necesario cuando el servidor cPanel estaba detras de NAT con IP privada).
+if [[ -n "${ZONA_TSV[$MAIN_DOMAIN]:-}" ]]; then
+    while IFS=$'\t' read -r n t v; do
+        [[ "$n" == "$MAIN_DOMAIN" && "$t" == "A" ]] && ORIGIN_IPS+=("$v")
+        [[ "$n" == "$MAIN_DOMAIN" && "$t" == "AAAA" ]] && ORIGIN_IP6+=("${v,,}")
+    done < "${ZONA_TSV[$MAIN_DOMAIN]}"
+fi
+ORIGIN_IPS=($(printf '%s\n' "${ORIGIN_IPS[@]:-}" | grep -v '^$' | sort -u || true))
+ORIGIN_IP6=($(printf '%s\n' "${ORIGIN_IP6[@]:-}" | grep -v '^$' | sort -u || true))
+log "IPs del servidor de origen: ${ORIGIN_IPS[*]:-no detectadas} ${ORIGIN_IP6[*]:-}"
+
+# Dominio registrable aproximado (ultimas 2 etiquetas, 3 en co.uk, com.es...)
+dominio_base() {
+    local h="${1%.}" n
+    IFS=. read -ra L <<< "$h"; n=${#L[@]}
+    if (( n >= 3 )) && (( ${#L[n-1]} == 2 )) && [[ "${L[n-2]}" =~ ^(co|com|net|org|gob|edu|ac|gov)$ ]]; then
+        echo "${L[n-3]}.${L[n-2]}.${L[n-1]}"
+    elif (( n >= 2 )); then
+        echo "${L[n-2]}.${L[n-1]}"
     else
-        $BIN/v-add-web-domain "$user" "$domain" "$SERVER_IP" "yes" \
-            2>/dev/null && log "Dominio $domain creado" || \
-            warn "No se pudo crear $domain"
+        echo "$h"
     fi
 }
 
-# Devuelve 0 si el dominio tiene docroot propio en el backup (addon real),
-# 1 si no lo tiene (dominio aparcado / alias del principal).
-# HOMEDIR debe estar definida ANTES de esta funcion (la usa para localizar
-# los docroots dentro del backup). Se define aqui por si el bloque de
-# importacion de ficheros aun no se ha ejecutado.
-HOMEDIR="${HOMEDIR:-$BACKUP_PATH/homedir}"
-
-domain_has_docroot() {
-    local DOM="$1"
-    for cand in "$BACKUP_PATH/userdata/$DOM" "$BACKUP_PATH/userdata/${DOM}.json"; do
-        if [[ -f "$cand" ]]; then
-            local DR
-            DR=$(grep -a "documentroot:" "$cand" 2>/dev/null | head -1 | \
-                 sed 's/.*documentroot: *//; s/ *$//' | tr -d '"')
-            [[ -n "$DR" && -d "$HOMEDIR/${DR#/home/*/}" ]] && return 0
-        fi
+# Correo EXTERNO = el MX preferente apunta fuera del servidor de origen.
+# Se considera LOCAL si el MX:
+#   - esta dentro del propio dominio (mail.dominio.com, dominio.com)
+#   - resuelve a una IP del servidor de origen
+#   - pertenece al mismo proveedor que los NS de la zona (MX al hostname del
+#     servidor del hosting: server12.webempresa.eu con NS *.webempresa.eu)
+# En cualquier otro caso (Google, Microsoft, Zoho, IONOS...) es externo.
+declare -A CORREO_EXTERNO=()   # dominio -> host MX externo
+csv_tiene() { [[ ",${1}," == *",$2,"* ]]; }
+for zd in "${!ZONA_TSV[@]}"; do
+    MXT=$(awk -F'\t' -v z="$zd" '$1 == z && $2 == "MX" { split($3, f, " "); print f[1], f[2] }' "${ZONA_TSV[$zd]}" \
+          | sort -n | head -1 | awk '{print $2}')
+    MXT="${MXT%.}"
+    [[ -z "$MXT" ]] && continue
+    if csv_tiene "${QEMUCP_CORREO_LOCAL:-}" "$zd"; then continue; fi
+    if csv_tiene "${QEMUCP_CORREO_EXTERNO:-}" "$zd"; then CORREO_EXTERNO["$zd"]="$MXT"; continue; fi
+    [[ "$MXT" == "$zd" || "$MXT" == *".$zd" ]] && continue
+    LOCAL_MX="no"
+    for ip in $(getent ahostsv4 "$MXT" 2>/dev/null | awk '{print $1}' | sort -u); do
+        en_lista "$ip" "${ORIGIN_IPS[@]:-}" && { LOCAL_MX="si"; break; }
     done
-    for POSSIBLE in "$HOMEDIR/$DOM" "$HOMEDIR/public_html/$DOM" \
-                    "$HOMEDIR/${DOM%%.*}" "$HOMEDIR/public_html/${DOM%%.*}"; do
-        [[ -d "$POSSIBLE" ]] && return 0
-    done
-    return 1
-}
-
-# Clasificar ANTES de crear: los dominios sin docroot propio son "parked"
-# (alias del principal en cPanel) y NO deben crearse como dominios web
-# independientes, sino anadirse como alias del dominio principal.
-REAL_ADDONS=()
-for ADDON in "${ADDON_DOMAINS[@]:-}"; do
-    [[ -z "$ADDON" ]] && continue
-    if domain_has_docroot "$ADDON"; then
-        REAL_ADDONS+=("$ADDON")
+    if [[ "$LOCAL_MX" == "no" ]]; then
+        MXB=$(dominio_base "$MXT")
+        while IFS=$'\t' read -r n t v; do
+            [[ "$n" == "$zd" && "$t" == "NS" ]] || continue
+            [[ "$(dominio_base "$v")" == "$MXB" ]] && { LOCAL_MX="si"; break; }
+        done < "${ZONA_TSV[$zd]}"
+    fi
+    [[ "$LOCAL_MX" == "no" ]] && CORREO_EXTERNO["$zd"]="$MXT"
+done
+for zd in $(printf '%s\n' "${!ZONA_TSV[@]}" | sort); do
+    if [[ -n "${CORREO_EXTERNO[$zd]:-}" ]]; then
+        warn "Correo de $zd: EXTERNO (${CORREO_EXTERNO[$zd]}) -> no se crea correo local, se respetan MX y SPF"
     else
-        PARKED_DOMAINS+=("$ADDON")
+        info "Correo de $zd: local (en este servidor)"
     fi
 done
-[[ ${#REAL_ADDONS[@]} -gt 0 ]] && log "Addon domains con web propia: ${REAL_ADDONS[*]}"
-[[ ${#PARKED_DOMAINS[@]} -gt 0 ]] && log "Dominios aparcados (alias del principal): ${#PARKED_DOMAINS[@]}"
-
-# Crear: principal + addons REALES + subdominios (los parked van como alias)
-[[ -n "$MAIN_DOMAIN" ]] && create_domain "$CPANEL_USER" "$MAIN_DOMAIN"
-for D in "${REAL_ADDONS[@]:-}"; do [[ -n "$D" ]] && create_domain "$CPANEL_USER" "$D"; done
-for D in "${SUB_DOMAINS[@]:-}"; do [[ -n "$D" ]] && create_domain "$CPANEL_USER" "$D"; done
-
-# Anadir los aparcados como ALIAS del dominio principal
-if [[ ${#PARKED_DOMAINS[@]} -gt 0 && -n "$MAIN_DOMAIN" ]]; then
-    for PK in "${PARKED_DOMAINS[@]}"; do
-        [[ -z "$PK" ]] && continue
-        $BIN/v-add-web-domain-alias "$CPANEL_USER" "$MAIN_DOMAIN" "$PK" no 2>/dev/null \
-            && log "  Alias de $MAIN_DOMAIN: $PK" \
-            || warn "  $PK: no se pudo anadir como alias"
+# Correo externo para un subdominio = el de su zona
+correo_externo_de() {
+    local d="$1" z
+    for z in "${!CORREO_EXTERNO[@]}"; do
+        [[ "$d" == "$z" ]] && { echo "${CORREO_EXTERNO[$z]}"; return; }
     done
-    $BIN/v-rebuild-web-domains "$CPANEL_USER" 2>/dev/null || true
+    echo ""
+}
+
+# ============================================================
+#  INVENTARIO DE CORREO
+# ============================================================
+MAIL_BASE=""
+for D in "$HOMEDIR/mail" "$BACKUP_PATH/mail"; do [[ -d "$D" ]] && { MAIL_BASE="$D"; break; }; done
+VA_DIR="$BACKUP_PATH/va"
+VAD_DIR="$BACKUP_PATH/vad"
+CUENTA_DEFECTO_CON_CORREO="no"
+if [[ -n "$MAIL_BASE" ]] && { [[ -n "$(ls -A "$MAIL_BASE/cur" 2>/dev/null)" ]] || [[ -n "$(ls -A "$MAIL_BASE/new" 2>/dev/null)" ]]; }; then
+    CUENTA_DEFECTO_CON_CORREO="si"
 fi
 
-# -- Ficheros web -----------------------------------------------
-header "Importando ficheros web"
-
-HOMEDIR="${HOMEDIR:-$BACKUP_PATH/homedir}"
-if [[ -d "$HOMEDIR" ]]; then
-    DEST_HOME="/home/$CPANEL_USER"
-
-    # public_html -> dominio principal
-    if [[ -n "$MAIN_DOMAIN" && -d "$HOMEDIR/public_html" ]]; then
-        DEST_WEB="$DEST_HOME/web/$MAIN_DOMAIN/public_html"
-        mkdir -p "$DEST_WEB" 2>/dev/null || true
-        rm -f "$DEST_WEB/index.html" "$DEST_WEB/robots.txt" 2>/dev/null || true
-        # Eliminar index.html por defecto de QemuCP antes del rsync
-        rm -f "$DEST_WEB/index.html" 2>/dev/null || true
-
-        rsync -a --exclude='*.log' --exclude='.htaccess.bak'             "$HOMEDIR/public_html/" "$DEST_WEB/" 2>/dev/null &&             log "public_html copiado a $DEST_WEB" ||             warn "Error parcial copiando public_html"
-        chown -R "$CPANEL_USER:$CPANEL_USER" "$DEST_WEB" 2>/dev/null || true
-        chmod 755 "/home/$CPANEL_USER" 2>/dev/null || true
-        chmod 755 "/home/$CPANEL_USER/web" 2>/dev/null || true
-        chmod 755 "/home/$CPANEL_USER/web/$MAIN_DOMAIN" 2>/dev/null || true
-        chmod 755 "$DEST_WEB" 2>/dev/null || true
-        find "$DEST_WEB" -mindepth 0 -type d -exec chmod 755 {} + 2>/dev/null || true
-        find "$DEST_WEB" -type f -exec chmod 644 {} + 2>/dev/null || true
-        log "Permisos corregidos en $DEST_WEB"
-
-        # Crear symlink /home/USER/public_html -> public_html
-        # Necesario para apps con rutas hardcodeadas desde cPanel
-        if [[ ! -e "/home/$CPANEL_USER/public_html" ]]; then
-            ln -s "$DEST_WEB" "/home/$CPANEL_USER/public_html" 2>/dev/null &&                 log "Symlink public_html creado" || true
-        fi
+MAIL_DOMS_ALL=()
+[[ -n "$MAIL_BASE" ]] && for d in "$MAIL_BASE"/*/; do
+    d=$(basename "$d"); es_dominio "$d" && MAIL_DOMS_ALL+=("${d,,}")
+done
+for d in "$HOMEDIR"/etc/*/; do
+    [[ -f "$d/passwd" || -f "$d/shadow" ]] || continue
+    d=$(basename "$d"); es_dominio "$d" && MAIL_DOMS_ALL+=("${d,,}")
+done
+for f in "$VA_DIR"/* "$VAD_DIR"/*; do
+    [[ -f "$f" ]] || continue
+    d=$(basename "$f"); es_dominio "$d" || continue
+    # Un va/ con solo la linea por defecto ("*: :fail:...") no aporta nada
+    if [[ "$(dirname "$f")" == "$VA_DIR" ]] && ! grep -vqE '^[[:space:]]*(\*[[:space:]]*:[[:space:]]*:(fail|blackhole):.*)?[[:space:]]*$' "$f"; then
+        continue
     fi
+    MAIL_DOMS_ALL+=("${d,,}")
+done
+[[ "$CUENTA_DEFECTO_CON_CORREO" == "si" ]] && MAIL_DOMS_ALL+=("$MAIN_DOMAIN")
+MAIL_DOMS_ALL=($(printf '%s\n' "${MAIL_DOMS_ALL[@]:-}" | grep -v '^$' | sort -u || true))
 
-    # Carpetas de addon domains y subdominios.
-    # cPanel guarda la ruta REAL del docroot en userdata/DOMINIO (campo
-    # documentroot). Leerla es lo fiable; si no, se prueban rutas comunes.
-    copy_domain_files() {
-        local DOM="$1"
-        local SRC=""
-        # 1. Leer documentroot real desde userdata (formato EA4)
-        local UD_FILE=""
-        for cand in "$BACKUP_PATH/userdata/$DOM" "$BACKUP_PATH/userdata/${DOM}.json" \
-                    "$BACKUP_PATH/userdata/${DOM}_SSL"; do
-            [[ -f "$cand" ]] && { UD_FILE="$cand"; break; }
-        done
-        if [[ -n "$UD_FILE" ]]; then
-            # documentroot: /home/user/public_html/addon o similar
-            local DOCROOT
-            DOCROOT=$(grep -a "documentroot:" "$UD_FILE" 2>/dev/null | head -1 | \
-                sed 's/.*documentroot: *//; s/ *$//' | tr -d '"')
-            if [[ -n "$DOCROOT" ]]; then
-                # Convertir ruta absoluta del origen a ruta dentro del backup
-                # /home/USUARIO/public_html/x -> $HOMEDIR/public_html/x
-                local RELATIVE="${DOCROOT#/home/*/}"
-                [[ -d "$HOMEDIR/$RELATIVE" ]] && SRC="$HOMEDIR/$RELATIVE"
-            fi
+MAIL_DOMS=()
+for d in "${MAIL_DOMS_ALL[@]:-}"; do
+    [[ -z "$d" ]] && continue
+    ext=$(correo_externo_de "$d")
+    if [[ -n "$ext" ]]; then
+        n=$( { cut -d: -f1 "$HOMEDIR/etc/$d/passwd" 2>/dev/null || true; } | grep -c . || true)
+        if [[ "${n:-0}" -gt 0 ]]; then
+            pendiente "$d tiene $n buzones en el backup pero su correo esta en $ext: NO se importan. Si el correo se va a mover aqui: QEMUCP_CORREO_LOCAL=$d"
         fi
-        # 2. Fallback: rutas comunes si no se encontro via userdata
-        if [[ -z "$SRC" ]]; then
-            for POSSIBLE in "$HOMEDIR/$DOM" "$HOMEDIR/public_html/$DOM" \
-                            "$HOMEDIR/${DOM%%.*}" "$HOMEDIR/public_html/${DOM%%.*}"; do
-                [[ -d "$POSSIBLE" ]] && { SRC="$POSSIBLE"; break; }
-            done
+        continue
+    fi
+    MAIL_DOMS+=("$d")
+done
+
+# ============================================================
+#  COMPROBAR EL PLAN ANTES DE CREAR NADA
+# ============================================================
+header "Comprobando el plan '$PLAN'"
+N_DBS=0
+for D in "mysql" "mysql_databases" "mysql_dump"; do
+    if [[ -d "$BACKUP_PATH/$D" ]]; then
+        N_DBS=$(find "$BACKUP_PATH/$D" -maxdepth 1 \( -name '*.sql' -o -name '*.sql.gz' \) ! -name '*-auth*' | wc -l)
+        break
+    fi
+done
+CRON_FILE=""
+for c in "$BACKUP_PATH/cron/$ORIG_USER" "$BACKUP_PATH/cron/crontab" "$BACKUP_PATH/cron"; do
+    [[ -f "$c" ]] && { CRON_FILE="$c"; break; }
+done
+N_CRON=0
+[[ -n "$CRON_FILE" ]] && N_CRON=$(grep -cE '^[[:space:]]*([0-9*@]|[0-9*/,-]+[[:space:]])' "$CRON_FILE" || true)
+# Se cuenta igual que QemuCP (count_web_domains_split en func/main.sh): es
+# subdominio lo que cuelga de OTRO dominio web de la cuenta. Un subdominio de
+# un dominio aparcado (promo.aparcado.com) en QemuCP gasta un dominio, porque
+# el aparcado es solo un alias.
+N_TOP=0; N_SUB=0
+for d in "${WEB_DOMAINS_ALL[@]}"; do
+    es_sub="no"
+    for p in "${WEB_DOMAINS_ALL[@]}"; do
+        [[ "$d" != "$p" && "$d" == *".$p" ]] && { es_sub="si"; break; }
+    done
+    if [[ "$es_sub" == "si" ]]; then N_SUB=$((N_SUB+1)); else N_TOP=$((N_TOP+1)); fi
+done
+for s in "${SUB_DOMAINS[@]:-}"; do
+    [[ -z "$s" ]] && continue
+    for pk in "${PARKED_DOMAINS[@]:-}"; do
+        [[ -n "$pk" && "$s" == *".$pk" ]] && { warn "$s es subdominio de un dominio aparcado: en QemuCP cuenta como dominio"; break; }
+    done
+done
+N_MAILD=0; for s in "${MAIL_DOMS[@]:-}"; do [[ -n "$s" ]] && N_MAILD=$((N_MAILD+1)); done
+N_ZONAS=${#ZONA_TSV[@]}
+info "El backup necesita: $N_TOP dominios, $N_SUB subdominios, $N_DBS bases de datos, $N_MAILD dominios de correo, $N_ZONAS zonas DNS, $N_CRON crons"
+
+USUARIO_EXISTE="no"
+$BIN/v-list-user "$CPANEL_USER" &>/dev/null && USUARIO_EXISTE="si"
+if [[ "$USUARIO_EXISTE" == "si" ]]; then
+    warn "El usuario $CPANEL_USER ya existe: se importa sobre el (su plan no se cambia)"
+else
+    PKG="$HESTIA/data/packages/$PLAN.pkg"
+    [[ -f "$PKG" ]] || error "El plan '$PLAN' no existe. Planes: $(ls $HESTIA/data/packages/ | sed 's/\.pkg$//' | tr '\n' ' ')"
+    lim() { local v; v=$( { grep -m1 "^$1=" "$PKG" || true; } | cut -d"'" -f2); echo "${v:-unlimited}"; }
+    FALTA=()
+    chk() {  # nombre limite necesario
+        [[ "$2" == "unlimited" ]] && return 0
+        [[ "$3" -le "$2" ]] || FALTA+=("$1: el backup necesita $3 y el plan permite $2")
+    }
+    if grep -q "^WEB_SUBDOMAINS=" "$PKG"; then
+        chk "Dominios" "$(lim WEB_DOMAINS)" "$N_TOP"
+        chk "Subdominios" "$(lim WEB_SUBDOMAINS)" "$N_SUB"
+    else
+        chk "Dominios (incluye subdominios en este plan)" "$(lim WEB_DOMAINS)" "$((N_TOP + N_SUB))"
+    fi
+    chk "Bases de datos" "$(lim DATABASES)" "$N_DBS"
+    chk "Dominios de correo" "$(lim MAIL_DOMAINS)" "$N_MAILD"
+    chk "Zonas DNS" "$(lim DNS_DOMAINS)" "$N_ZONAS"
+    chk "Crons" "$(lim CRON_JOBS)" "$N_CRON"
+    if [[ ${#FALTA[@]} -gt 0 ]]; then
+        for f in "${FALTA[@]}"; do warn "  $f"; done
+        if [[ "${QEMUCP_IGNORAR_LIMITES:-no}" != "si" ]]; then
+            error "El plan '$PLAN' se queda corto. Usa otro plan (tercer argumento) o QEMUCP_IGNORAR_LIMITES=si"
         fi
-        if [[ -z "$SRC" ]]; then
-            warn "No se encontro el docroot de $DOM (revisar manualmente)"
-            return
+        warn "QEMUCP_IGNORAR_LIMITES=si: se continua; lo que no quepa no se creara"
+    else
+        log "El plan '$PLAN' cubre todo lo del backup"
+    fi
+fi
+
+echo "" >> "$CREDS_FILE"
+echo "=== Importacion $(date) - $CPANEL_USER ===" >> "$CREDS_FILE"
+chmod 600 "$CREDS_FILE" 2>/dev/null || true
+
+# -- Crear usuario en QemuCP ------------------------------------
+header "Creando usuario en QemuCP"
+if [[ "$USUARIO_EXISTE" == "no" ]]; then
+    USER_PASS=$(openssl rand -base64 12 | tr -d '/+=')
+    USER_EMAIL=$( { cat "$BACKUP_PATH/cp/contactemail" 2>/dev/null || true; } | head -1 | tr -d ' \r\n')
+    [[ -z "$USER_EMAIL" && -f "$CP_USER_FILE" ]] && \
+        USER_EMAIL=$( { grep -m1 "^CONTACTEMAIL=" "$CP_USER_FILE" || true; } | cut -d= -f2 | cut -d, -f1 | tr -d ' \r')
+    if [[ -z "$USER_EMAIL" ]] || ! [[ "$USER_EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then
+        USER_EMAIL="${CPANEL_USER}@${MAIN_DOMAIN}"
+        warn "Email de contacto no encontrado, usando: $USER_EMAIL"
+    fi
+    $BIN/v-add-user "$CPANEL_USER" "$USER_PASS" "$USER_EMAIL" "$PLAN" >> "$LOG" 2>&1 \
+        && log "Usuario $CPANEL_USER creado con el plan $PLAN" \
+        || error "No se pudo crear el usuario $CPANEL_USER (ver $LOG)"
+    echo "Usuario panel: $CPANEL_USER | Pass: $USER_PASS | Email: $USER_EMAIL | Plan: $PLAN" >> "$CREDS_FILE"
+fi
+
+# ============================================================
+#  DOMINIOS WEB
+# ============================================================
+header "Creando dominios web"
+
+SERVER_IP=$($BIN/v-list-sys-ips plain 2>/dev/null | awk '{print $1}' | grep -v "^$" | head -1 || true)
+[[ -z "$SERVER_IP" ]] && SERVER_IP=$($BIN/v-list-ips plain 2>/dev/null | awk '{print $1}' | grep -v "^$" | head -1 || true)
+[[ -z "$SERVER_IP" ]] && SERVER_IP=$(hostname -I | awk '{print $1}' || true)
+[[ -z "$SERVER_IP" ]] && error "No se pudo detectar la IP del servidor"
+# IP publica (si el servidor esta tras NAT, los DNS deben llevar la publica)
+SERVER_IP_DNS="$SERVER_IP"
+NAT_IP=$( { grep -m1 "^NAT=" "$HESTIA/data/ips/$SERVER_IP" 2>/dev/null || true; } | cut -d"'" -f2)
+[[ -n "$NAT_IP" ]] && SERVER_IP_DNS="$NAT_IP"
+log "IP del servidor: $SERVER_IP${NAT_IP:+ (publica $NAT_IP)}"
+
+WEB_CREADOS=()
+create_domain() {
+    local domain="$1"
+    if $BIN/v-list-web-domain "$CPANEL_USER" "$domain" &>/dev/null; then
+        info "Dominio $domain ya existe"
+        WEB_CREADOS+=("$domain")
+    elif $BIN/v-add-web-domain "$CPANEL_USER" "$domain" "$SERVER_IP" "no" >> "$LOG" 2>&1; then
+        log "Dominio $domain creado"
+        WEB_CREADOS+=("$domain")
+    else
+        pendiente "No se pudo crear el dominio web $domain (ver $LOG: limite del plan o dominio en otra cuenta)"
+    fi
+}
+create_domain "$MAIN_DOMAIN"
+for D in "${ADDON_DOMAINS[@]:-}"; do [[ -n "$D" ]] && create_domain "$D"; done
+for D in "${SUB_DOMAINS[@]:-}"; do [[ -n "$D" ]] && create_domain "$D"; done
+
+# Dominios aparcados: alias del principal (con su www)
+for PK in "${PARKED_DOMAINS[@]:-}"; do
+    [[ -z "$PK" ]] && continue
+    if grep -q "ALIAS='[^']*\b${PK//./\\.}\b" "$HESTIA/data/users/$CPANEL_USER/web.conf" 2>/dev/null; then
+        info "Alias $PK ya estaba en $MAIN_DOMAIN"
+        continue
+    fi
+    $BIN/v-add-web-domain-alias "$CPANEL_USER" "$MAIN_DOMAIN" "$PK,www.$PK" no >> "$LOG" 2>&1 \
+        && log "Alias de $MAIN_DOMAIN: $PK y www.$PK" \
+        || pendiente "$PK: no se pudo anadir como alias de $MAIN_DOMAIN"
+done
+
+# ============================================================
+#  FICHEROS WEB
+# ============================================================
+header "Importando ficheros web"
+DEST_HOME="/home/$CPANEL_USER"
+
+if [[ -d "$HOMEDIR" ]]; then
+    for DOM in "${WEB_CREADOS[@]:-}"; do
+        [[ -z "$DOM" ]] && continue
+        SRC=$(ruta_backup "${DOCROOT_ORIG[$DOM]:-}")
+        if [[ -z "$SRC" || ! -d "$SRC" ]]; then
+            pendiente "No se encontro la carpeta web de $DOM en el backup (${DOCROOT_ORIG[$DOM]:-?})"
+            continue
         fi
-        local DEST_DOM="$DEST_HOME/web/$DOM/public_html"
-        mkdir -p "$DEST_DOM" 2>/dev/null || true
+        DEST_DOM="$DEST_HOME/web/$DOM/public_html"
+        mkdir -p "$DEST_DOM"
         rm -f "$DEST_DOM/index.html" "$DEST_DOM/robots.txt" 2>/dev/null || true
-        if rsync -a --exclude='*.log' "$SRC/" "$DEST_DOM/" 2>/dev/null; then
+        # Las carpetas de otros dominios que cuelgan de esta (public_html/blog
+        # es la web de blog.dominio.com) se copian a SU dominio, no aqui.
+        EXCL=(--exclude='*.log' --exclude='.htaccess.bak' --exclude='error_log')
+        for OTRO in "${WEB_CREADOS[@]}"; do
+            [[ "$OTRO" == "$DOM" ]] && continue
+            ODR="${DOCROOT_ORIG[$OTRO]:-}"; MDR="${DOCROOT_ORIG[$DOM]%/}"
+            [[ -n "$ODR" && "$ODR" == "$MDR/"* ]] && EXCL+=(--exclude="/${ODR#$MDR/}")
+        done
+        if rsync -a "${EXCL[@]}" "$SRC/" "$DEST_DOM/" >> "$LOG" 2>&1; then
             log "Ficheros de $DOM copiados (desde ${SRC#$HOMEDIR/})"
         else
-            warn "Error parcial copiando $DOM"
+            pendiente "Error copiando ficheros de $DOM (ver $LOG)"
         fi
         chown -R "$CPANEL_USER:$CPANEL_USER" "$DEST_DOM" 2>/dev/null || true
-        chmod 755 "$DEST_DOM" 2>/dev/null || true
         find "$DEST_DOM" -type d -exec chmod 755 {} + 2>/dev/null || true
         find "$DEST_DOM" -type f -exec chmod 644 {} + 2>/dev/null || true
-    }
+    done
+    # Enlace /home/USUARIO/public_html para apps con rutas fijas de cPanel
+    if [[ ! -e "$DEST_HOME/public_html" ]]; then
+        ln -s "$DEST_HOME/web/$MAIN_DOMAIN/public_html" "$DEST_HOME/public_html" 2>/dev/null \
+            && log "Enlace /home/$CPANEL_USER/public_html creado" || true
+    fi
 
-    # Copiar ficheros solo de los addons REALES (los parked comparten el
-    # public_html del principal, no tienen ficheros propios que copiar).
-    for ADDON in "${REAL_ADDONS[@]:-}"; do [[ -n "$ADDON" ]] && copy_domain_files "$ADDON"; done
-    for SUB in "${SUB_DOMAINS[@]:-}"; do [[ -n "$SUB" ]] && copy_domain_files "$SUB"; done
-
-
+    # Resto del home (carpetas fuera de las webs: scripts de cron, datos de
+    # aplicaciones, librerias...). Se copia con la misma ruta, asi los crons
+    # y las apps que usan /home/USUARIO/algo siguen funcionando.
+    EXTRA_EXCL=(--exclude='/public_html' --exclude='/mail' --exclude='/etc' --exclude='/tmp'
+        --exclude='/logs' --exclude='/access-logs' --exclude='/ssl' --exclude='/.cpanel'
+        --exclude='/.trash' --exclude='/.htpasswds' --exclude='/.cagefs' --exclude='/.cl.selector'
+        --exclude='/.softaculous' --exclude='/softaculous_backups' --exclude='/.cpaddons'
+        --exclude='/perl5' --exclude='/.spamassassin' --exclude='/.razor' --exclude='/lscache'
+        --exclude='/.lastlogin' --exclude='/.bash_history' --exclude='/www' --exclude='/web'
+        --exclude='/conf' --exclude='/backup-*.tar.gz' --exclude='/cpmove-*.tar.gz'
+        --exclude='/.ssh' --exclude='/.cache' --exclude='/.npm' --exclude='/.wp-cli'
+        --exclude='/.autorespond' --exclude='/.contactemail' --exclude='/.zshrc')
+    for DOM in "${WEB_CREADOS[@]:-}"; do
+        ODR="${DOCROOT_ORIG[$DOM]:-}"; REL="${ODR#/home/$ORIG_USER/}"
+        [[ -n "$REL" && "$REL" != "$ODR" ]] && EXTRA_EXCL+=(--exclude="/${REL%%/*}")
+    done
+    EXTRA_LIST="$WORK_DIR/home-extra.txt"
+    # rsync aplicaria al propio /home/USUARIO los permisos del backup:
+    # se guardan y se restauran (QemuCP los necesita como estan).
+    HOME_OWN=$(stat -c '%u:%g' "$DEST_HOME"); HOME_MODE=$(stat -c '%a' "$DEST_HOME")
+    rsync -a --out-format='%n' "${EXTRA_EXCL[@]}" "$HOMEDIR/" "$DEST_HOME/" > "$EXTRA_LIST" 2>> "$LOG" \
+        || pendiente "Error copiando el resto del home (ver $LOG)"
+    chown "$HOME_OWN" "$DEST_HOME"; chmod "$HOME_MODE" "$DEST_HOME"
+    EXTRA_N=$(grep -vc '/$' "$EXTRA_LIST" || true)
+    if [[ "${EXTRA_N:-0}" -gt 0 ]]; then
+        log "Resto del home copiado ($EXTRA_N ficheros fuera de las webs)"
+        awk -F/ 'NF && $1 != "." {print $1}' "$EXTRA_LIST" | sort -u | while read -r e; do
+            case "$e" in web|mail|conf|tmp|.ssh|"") continue ;; esac
+            [[ -e "$DEST_HOME/$e" ]] && chown -R "$CPANEL_USER:$CPANEL_USER" "$DEST_HOME/$e" 2>/dev/null || true
+        done
+    fi
 else
-    warn "No se encontro homedir/ en el backup"
+    pendiente "No se encontro homedir/ en el backup: no hay ficheros web"
 fi
 
-# -- Bases de datos MySQL ---------------------------------------
+# ---- .htaccess de cPanel ---------------------------------------
+# cPanel mete en .htaccess directivas que en QemuCP (Apache + PHP-FPM) rompen
+# la web:
+#   AddHandler application/x-httpd-ea-php81 .php   -> el navegador DESCARGA
+#                                                    los .php en vez de ejecutarlos
+#   php_value / php_flag / suPHP_ConfigPath         -> error 500
+# Se comentan (no se borran) y los php_value/php_flag pasan a .user.ini, que
+# es donde PHP-FPM los lee. La version de PHP se detecta ANTES de esto.
+declare -A PHP_DETECTADA=()
+detect_php_version() {
+    local DOMAIN="$1" WEBROOT="$2" V=""
+    if [[ -f "$WEBROOT/.htaccess" ]]; then
+        V=$( { grep -ioP "x-httpd-(ea-|alt-)?php[0-9]{2}" "$WEBROOT/.htaccess" || true; } | grep -oP "[0-9]{2}" | head -1)
+    fi
+    if [[ -z "$V" ]]; then
+        for UD in "$BACKUP_PATH/userdata/$DOMAIN" "$BACKUP_PATH/userdata/${ADDON_LINK[$DOMAIN]:-none}"; do
+            [[ -f "$UD" ]] || continue
+            V=$( { grep -aiP "^phpversion" "$UD" || true; } | grep -oP "php[0-9]{2}" | grep -oP "[0-9]{2}" | head -1)
+            [[ -n "$V" ]] && break
+        done
+    fi
+    [[ -n "$V" && ${#V} -eq 2 ]] && echo "PHP-${V:0:1}_${V:1:1}" || echo ""
+}
+for DOM in "${WEB_CREADOS[@]:-}"; do
+    [[ -z "$DOM" ]] && continue
+    PHP_DETECTADA["$DOM"]=$(detect_php_version "$DOM" "$DEST_HOME/web/$DOM/public_html")
+done
+
+HT_FIX=0
+while IFS= read -r -d '' HT; do
+    if grep -qiE '^[[:space:]]*(AddHandler|AddType|SetHandler)[[:space:]]+application/x-httpd-(ea-|alt-)?php|^[[:space:]]*(php_value|php_flag|php_admin_value|php_admin_flag|suPHP_ConfigPath)[[:space:]]' "$HT"; then
+        cp -p "$HT" "$HT.cpanel-orig"
+        DIR=$(dirname "$HT")
+        # php_value -> .user.ini (sin pisar lo que ya tenga)
+        while read -r kind name val; do
+            [[ -z "$name" ]] && continue
+            val="${val%\"}"; val="${val#\"}"
+            [[ "$kind" == *flag* ]] && { [[ "${val,,}" =~ ^(on|1|true)$ ]] && val="On" || val="Off"; }
+            grep -qiE "^[[:space:]]*${name//./\\.}[[:space:]]*=" "$DIR/.user.ini" 2>/dev/null && continue
+            echo "$name = $val" >> "$DIR/.user.ini"
+        done < <(grep -iE '^[[:space:]]*php_(admin_)?(value|flag)[[:space:]]' "$HT" | awk '{k=tolower($1); n=$2; $1=""; $2=""; sub(/^[ \t]+/,""); print k, n, $0}')
+        [[ -f "$DIR/.user.ini" ]] && chown "$CPANEL_USER:$CPANEL_USER" "$DIR/.user.ini" 2>/dev/null || true
+        sed -i -E 's/^([[:space:]]*)((AddHandler|AddType|SetHandler)[[:space:]]+application\/x-httpd-(ea-|alt-)?php.*)$/\1# QemuCP (cPanel): \2/I;
+                   s/^([[:space:]]*)((php_value|php_flag|php_admin_value|php_admin_flag|suPHP_ConfigPath)[[:space:]].*)$/\1# QemuCP (cPanel): \2/I' "$HT"
+        chown "$CPANEL_USER:$CPANEL_USER" "$HT" "$HT.cpanel-orig" 2>/dev/null || true
+        HT_FIX=$((HT_FIX+1))
+    fi
+done < <(find "$DEST_HOME/web" -name .htaccess -type f -print0 2>/dev/null)
+[[ $HT_FIX -gt 0 ]] && log "$HT_FIX .htaccess adaptados (directivas de cPanel comentadas; original en .htaccess.cpanel-orig)"
+
+# ============================================================
+#  BASES DE DATOS
+# ============================================================
 header "Importando bases de datos MySQL"
 
-# cPanel guarda los dumps en mysql/ con nombre usuario_dbname.sql o .sql.gz
 MYSQL_DIR=""
 for D in "mysql" "mysql_databases" "mysql_dump"; do
     [[ -d "$BACKUP_PATH/$D" ]] && MYSQL_DIR="$BACKUP_PATH/$D" && break
 done
 
-# Tambien puede haber un mysql.sql unico
-if [[ -z "$MYSQL_DIR" && -f "$BACKUP_PATH/mysql.sql" ]]; then
-    MYSQL_DIR="$BACKUP_PATH"
-fi
+# Prefijos con los que cPanel nombra las bases de datos. Las versiones
+# antiguas usaban solo los 8 primeros caracteres del usuario.
+quitar_prefijo() {
+    local n="$1" p
+    for p in "${ORIG_USER}_" "${ORIG_USER:0:8}_" "${CPANEL_USER}_"; do
+        [[ "$n" == "$p"* ]] && { echo "${n#$p}"; return; }
+    done
+    echo "$n"
+}
 
 if [[ -n "$MYSQL_DIR" ]]; then
     for SQL_FILE in "$MYSQL_DIR"/*.sql.gz "$MYSQL_DIR"/*.sql; do
         [[ -f "$SQL_FILE" ]] || continue
-        # Ignorar mysql.sql-auth.json y similares
         [[ "$SQL_FILE" == *"-auth"* ]] && continue
-        [[ "$SQL_FILE" == *"mysql.sql" && "$MYSQL_DIR" == "$BACKUP_PATH" ]] && continue
 
-        DB_BASENAME=$(basename "$SQL_FILE" .sql.gz)
-        DB_BASENAME=$(basename "$DB_BASENAME" .sql)
-        DB_CLEAN=$(echo "$DB_BASENAME" | sed "s/^${CPANEL_USER}_//")
+        DB_BASENAME=$(basename "$SQL_FILE" .gz); DB_BASENAME=$(basename "$DB_BASENAME" .sql)
+        DB_CLEAN=$(quitar_prefijo "$DB_BASENAME")
+        DB_CLEAN=$(echo "$DB_CLEAN" | tr -c 'A-Za-z0-9_\n-' '_')
         DB_FINAL="${CPANEL_USER}_${DB_CLEAN}"
-        DB_PASS=$(openssl rand -base64 12 | tr -d '/+=')
-
+        DB_USER_FINAL="${CPANEL_USER}_${DB_CLEAN}"
+        DB_PASS=$(openssl rand -base64 18 | tr -d '/+=' | head -c 20)
         info "DB: $DB_BASENAME -> $DB_FINAL"
 
-        if ! $BIN/v-list-database "$CPANEL_USER" "$DB_FINAL" &>/dev/null 2>&1; then
-            $BIN/v-add-database "$CPANEL_USER" "$DB_CLEAN" "$DB_CLEAN" \
-                "$DB_PASS" "mysql" "localhost" \
-                2>/dev/null && log "  DB $DB_FINAL creada" || \
-                warn "  No se pudo crear DB $DB_FINAL"
-            echo "DB: $DB_FINAL | User: ${CPANEL_USER}_${DB_CLEAN} | Pass: $DB_PASS" >> "$CREDS_FILE"
-            DB_CREATED+=("${DB_FINAL}:${CPANEL_USER}_${DB_CLEAN}:${DB_PASS}")
+        if ! $BIN/v-list-database "$CPANEL_USER" "$DB_FINAL" &>/dev/null; then
+            if $BIN/v-add-database "$CPANEL_USER" "$DB_CLEAN" "$DB_CLEAN" "$DB_PASS" "mysql" "localhost" >> "$LOG" 2>&1; then
+                log "  DB $DB_FINAL creada"
+            else
+                pendiente "No se pudo crear la base de datos $DB_FINAL (ver $LOG)"
+                continue
+            fi
         else
-            # DB ya existe (re-migracion) - regenerar password para poder actualizar el CMS
-            warn "  DB $DB_FINAL ya existe - regenerando password"
-            $BIN/v-change-database-password "$CPANEL_USER" "$DB_FINAL" "$DB_PASS" \
-                2>/dev/null && log "  Password de $DB_FINAL regenerada" || \
-                warn "  No se pudo regenerar password de $DB_FINAL"
-            echo "DB: $DB_FINAL | User: ${CPANEL_USER}_${DB_CLEAN} | Pass: $DB_PASS (regenerada)" >> "$CREDS_FILE"
-            DB_CREATED+=("${DB_FINAL}:${CPANEL_USER}_${DB_CLEAN}:${DB_PASS}")
+            warn "  DB $DB_FINAL ya existe - se regenera su contrasena"
+            $BIN/v-change-database-password "$CPANEL_USER" "$DB_FINAL" "$DB_PASS" >> "$LOG" 2>&1 || true
         fi
+        echo "DB: $DB_FINAL | User: $DB_USER_FINAL | Pass: $DB_PASS" >> "$CREDS_FILE"
+        DB_CREATED+=("${DB_FINAL}:${DB_USER_FINAL}:${DB_PASS}")
 
-        if [[ "$SQL_FILE" == *.gz ]]; then
-            gunzip -c "$SQL_FILE" | mysql "$DB_FINAL" 2>/dev/null && \
-                log "  Datos importados en $DB_FINAL" || warn "  Error importando $DB_FINAL"
+        # DEFINER=`usuario_cpanel`@`localhost` en vistas, triggers y
+        # procedimientos: ese usuario no existe aqui y fallan al usarse.
+        # Sin DEFINER pasan a ser del usuario que importa.
+        ERRF="$WORK_DIR/mysql-$DB_CLEAN.err"
+        if { if [[ "$SQL_FILE" == *.gz ]]; then gunzip -c "$SQL_FILE"; else cat "$SQL_FILE"; fi; } \
+            | sed -E 's/DEFINER=`[^`]+`@`[^`]+`//g; s/DEFINER=[^ *]+@[^ *]+//g' \
+            | mysql "$DB_FINAL" 2> "$ERRF"; then
+            TABLAS=$(mysql -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_FINAL'" 2>/dev/null || echo "?")
+            log "  Datos importados en $DB_FINAL ($TABLAS tablas)"
         else
-            mysql "$DB_FINAL" < "$SQL_FILE" 2>/dev/null && \
-                log "  Datos importados en $DB_FINAL" || warn "  Error importando $DB_FINAL"
+            pendiente "Error importando $DB_FINAL: $(head -c 200 "$ERRF")"
+            cat "$ERRF" >> "$LOG"
         fi
     done
 else
-    warn "No se encontro directorio mysql/ en el backup"
+    info "El backup no tiene bases de datos"
 fi
 
-# -- Correo -----------------------------------------------------
+# ============================================================
+#  CORREO
+# ============================================================
 header "Importando correo"
 
-# cPanel guarda el correo en homedir/mail/
-MAIL_BASE=""
-for D in "$BACKUP_PATH/homedir/mail" "$BACKUP_PATH/mail"; do
-    [[ -d "$D" ]] && MAIL_BASE="$D" && break
-done
+# Guarda el hash ORIGINAL de la contrasena. Hay que escribirlo en el registro
+# de la cuenta (campo MD5 de mail/DOMINIO.conf), no solo en el fichero passwd:
+# cualquier reconstruccion (v-rebuild-user, una actualizacion del panel...)
+# regenera passwd desde ese campo. Antes solo se tocaba passwd y el propio
+# rebuild del final del migrador lo sustituia por una contrasena aleatoria
+# que no se apuntaba en ningun sitio: "la contrasena deja de funcionar sola".
+hash_dovecot() {
+    case "$1" in
+        '$6$'*) echo "{SHA512-CRYPT}$1" ;;
+        '$5$'*) echo "{SHA256-CRYPT}$1" ;;
+        '$1$'*) echo "{MD5-CRYPT}$1" ;;
+        '$2y$'*|'$2b$'*|'$2a$'*) echo "{BLF-CRYPT}$1" ;;
+        '$argon2id$'*) echo "{ARGON2ID}$1" ;;
+        *) echo "{CRYPT}$1" ;;
+    esac
+}
+set_mail_hash() {  # dominio cuenta hash_cpanel
+    local dom="$1" acc="$2" h conf pw
+    h=$(hash_dovecot "$3")
+    [[ "$h" == *"'"* || "$h" == *"&"* || "$h" == *"\\"* ]] && return 1
+    conf="$HESTIA/data/users/$CPANEL_USER/mail/$dom.conf"
+    pw="$DEST_HOME/conf/mail/$dom/passwd"
+    [[ -f "$conf" ]] || return 1
+    awk -v a="$acc" -v h="$h" 'index($0, "ACCOUNT=\047" a "\047") == 1 { sub(/MD5=\047[^\047]*\047/, "MD5=\047" h "\047") } { print }' \
+        "$conf" > "$conf.qtmp" && cat "$conf.qtmp" > "$conf" && rm -f "$conf.qtmp"
+    if [[ -f "$pw" ]]; then
+        awk -F: -v OFS=: -v a="$acc" -v h="$h" '$1 == a { $2 = h } { print }' "$pw" > "$pw.qtmp" \
+            && cat "$pw.qtmp" > "$pw" && rm -f "$pw.qtmp"
+    fi
+    grep -qF "MD5='$h'" "$conf"
+}
+cuenta_existe() { $BIN/v-list-mail-account "$CPANEL_USER" "$1" "$2" &>/dev/null; }
+crear_cuenta() {  # dominio cuenta -> 0 si existe o se crea
+    local dom="$1" acc="$2" p
+    cuenta_existe "$dom" "$acc" && return 0
+    p=$(openssl rand -base64 18 | tr -d '/+=' | head -c 16)
+    if $BIN/v-add-mail-account "$CPANEL_USER" "$dom" "$acc" "$p" >> "$LOG" 2>&1; then
+        ULTIMA_PASS="$p"; return 0
+    fi
+    return 1
+}
+permisos_correo() {  # dominio
+    local dom="$1" MF
+    local MAILCONF_DIR="$DEST_HOME/conf/mail/$dom"
+    # Patron de QemuCP: directorio Debian-exim:mail 771, passwd dovecot:mail
+    # 660, resto Debian-exim:mail 660. Si no, Dovecot rechaza los logins y
+    # Exim devuelve el correo entrante con 451.
+    if [[ -d "$MAILCONF_DIR" ]]; then
+        chown Debian-exim:mail "$MAILCONF_DIR" 2>/dev/null || true
+        chmod 771 "$MAILCONF_DIR" 2>/dev/null || true
+        for MF in "$MAILCONF_DIR"/*; do
+            [[ -f "$MF" ]] || continue
+            case "$(basename "$MF")" in
+                passwd) chown dovecot:mail "$MF" 2>/dev/null || true; chmod 660 "$MF" 2>/dev/null || true ;;
+                *.conf|*.conf_letsencrypt) ;;
+                *) chown Debian-exim:mail "$MF" 2>/dev/null || true; chmod 660 "$MF" 2>/dev/null || true ;;
+            esac
+        done
+    fi
+    if [[ -d "$DEST_HOME/mail/$dom" ]]; then
+        chown -R "$CPANEL_USER:mail" "$DEST_HOME/mail/$dom" 2>/dev/null || true
+        find "$DEST_HOME/mail/$dom" -type d -exec chmod 770 {} + 2>/dev/null || true
+        find "$DEST_HOME/mail/$dom" -type f -exec chmod 660 {} + 2>/dev/null || true
+    fi
+}
 
-if [[ -n "$MAIL_BASE" ]]; then
-    log "Directorio de correo: $MAIL_BASE"
-
-    # FORMATO ANTIGUO cPanel: la cuenta principal del dominio primario guarda
-    # sus mensajes directamente en mail/{cur,new,tmp} (sin carpeta de dominio).
-    # Se migra a la cuenta principal del dominio principal en QemuCP.
-    if [[ -d "$MAIL_BASE/cur" || -d "$MAIL_BASE/new" ]] && [[ -n "$MAIN_DOMAIN" ]]; then
-        MAIN_MAIL_DEST="/home/$CPANEL_USER/mail/$MAIN_DOMAIN/$CPANEL_USER"
-        if [[ -d "$MAIN_MAIL_DEST" ]]; then
-            rsync -a "$MAIL_BASE/cur" "$MAIL_BASE/new" "$MAIL_BASE/tmp" \
-                "$MAIN_MAIL_DEST/" 2>/dev/null && \
-                log "  Correo del buzon principal (formato antiguo) migrado" || true
-            chown -R "$CPANEL_USER:mail" "$MAIN_MAIL_DEST" 2>/dev/null || true
+N_CUENTAS=0; N_FWD=0; N_PASS_ORIG=0
+DEFAULT_ADDR=""
+for MAIL_DOMAIN in "${MAIL_DOMS[@]:-}"; do
+    [[ -z "$MAIL_DOMAIN" ]] && continue
+    info "Dominio de correo: $MAIL_DOMAIN"
+    if ! $BIN/v-list-mail-domain "$CPANEL_USER" "$MAIL_DOMAIN" &>/dev/null; then
+        if $BIN/v-add-mail-domain "$CPANEL_USER" "$MAIL_DOMAIN" >> "$LOG" 2>&1; then
+            log "  Dominio de correo $MAIL_DOMAIN creado"
         else
-            warn "  Hay correo en formato antiguo pero no existe el buzon destino"
-            warn "  Crea la cuenta $CPANEL_USER@$MAIN_DOMAIN y reejecuta si lo necesitas"
+            pendiente "No se pudo crear el dominio de correo $MAIL_DOMAIN (ver $LOG)"
+            continue
         fi
     fi
 
-    for DOMAIN_DIR in "$MAIL_BASE"/*/; do
-        [[ -d "$DOMAIN_DIR" ]] || continue
-        MAIL_DOMAIN=$(basename "$DOMAIN_DIR")
-        # Ignorar directorios internos de cPanel/Courier/Dovecot que NO son dominios
-        case "$MAIL_DOMAIN" in
-            etc|new|cur|tmp|.*|courierimapkeywords|courierimapuiddb|courierimapacl|\
-            courierpop3dsizelist|maildirfolder|dovecot*|.Trash*|.Sent*|.Drafts*)
-                continue ;;
-        esac
-        # Debe tener formato de dominio (con al menos un punto y TLD valido)
-        if ! [[ "$MAIL_DOMAIN" =~ ^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
+    ETC_DOM="$HOMEDIR/etc/$MAIL_DOMAIN"
+    declare -A SHADOW_HASHES=()
+    if [[ -f "$ETC_DOM/shadow" ]]; then
+        while IFS=: read -r acc hash _rest; do
+            [[ -z "$acc" || -z "$hash" || "$hash" == "!!" || "$hash" == "*" || "$hash" == "!"* ]] && continue
+            SHADOW_HASHES["$acc"]="$hash"
+        done < "$ETC_DOM/shadow"
+    fi
+    declare -A CUOTAS=()
+    if [[ -f "$ETC_DOM/quota" ]]; then
+        while IFS=: read -r acc bytes; do
+            [[ -n "$acc" && "$bytes" =~ ^[0-9]+$ && "$bytes" -gt 0 ]] && CUOTAS["$acc"]=$(( (bytes + 1048575) / 1048576 ))
+        done < "$ETC_DOM/quota"
+    fi
+
+    # Cuentas: las del fichero passwd de cPanel (incluye las que nunca han
+    # recibido correo y no tienen carpeta) mas las carpetas de buzon.
+    CUENTAS=()
+    [[ -f "$ETC_DOM/passwd" ]] && while IFS=: read -r acc _r; do [[ -n "$acc" ]] && CUENTAS+=("${acc,,}"); done < "$ETC_DOM/passwd"
+    if [[ -n "$MAIL_BASE" && -d "$MAIL_BASE/$MAIL_DOMAIN" ]]; then
+        for ad in "$MAIL_BASE/$MAIL_DOMAIN"/*/; do
+            [[ -d "$ad" ]] || continue
+            a=$(basename "$ad"); [[ "$a" == .* || "$a" =~ ^(cur|new|tmp)$ ]] && continue
+            CUENTAS+=("${a,,}")
+        done
+    fi
+    CUENTAS=($(printf '%s\n' "${CUENTAS[@]:-}" | grep -E '^[a-z0-9._+-]+$' | sort -u || true))
+
+    for ACCOUNT in "${CUENTAS[@]:-}"; do
+        [[ -z "$ACCOUNT" ]] && continue
+        NUEVA="no"; cuenta_existe "$MAIL_DOMAIN" "$ACCOUNT" || NUEVA="si"
+        ULTIMA_PASS=""
+        if ! crear_cuenta "$MAIL_DOMAIN" "$ACCOUNT"; then
+            pendiente "No se pudo crear $ACCOUNT@$MAIL_DOMAIN (ver $LOG)"
             continue
         fi
-
-        info "Dominio mail: $MAIL_DOMAIN"
-
-        if ! $BIN/v-list-mail-domain "$CPANEL_USER" "$MAIL_DOMAIN" &>/dev/null 2>&1; then
-            $BIN/v-add-mail-domain "$CPANEL_USER" "$MAIL_DOMAIN" \
-                2>/dev/null && log "  Dominio mail $MAIL_DOMAIN creado" || \
-                warn "  No se pudo crear dominio mail $MAIL_DOMAIN"
+        N_CUENTAS=$((N_CUENTAS+1))
+        if [[ -n "${SHADOW_HASHES[$ACCOUNT]:-}" ]] && set_mail_hash "$MAIL_DOMAIN" "$ACCOUNT" "${SHADOW_HASHES[$ACCOUNT]}"; then
+            N_PASS_ORIG=$((N_PASS_ORIG+1))
+            info "  $ACCOUNT@$MAIL_DOMAIN (contrasena original)"
+        elif [[ "$NUEVA" == "si" ]]; then
+            echo "Mail: $ACCOUNT@$MAIL_DOMAIN | Pass: $ULTIMA_PASS (nueva)" >> "$CREDS_FILE"
+            pendiente "$ACCOUNT@$MAIL_DOMAIN sin contrasena en el backup: se ha puesto una nueva (en $CREDS_FILE)"
         fi
-
-        # Leer shadow de cPanel para importar hashes sin resetear passwords
-        # cPanel guarda hashes en homedir/etc/DOMINIO/shadow
-        CPANEL_SHADOW="$BACKUP_PATH/homedir/etc/$MAIL_DOMAIN/shadow"
-        HESTIA_PASSWD="/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN/passwd"
-        declare -A SHADOW_HASHES=()
-        if [[ -f "$CPANEL_SHADOW" ]]; then
-            while IFS=: read -r acc hash rest; do
-                [[ -z "$acc" ]] && continue
-                [[ -z "$hash" ]] && continue
-                [[ "$hash" == "!!" || "$hash" == "*" ]] && continue
-                SHADOW_HASHES["$acc"]="$hash"
-            done < "$CPANEL_SHADOW" || true
-            log "  Shadow leido: ${#SHADOW_HASHES[@]} hashes encontrados"
+        if [[ -n "${CUOTAS[$ACCOUNT]:-}" ]]; then
+            $BIN/v-change-mail-account-quota "$CPANEL_USER" "$MAIL_DOMAIN" "$ACCOUNT" "${CUOTAS[$ACCOUNT]}" >> "$LOG" 2>&1 || true
         fi
-
-        # Cuentas de correo
-        for ACCOUNT_DIR in "$DOMAIN_DIR"*/; do
-            [[ -d "$ACCOUNT_DIR" ]] || continue
-            ACCOUNT=$(basename "$ACCOUNT_DIR")
-            [[ "$ACCOUNT" == "." || "$ACCOUNT" == ".." ]] && continue
-            [[ "$ACCOUNT" == "new" || "$ACCOUNT" == "cur" || "$ACCOUNT" == "tmp" ]] && continue
-
-            # Crear cuenta con password temporal
-            MAIL_PASS=$(openssl rand -base64 10 | tr -d '/+=')
-            $BIN/v-add-mail-account "$CPANEL_USER" "$MAIL_DOMAIN" \
-                "$ACCOUNT" "$MAIL_PASS" \
-                2>/dev/null && log "  $ACCOUNT@$MAIL_DOMAIN creada" || \
-                warn "  No se pudo crear $ACCOUNT@$MAIL_DOMAIN"
-
-            # Si tenemos hash original de cPanel, restaurarlo directamente
-            if [[ -n "${SHADOW_HASHES[$ACCOUNT]:-}" ]]; then
-                HASH="${SHADOW_HASHES[$ACCOUNT]}"
-                # Detectar tipo y anadir prefijo Dovecot
-                if [[ "$HASH" == '$6$'* ]]; then
-                    PREFIX="{SHA512-CRYPT}"
-                elif [[ "$HASH" == '$1$'* ]]; then
-                    PREFIX="{MD5-CRYPT}"
-                elif [[ "$HASH" == '$5$'* ]]; then
-                    PREFIX="{SHA256-CRYPT}"
-                else
-                    PREFIX="{CRYPT}"
-                fi
-                # Sobreescribir solo el campo del hash - buscar {BLF-CRYPT} generado por v-add-mail-account
-                if [[ -f "$HESTIA_PASSWD" ]]; then
-                    sed -i "s|^${ACCOUNT}:{BLF-CRYPT}[^:]*:|${ACCOUNT}:${PREFIX}${HASH}:|"                         "$HESTIA_PASSWD" 2>/dev/null &&                         log "  Password original restaurada para $ACCOUNT" ||                         warn "  No se pudo restaurar password de $ACCOUNT"
-                fi
-            else
-                # Sin hash original - guardar nueva password
-                echo "Mail: $ACCOUNT@$MAIL_DOMAIN | Pass: $MAIL_PASS (nueva)" >> "$CREDS_FILE"
-                warn "  Sin hash para $ACCOUNT - password nueva: $MAIL_PASS"
-            fi
-
-            # Copiar correos existentes (Maildir)
-            DEST_MAIL="/home/$CPANEL_USER/mail/$MAIL_DOMAIN/$ACCOUNT"
-            if [[ -d "$DEST_MAIL" ]]; then
-                rsync -a "$ACCOUNT_DIR/" "$DEST_MAIL/" 2>/dev/null && \
-                    log "  Correos de $ACCOUNT copiados" || \
-                    warn "  Error copiando correos de $ACCOUNT"
-                chown -R "$CPANEL_USER:mail" "$DEST_MAIL" 2>/dev/null || true
-            fi
-        done
-        SHADOW_HASHES=()
-
-        # Permisos de la CONFIG de correo. CRITICO: si el propietario no es
-        # el correcto, Dovecot NO puede leer el fichero passwd y RECHAZA
-        # TODOS los logins aunque la contrasena sea correcta. El sintoma que
-        # ve el cliente es "la contrasena deja de funcionar sola".
-        # Patron correcto de HestiaCP (verificado en produccion):
-        #   directorio del dominio -> Debian-exim:mail  modo 771
-        #   passwd                 -> dovecot:mail      modo 660
-        #   resto de ficheros      -> Debian-exim:mail  modo 660
-        MAILCONF_DIR="/home/$CPANEL_USER/conf/mail/$MAIL_DOMAIN"
-        if [[ -d "$MAILCONF_DIR" ]]; then
-            chown Debian-exim:mail "$MAILCONF_DIR" 2>/dev/null || true
-            chmod 771 "$MAILCONF_DIR" 2>/dev/null || true
-
-            for MF in "$MAILCONF_DIR"/*; do
-                [[ -f "$MF" ]] || continue
-                case "$(basename "$MF")" in
-                    passwd)
-                        chown dovecot:mail "$MF" 2>/dev/null || true
-                        chmod 660 "$MF" 2>/dev/null || true ;;
-                    *.conf|*.conf_letsencrypt)
-                        # Los vhost los gestiona HestiaCP: no tocarlos
-                        ;;
-                    *)
-                        chown Debian-exim:mail "$MF" 2>/dev/null || true
-                        chmod 660 "$MF" 2>/dev/null || true ;;
-                esac
-            done
-        fi
-
-        # Corregir permisos del MAILDIR REAL (donde estan los mensajes).
-        # Sin esto Dovecot da "Permission denied" al abrir los buzones.
-        MAILDIR_DOM="/home/$CPANEL_USER/mail/$MAIL_DOMAIN"
-        if [[ -d "$MAILDIR_DOM" ]]; then
-            chown -R "$CPANEL_USER:mail" "$MAILDIR_DOM" 2>/dev/null || true
-            find "$MAILDIR_DOM" -type d -exec chmod 755 {} + 2>/dev/null || true
-            find "$MAILDIR_DOM" -type f -exec chmod 644 {} + 2>/dev/null || true
-        fi
-        log "  Permisos mail $MAIL_DOMAIN corregidos (config + maildir)"
-
-        # -- Reenvios (forwarders) y alias de cPanel --------------------
-        # cPanel los guarda en homedir/etc/DOMINIO/aliases con formato:
-        #   cuenta: destino1,destino2
-        CPANEL_ALIASES="$BACKUP_PATH/homedir/etc/$MAIL_DOMAIN/aliases"
-        if [[ -f "$CPANEL_ALIASES" ]]; then
-            FWD_COUNT=0
-            while IFS=: read -r alias_acc alias_dest; do
-                alias_acc=$(echo "$alias_acc" | tr -d ' \r')
-                alias_dest=$(echo "$alias_dest" | tr -d ' \r')
-                [[ -z "$alias_acc" || -z "$alias_dest" ]] && continue
-                [[ "$alias_acc" == "*" ]] && continue   # catchall se trata aparte
-                # Destinos especiales de cPanel que no son direcciones
-                case "$alias_dest" in
-                    :fail:*|:blackhole:*|"|"*) continue ;;
-                esac
-
-                # En cPanel es habitual el reenviador PURO: una direccion que
-                # solo redirige y NO tiene buzon. Antes se exigia que la cuenta
-                # existiese como buzon y esos reenvios se perdian todos.
-                if ! $BIN/v-list-mail-account "$CPANEL_USER" "$MAIL_DOMAIN" "$alias_acc" &>/dev/null 2>&1; then
-                    # Crear la cuenta como solo-reenvio
-                    FWDPASS=$(openssl rand -base64 16 | tr -d '/+=' | head -c 16)
-                    $BIN/v-add-mail-account "$CPANEL_USER" "$MAIL_DOMAIN" "$alias_acc" "$FWDPASS" \
-                        2>/dev/null || true
-                fi
-
-                # Anadir cada destino como forward
-                IFS=',' read -ra DESTS <<< "$alias_dest"
-                for d in "${DESTS[@]:-}"; do
-                    d=$(echo "$d" | tr -d ' ')
-                    [[ -z "$d" ]] && continue
-                    # Ignorar destinos que no son direcciones de correo
-                    [[ "$d" != *"@"* ]] && continue
-                    $BIN/v-add-mail-account-forward "$CPANEL_USER" "$MAIL_DOMAIN" \
-                        "$alias_acc" "$d" 2>/dev/null && FWD_COUNT=$((FWD_COUNT+1)) || true
-                done
-            done < "$CPANEL_ALIASES"
-            [[ $FWD_COUNT -gt 0 ]] && log "  $FWD_COUNT reenvios importados"
-        fi
-
-        # -- Catchall (cuenta por defecto del dominio) ------------------
-        if [[ -f "$CPANEL_ALIASES" ]]; then
-            CATCHALL=$(grep "^\*:" "$CPANEL_ALIASES" 2>/dev/null | head -1 | cut -d: -f2- | tr -d ' \r')
-            if [[ -n "$CATCHALL" && "$CATCHALL" != ":fail:"* && "$CATCHALL" != ":blackhole:"* ]]; then
-                $BIN/v-add-mail-domain-catchall "$CPANEL_USER" "$MAIL_DOMAIN" "$CATCHALL" \
-                    2>/dev/null && log "  Catchall configurado: $CATCHALL" || true
-            fi
+        SRC_MAIL="$MAIL_BASE/$MAIL_DOMAIN/$ACCOUNT"
+        DEST_MAIL="$DEST_HOME/mail/$MAIL_DOMAIN/$ACCOUNT"
+        if [[ -n "$MAIL_BASE" && -d "$SRC_MAIL" ]]; then
+            mkdir -p "$DEST_MAIL"
+            rsync -a "$SRC_MAIL/" "$DEST_MAIL/" >> "$LOG" 2>&1 || pendiente "Error copiando el buzon de $ACCOUNT@$MAIL_DOMAIN"
         fi
     done
-else
-    warn "No se encontro directorio de correo en el backup"
-fi
+    unset SHADOW_HASHES CUOTAS
 
-# -- DNS --------------------------------------------------------
-# ============================================================
-#  TAREAS PROGRAMADAS (CRON)
-# ============================================================
-# cPanel guarda el crontab del usuario en el fichero 'cron/USUARIO'
-# del backup. Sin esto se pierden copias de seguridad, sincronizaciones
-# y tareas del CMS (wp-cron, Moodle cron...) que el cliente tenia
-# programadas.
-header "Importando tareas programadas (cron)"
-
-CRON_FILE=""
-for CANDIDATO in "$BACKUP_PATH/cron/$CPANEL_USER" "$BACKUP_PATH/cron/crontab" \
-                 "$BACKUP_PATH/cron"; do
-    [[ -f "$CANDIDATO" ]] && { CRON_FILE="$CANDIDATO"; break; }
+    # Cuenta por defecto de cPanel (usuario@dominio principal): sus mensajes
+    # estan directamente en mail/{cur,new,tmp} y carpetas mail/.Sent, etc.
+    if [[ "$MAIL_DOMAIN" == "$MAIN_DOMAIN" && "$CUENTA_DEFECTO_CON_CORREO" == "si" ]]; then
+        ULTIMA_PASS=""
+        NUEVA="no"; cuenta_existe "$MAIN_DOMAIN" "$ORIG_USER" || NUEVA="si"
+        if crear_cuenta "$MAIN_DOMAIN" "$ORIG_USER"; then
+            DEFAULT_ADDR="$ORIG_USER@$MAIN_DOMAIN"
+            N_CUENTAS=$((N_CUENTAS+1))
+            mkdir -p "$DEST_HOME/mail/$MAIN_DOMAIN/$ORIG_USER"
+            rsync -a --include='/cur/***' --include='/new/***' --include='/tmp/***' --include='/.*/***' \
+                --include='/dovecot-uidlist' --include='/dovecot-uidvalidity*' --exclude='*' \
+                "$MAIL_BASE/" "$DEST_HOME/mail/$MAIN_DOMAIN/$ORIG_USER/" >> "$LOG" 2>&1 || true
+            SYS_HASH=""
+            if [[ -f "$BACKUP_PATH/shadow" ]]; then
+                SYS_HASH=$(head -1 "$BACKUP_PATH/shadow" | tr -d '\r\n')
+                [[ "$SYS_HASH" == *:* ]] && SYS_HASH=$(echo "$SYS_HASH" | cut -d: -f2)
+            fi
+            if [[ "$SYS_HASH" == '$'* ]] && set_mail_hash "$MAIN_DOMAIN" "$ORIG_USER" "$SYS_HASH"; then
+                log "  Cuenta por defecto $DEFAULT_ADDR (contrasena de cPanel)"
+            elif [[ "$NUEVA" == "si" ]]; then
+                echo "Mail: $DEFAULT_ADDR | Pass: $ULTIMA_PASS (cuenta por defecto, nueva)" >> "$CREDS_FILE"
+                pendiente "Cuenta por defecto $DEFAULT_ADDR creada con contrasena nueva (en $CREDS_FILE)"
+            fi
+        fi
+    fi
 done
 
+# Destino de un reenvio en formato cPanel -> direccion (o vacio si no aplica)
+destino_reenvio() {  # destino dominio
+    local x="$1" dom="$2"
+    x="${x#"${x%%[![:space:]]*}"}"; x="${x%"${x##*[![:space:]]}"}"; x="${x%\"}"; x="${x#\"}"
+    case "$x" in
+        ""|:fail:*|:blackhole:*) echo "" ;;
+        \|*|/*) echo "PIPE" ;;
+        *@*) echo "${x,,}" ;;
+        *) if [[ "${x,,}" == "$ORIG_USER" ]]; then echo "${DEFAULT_ADDR:-DEFAULT}"; else echo "${x,,}@$dom"; fi ;;
+    esac
+}
+
+# Reenviadores: va/DOMINIO (formato "cuenta@dominio: destino1,destino2")
+# y, por compatibilidad, homedir/etc/DOMINIO/aliases.
+for MAIL_DOMAIN in "${MAIL_DOMS[@]:-}"; do
+    [[ -z "$MAIL_DOMAIN" ]] && continue
+    $BIN/v-list-mail-domain "$CPANEL_USER" "$MAIL_DOMAIN" &>/dev/null || continue
+    CATCHALL=""
+    for VAF in "$VA_DIR/$MAIL_DOMAIN" "$HOMEDIR/etc/$MAIL_DOMAIN/aliases"; do
+        [[ -f "$VAF" ]] || continue
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            line="${line%$'\r'}"
+            [[ -z "${line// }" || "$line" =~ ^[[:space:]]*# ]] && continue
+            [[ "$line" == *:* ]] || continue
+            lhs="${line%%:*}"; rhs="${line#*:}"
+            lhs=$(echo "$lhs" | tr -d ' \t'); lhs="${lhs,,}"
+            if [[ "$lhs" == "*" || "$lhs" == "*@$MAIL_DOMAIN" ]]; then CATCHALL="$rhs"; continue; fi
+            lhs="${lhs%@$MAIL_DOMAIN}"
+            [[ "$lhs" == *@* ]] && continue
+            [[ "$lhs" =~ ^[a-z0-9._+-]+$ ]] || { pendiente "Reenviador no valido en $MAIL_DOMAIN: $line"; continue; }
+            DESTS=()
+            IFS=',' read -ra PARTES <<< "$rhs"
+            for x in "${PARTES[@]}"; do
+                d=$(destino_reenvio "$x" "$MAIL_DOMAIN")
+                case "$d" in
+                    "") ;;
+                    PIPE) pendiente "Reenvio a programa no migrable: $lhs@$MAIL_DOMAIN -> $x" ;;
+                    DEFAULT) pendiente "$lhs@$MAIL_DOMAIN reenviaba a la cuenta por defecto de cPanel, que no tiene correo" ;;
+                    "$lhs@$MAIL_DOMAIN") ;;
+                    *) DESTS+=("$d") ;;
+                esac
+            done
+            [[ ${#DESTS[@]} -eq 0 ]] && continue
+            TENIA_BUZON="si"; cuenta_existe "$MAIL_DOMAIN" "$lhs" || TENIA_BUZON="no"
+            if ! crear_cuenta "$MAIL_DOMAIN" "$lhs"; then
+                pendiente "No se pudo crear el reenviador $lhs@$MAIL_DOMAIN"
+                continue
+            fi
+            for d in "${DESTS[@]}"; do
+                $BIN/v-add-mail-account-forward "$CPANEL_USER" "$MAIL_DOMAIN" "$lhs" "$d" >> "$LOG" 2>&1 \
+                    && N_FWD=$((N_FWD+1)) || true
+            done
+            # Reenviador puro de cPanel (sin buzon): solo reenvia, no guarda copia
+            if [[ "$TENIA_BUZON" == "no" ]]; then
+                $BIN/v-add-mail-account-fwd-only "$CPANEL_USER" "$MAIL_DOMAIN" "$lhs" >> "$LOG" 2>&1 || true
+            fi
+        done < "$VAF"
+    done
+    if [[ -n "$CATCHALL" ]]; then
+        d=$(destino_reenvio "${CATCHALL%%,*}" "$MAIL_DOMAIN")
+        case "$d" in
+            ""|PIPE) ;;
+            DEFAULT) pendiente "Catch-all de $MAIL_DOMAIN iba a la cuenta por defecto de cPanel (sin correo): no se configura" ;;
+            *) $BIN/v-add-mail-domain-catchall "$CPANEL_USER" "$MAIL_DOMAIN" "$d" >> "$LOG" 2>&1 \
+                   && log "  Catch-all de $MAIL_DOMAIN -> $d" || pendiente "No se pudo poner el catch-all de $MAIL_DOMAIN -> $d" ;;
+        esac
+    fi
+done
+
+# Reenviadores de DOMINIO (vad/ALIAS contiene el dominio destino): todo el
+# correo de alias.com va a la misma cuenta en destino.com. QemuCP no tiene
+# alias de dominio de correo: se crea en alias.com cada cuenta de destino.com
+# como solo-reenvio, y el mismo catch-all.
+if [[ -d "$VAD_DIR" ]]; then
+    for VF in "$VAD_DIR"/*; do
+        [[ -f "$VF" ]] || continue
+        ALIAS_DOM=$(basename "${VF,,}")
+        DEST_DOM=$( { grep -v '^[[:space:]]*$' "$VF" || true; } | head -1 | tr -d '\r')
+        DEST_DOM="${DEST_DOM##*:}"; DEST_DOM=$(echo "${DEST_DOM,,}" | tr -d ' \t')
+        es_dominio "$DEST_DOM" || continue
+        $BIN/v-list-mail-domain "$CPANEL_USER" "$ALIAS_DOM" &>/dev/null || continue
+        if ! $BIN/v-list-mail-domain "$CPANEL_USER" "$DEST_DOM" &>/dev/null; then
+            pendiente "$ALIAS_DOM reenviaba todo a $DEST_DOM, que no tiene correo en este servidor"
+            continue
+        fi
+        NA=0
+        for acc in $(grep -oP "^ACCOUNT='\K[^']+" "$HESTIA/data/users/$CPANEL_USER/mail/$DEST_DOM.conf" 2>/dev/null); do
+            cuenta_existe "$ALIAS_DOM" "$acc" && continue
+            crear_cuenta "$ALIAS_DOM" "$acc" || continue
+            $BIN/v-add-mail-account-forward "$CPANEL_USER" "$ALIAS_DOM" "$acc" "$acc@$DEST_DOM" >> "$LOG" 2>&1 || true
+            $BIN/v-add-mail-account-fwd-only "$CPANEL_USER" "$ALIAS_DOM" "$acc" >> "$LOG" 2>&1 || true
+            NA=$((NA+1))
+        done
+        CA=$( { grep "DOMAIN='$DEST_DOM'" "$HESTIA/data/users/$CPANEL_USER/mail.conf" 2>/dev/null || true; } \
+              | grep -oP "CATCHALL='\K[^']*" || true)
+        [[ -n "$CA" ]] && $BIN/v-add-mail-domain-catchall "$CPANEL_USER" "$ALIAS_DOM" "$CA" >> "$LOG" 2>&1 || true
+        log "  Alias de dominio de correo: $ALIAS_DOM -> $DEST_DOM ($NA direcciones)"
+    done
+fi
+
+for MAIL_DOMAIN in "${MAIL_DOMS[@]:-}"; do [[ -n "$MAIL_DOMAIN" ]] && permisos_correo "$MAIL_DOMAIN"; done
+[[ ${#MAIL_DOMS[@]} -gt 0 && -n "${MAIL_DOMS[0]:-}" ]] && \
+    log "Correo: $N_CUENTAS cuentas ($N_PASS_ORIG con su contrasena original), $N_FWD reenvios"
+
+# Lo que no se puede migrar automaticamente
+if [[ -d "$HOMEDIR/.autorespond" ]] && [[ -n "$(ls -A "$HOMEDIR/.autorespond" 2>/dev/null)" ]]; then
+    pendiente "Hay respuestas automaticas en cPanel ($(ls "$HOMEDIR/.autorespond" | grep -c . || true)): crearlas a mano en el panel"
+fi
+if [[ -d "$BACKUP_PATH/vf" ]]; then
+    for f in "$BACKUP_PATH"/vf/*; do
+        [[ -s "$f" ]] && grep -qvE '^[[:space:]]*(#.*)?$' "$f" && pendiente "Filtros de correo de cPanel en $(basename "$f"): recrearlos a mano"
+    done
+fi
+
+# ============================================================
+#  CRON
+# ============================================================
+header "Importando tareas programadas (cron)"
+
+# Rutas del origen -> rutas en QemuCP (la mas larga primero)
+CRON_MAP="$WORK_DIR/cron-map.txt"
+: > "$CRON_MAP"
+for DOM in "${WEB_CREADOS[@]:-}"; do
+    [[ -z "$DOM" || -z "${DOCROOT_ORIG[$DOM]:-}" ]] && continue
+    printf '%s\t%s\n' "${DOCROOT_ORIG[$DOM]%/}" "/home/$CPANEL_USER/web/$DOM/public_html" >> "$CRON_MAP"
+done
+cron_rutas() {
+    local c="$1" o n
+    while IFS=$'\t' read -r o n; do
+        c="${c//"$o"/"$n"}"
+    done < <(awk -F'\t' '{print length($1) "\t" $0}' "$CRON_MAP" | sort -rn | cut -f2-)
+    [[ "$ORIG_USER" != "$CPANEL_USER" ]] && c="${c//"/home/$ORIG_USER/"//home/$CPANEL_USER/}"
+    # PHP de cPanel (EasyApache) -> PHP de este servidor
+    c=$(echo "$c" | sed -E 's#/opt/cpanel/ea-php([0-9])([0-9])/root/usr/bin/php(-cli)?#/usr/bin/php\1.\2#g;
+                             s#/usr/local/bin/ea-php([0-9])([0-9])#/usr/bin/php\1.\2#g;
+                             s#/usr/local/bin/php(-cli)?([[:space:]]|$)#/usr/bin/php\2#g;
+                             s#/usr/bin/php-cli([[:space:]]|$)#/usr/bin/php\1#g')
+    while [[ "$c" =~ /usr/bin/php([0-9]\.[0-9]) ]]; do
+        [[ -x "/usr/bin/php${BASH_REMATCH[1]}" ]] && break
+        c="${c//"/usr/bin/php${BASH_REMATCH[1]}"//usr/bin/php}"
+    done
+    # Hestia no admite comillas invertidas: `cmd` -> $(cmd)
+    c=$(echo "$c" | sed 's/`\([^`]*\)`/$(\1)/g')
+    echo "$c"
+}
+nombres_cron() {  # mon,tue -> 1,2   jan -> 1
+    echo "$1" | sed -E 's/\b[Ss][Uu][Nn]\b/0/g; s/\b[Mm][Oo][Nn]\b/1/g; s/\b[Tt][Uu][Ee]\b/2/g; s/\b[Ww][Ee][Dd]\b/3/g;
+        s/\b[Tt][Hh][Uu]\b/4/g; s/\b[Ff][Rr][Ii]\b/5/g; s/\b[Ss][Aa][Tt]\b/6/g;
+        s/\b[Jj][Aa][Nn]\b/1/g; s/\b[Ff][Ee][Bb]\b/2/g; s/\b[Mm][Aa][Rr]\b/3/g; s/\b[Aa][Pp][Rr]\b/4/g;
+        s/\b[Mm][Aa][Yy]\b/5/g; s/\b[Jj][Uu][Nn]\b/6/g; s/\b[Jj][Uu][Ll]\b/7/g; s/\b[Aa][Uu][Gg]\b/8/g;
+        s/\b[Ss][Ee][Pp]\b/9/g; s/\b[Oo][Cc][Tt]\b/10/g; s/\b[Nn][Oo][Vv]\b/11/g; s/\b[Dd][Ee][Cc]\b/12/g'
+}
+
 if [[ -n "$CRON_FILE" ]]; then
-    CRON_OK=0; CRON_SKIP=0
-    while IFS= read -r linea; do
-        # Saltar comentarios, lineas vacias y variables de entorno
+    CRON_OK=0; CRON_SKIP=0; CRON_YA=0
+    CRON_CONF="$HESTIA/data/users/$CPANEL_USER/cron.conf"
+    while IFS= read -r linea || [[ -n "$linea" ]]; do
+        linea="${linea%$'\r'}"
         [[ -z "${linea// }" ]] && continue
         [[ "$linea" =~ ^[[:space:]]*# ]] && continue
-        [[ "$linea" =~ ^[[:space:]]*[A-Z_]+= ]] && continue
-
-        # Separar los 5 campos de tiempo del comando
-        MIN=$(echo "$linea" | awk '{print $1}')
-        HOR=$(echo "$linea" | awk '{print $2}')
-        DIA=$(echo "$linea" | awk '{print $3}')
-        MES=$(echo "$linea" | awk '{print $4}')
-        WDY=$(echo "$linea" | awk '{print $5}')
-        CMD=$(echo "$linea" | awk '{$1=$2=$3=$4=$5=""; sub(/^[ \t]+/,""); print}')
-
-        # Descartar lineas que no son un cron valido
-        [[ -z "$CMD" ]] && continue
-        if ! [[ "$MIN" =~ ^[0-9*/,-]+$ && "$HOR" =~ ^[0-9*/,-]+$ ]]; then
-            CRON_SKIP=$((CRON_SKIP+1)); continue
+        [[ "$linea" =~ ^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*= ]] && continue
+        linea="${linea#"${linea%%[![:space:]]*}"}"
+        case "$linea" in
+            @reboot*) pendiente "Cron @reboot no migrado: ${linea:0:80}"; CRON_SKIP=$((CRON_SKIP+1)); continue ;;
+            @yearly*|@annually*) linea="0 0 1 1 * ${linea#* }" ;;
+            @monthly*) linea="0 0 1 * * ${linea#* }" ;;
+            @weekly*) linea="0 0 * * 0 ${linea#* }" ;;
+            @daily*|@midnight*) linea="0 0 * * * ${linea#* }" ;;
+            @hourly*) linea="0 * * * * ${linea#* }" ;;
+        esac
+        read -r MIN HOR DIA MES WDY CMD <<< "$linea"
+        MES=$(nombres_cron "$MES"); WDY=$(nombres_cron "$WDY")
+        if [[ -z "${CMD:-}" ]] || ! [[ "$MIN$HOR$DIA$MES$WDY" =~ ^[0-9*/,-]+$ ]]; then
+            pendiente "Cron no reconocido: ${linea:0:80}"; CRON_SKIP=$((CRON_SKIP+1)); continue
         fi
-
-        # Las rutas del servidor de origen (/home/USUARIO/...) siguen siendo
-        # validas porque el usuario se llama igual, pero public_html cambia
-        # de sitio en QemuCP.
-        CMD=$(echo "$CMD" | sed "s#/home/$CPANEL_USER/public_html#/home/$CPANEL_USER/web/$MAIN_DOMAIN/public_html#g")
-
-        if $BIN/v-add-cron-job "$CPANEL_USER" "$MIN" "$HOR" "$DIA" "$MES" "$WDY" "$CMD" \
-            2>/dev/null; then
+        if [[ "$CMD" == *"/usr/local/cpanel"* || "$CMD" =~ (^|[[:space:]])/scripts/ ]]; then
+            pendiente "Cron de cPanel no migrable: ${CMD:0:80}"; CRON_SKIP=$((CRON_SKIP+1)); continue
+        fi
+        CMD=$(cron_rutas "$CMD")
+        # Reejecutar el migrador no duplica crons
+        if [[ -f "$CRON_CONF" ]] && grep -qF "CMD='${CMD//\'/%quote%}'" "$CRON_CONF"; then
+            CRON_YA=$((CRON_YA+1)); continue
+        fi
+        if $BIN/v-add-cron-job "$CPANEL_USER" "$MIN" "$HOR" "$DIA" "$MES" "$WDY" "$CMD" >> "$LOG" 2>&1; then
             CRON_OK=$((CRON_OK+1))
         else
             CRON_SKIP=$((CRON_SKIP+1))
-            warn "  No se pudo crear: $MIN $HOR $DIA $MES $WDY $(echo "$CMD" | cut -c1-50)"
+            pendiente "No se pudo crear el cron: $MIN $HOR $DIA $MES $WDY ${CMD:0:60}"
         fi
     done < "$CRON_FILE"
-
-    [[ $CRON_OK -gt 0 ]] && log "$CRON_OK tareas cron importadas"
-    [[ $CRON_SKIP -gt 0 ]] && warn "$CRON_SKIP lineas de cron omitidas (revisar manualmente)"
-    [[ $CRON_OK -eq 0 && $CRON_SKIP -eq 0 ]] && info "El backup no tiene tareas cron"
+    log "Crons: $CRON_OK importados, $CRON_YA ya existian, $CRON_SKIP omitidos"
 else
-    info "No se encontro fichero de cron en el backup"
+    info "El backup no tiene crons"
 fi
 
+# ============================================================
+#  DNS
+# ============================================================
 header "Importando DNS"
 
-# cPanel usa dnszones/ no dns/
-DNS_BASE=""
-for D in "$BACKUP_PATH/dnszones" "$BACKUP_PATH/dns"; do
-    [[ -d "$D" ]] && DNS_BASE="$D" && break
-done
+zona_escribir() {  # conf nombre tipo prioridad valor  (sin duplicar)
+    local conf="$1" rn="$2" t="$3" pr="$4" v="$5" nid
+    v="${v//\'/%quote%}"
+    grep -qF "RECORD='$rn' TYPE='$t' PRIORITY='$pr' VALUE='$v'" "$conf" 2>/dev/null && return 1
+    nid=$(( $( { grep -oP "^ID='\K[0-9]+" "$conf" || echo 0; } | sort -n | tail -1) + 1 ))
+    printf "ID='%s' RECORD='%s' TYPE='%s' PRIORITY='%s' VALUE='%s' SUSPENDED='no' TIME='%s' DATE='%s'\n" \
+        "$nid" "$rn" "$t" "$pr" "$v" "$(date +%T)" "$(date +%F)" >> "$conf"
+}
+zona_borrar() {  # conf patron-de-linea (texto literal)
+    local conf="$1" pat="$2"
+    grep -vF -- "$pat" "$conf" > "$conf.qtmp" || true
+    cat "$conf.qtmp" > "$conf"; rm -f "$conf.qtmp"
+}
 
-if [[ -n "$DNS_BASE" ]]; then
-    for ZONE_FILE in "$DNS_BASE"/*.db; do
-        [[ -f "$ZONE_FILE" ]] || continue
-        ZONE_DOMAIN=$(basename "$ZONE_FILE" .db)
-        if ! $BIN/v-list-dns-domain "$CPANEL_USER" "$ZONE_DOMAIN" &>/dev/null 2>&1; then
-            $BIN/v-add-dns-domain "$CPANEL_USER" "$ZONE_DOMAIN" "$SERVER_IP" \
-                2>/dev/null && log "Zona DNS $ZONE_DOMAIN creada" || \
-                warn "No se pudo crear zona DNS $ZONE_DOMAIN"
+declare -A ZONA_CREADA=()
+for ZD in $(printf '%s\n' "${!ZONA_TSV[@]}" | sort); do
+    TSV="${ZONA_TSV[$ZD]}"
+    ZONE_CONF="$HESTIA/data/users/$CPANEL_USER/dns/${ZD}.conf"
+    if ! $BIN/v-list-dns-domain "$CPANEL_USER" "$ZD" &>/dev/null; then
+        if $BIN/v-add-dns-domain "$CPANEL_USER" "$ZD" "$SERVER_IP_DNS" '' '' '' '' '' '' '' '' 'no' >> "$LOG" 2>&1; then
+            log "Zona DNS $ZD creada"
         else
-            warn "Zona DNS $ZONE_DOMAIN ya existe"
+            pendiente "No se pudo crear la zona DNS $ZD (ver $LOG)"
+            continue
         fi
+    else
+        info "Zona DNS $ZD ya existe"
+    fi
+    [[ -f "$ZONE_CONF" ]] || continue
+    ZONA_CREADA["$ZD"]=1
+    EXT="${CORREO_EXTERNO[$ZD]:-}"
+    SPF_CLIENTE=""; DMARC_CLIENTE=""; APEX_EXTERNA=""; CAA_ISSUE=(); REC_COUNT=0
 
-        # El dominio usa correo EXTERNO? (Google Workspace, Microsoft 365,
-        # Zoho...)? Si es asi hay que RESPETAR sus MX y su SPF, y no crear
-        # el buzon local ni pisar la configuracion: el correo del cliente
-        # dejaria de funcionar.
-        # Correo EXTERNO = el MX apunta FUERA del propio dominio.
-        # No se usa una lista de proveedores conocidos: siempre aparecen
-        # nuevos (Forpsi, IONOS, CDMON, OVH...) y clasificarlos como
-        # "locales" hace que el MX de HestiaCP compita con el del proveedor
-        # y el correo del cliente se entregue en el servidor equivocado.
-        MAIL_EXTERNO="no"
-        PROVEEDOR_MAIL=""
-        while read -r mxdest; do
-            [[ -z "$mxdest" ]] && continue
-            mxdest="${mxdest%.}"
-            # Un MX del propio dominio (dominio.com o algo.dominio.com) es local
-            if [[ "$mxdest" == "$ZONE_DOMAIN" || "$mxdest" == *".$ZONE_DOMAIN" ]]; then
-                continue
-            fi
-            MAIL_EXTERNO="si"
-            PROVEEDOR_MAIL="$mxdest"
-            break
-        done < <(grep -iE "[[:space:]]MX[[:space:]]" "$ZONE_FILE" 2>/dev/null \
-                 | awk '{print $NF}')
-
-        if [[ "$MAIL_EXTERNO" == "si" ]]; then
-            warn "  $ZONE_DOMAIN usa correo EXTERNO ($PROVEEDOR_MAIL): se respetan MX y SPF"
-        fi
-
-        # Importar registros personalizados del fichero de zona.
-        # La zona nueva trae los registros por defecto (A, NS, MX propios);
-        # anadimos los que el cliente tenia y no existen ya (MX externos,
-        # TXT de verificacion/SPF/DKIM, CNAME, subdominios A, SRV...).
-        REC_COUNT=0
-        while read -r rname rttl rclass rtype rvalue; do
-            # Saltar comentarios, directivas y lineas vacias
-            [[ -z "${rname:-}" ]] && continue
-            [[ "$rname" == \;* || "$rname" == '$'* ]] && continue
-            [[ -z "${rtype:-}" ]] && continue
-            # Solo tipos que interesa migrar
-            case "$rtype" in
-                A|AAAA|CNAME|MX|TXT|SRV|CAA|NS) ;;
-                *) continue ;;
-            esac
-
-            # NO importar registros propios de cPanel: no existen en QemuCP y
-            # apuntan al servidor de origen. Incluye el DKIM antiguo, que si se
-            # importa hace que la firma de correo de este servidor no valide.
-            SKIP_REC="no"
-            case "${rname%.}" in
-                whm|cpanel|webdisk|cpcontacts|cpcalendars|autodiscover|autoconfig) SKIP_REC="yes" ;;
-                whm.*|cpanel.*|webdisk.*|cpcontacts.*|cpcalendars.*) SKIP_REC="yes" ;;
-                _cpanel-dcv-test-record*|_acme-challenge*) SKIP_REC="yes" ;;
-                _caldav*|_carddav*|_autodiscover*) SKIP_REC="yes" ;;
-                *_domainkey*) SKIP_REC="yes" ;;
-            esac
-            [[ "$SKIP_REC" == "yes" ]] && continue
-            # SPF: si el correo es EXTERNO hay que conservar su SPF (sin el,
-            # el correo de Google/Microsoft acaba en spam). Si el correo es
-            # local, se descarta el del origen porque QemuCP crea el suyo y
-            # dos registros SPF invalidan ambos.
-            if [[ "$rtype" == "TXT" && "$rvalue" == *"v=spf1"* ]]; then
-                if [[ "$MAIL_EXTERNO" != "si" ]]; then
+    while IFS=$'\t' read -r n t v; do
+        case "$t" in A|AAAA|CNAME|MX|TXT|SRV|CAA|NS) ;; *) continue ;; esac
+        if [[ "$n" == "$ZD" ]]; then rn="@"
+        elif [[ "$n" == *".$ZD" ]]; then rn="${n%.$ZD}"
+        else continue; fi
+        # Registros propios de cPanel: apuntan al servidor de origen y no
+        # existen en QemuCP. El DKIM antiguo haria fallar la firma de aqui.
+        case "$rn" in
+            whm|cpanel|webdisk|cpcontacts|cpcalendars|autodiscover|autoconfig|localhost) continue ;;
+            whm.*|cpanel.*|webdisk.*|cpcontacts.*|cpcalendars.*|autodiscover.*|autoconfig.*) continue ;;
+            _cpanel-dcv-test-record*|_acme-challenge*|_caldav*|_carddav*|_autodiscover*) continue ;;
+            *_domainkey*) continue ;;
+        esac
+        pr=""
+        case "$t" in
+            NS) [[ "$rn" == "@" ]] && continue ;;
+            A)
+                if [[ "$rn" == "@" ]]; then
+                    en_lista "$v" "${ORIGIN_IPS[@]:-}" || APEX_EXTERNA="$v"
                     continue
                 fi
-            fi
-            # Normalizar nombre: quitar el dominio final y el punto
-            rec_name="${rname%.}"
-            rec_name="${rec_name%.$ZONE_DOMAIN}"
-            [[ "$rec_name" == "$ZONE_DOMAIN" || "$rec_name" == "@" ]] && rec_name=""
-            # Valor completo (puede tener espacios en TXT/MX/SRV)
-            rec_val="$rvalue"
-            [[ -z "$rec_val" ]] && continue
-            # Saltar NS y A del propio dominio (ya los crea QemuCP)
-            [[ "$rtype" == "NS" && -z "$rec_name" ]] && continue
-            [[ "$rtype" == "A" && -z "$rec_name" ]] && continue
-            # Prioridad para MX/SRV. IMPORTANTE: los ficheros de zona usan
-            # tabulaciones o espacios indistintamente, por eso se separa con
-            # awk (que maneja ambos) y NO con 'cut -d" "'.
-            rec_prio=""
-            if [[ "$rtype" == "MX" || "$rtype" == "SRV" ]]; then
-                rec_prio=$(echo "$rec_val" | awk '{print $1}')
-                rec_val=$(echo "$rec_val" | awk '{$1=""; sub(/^[ \t]+/,""); print}')
-                # Validar: la prioridad debe ser numerica y el valor no vacio
-                if ! [[ "$rec_prio" =~ ^[0-9]+$ ]] || [[ -z "$rec_val" ]]; then
-                    continue
-                fi
-            fi
-            # Limpiar espacios/tabulaciones sobrantes del valor
-            rec_val=$(echo "$rec_val" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
-            [[ -z "$rec_val" ]] && continue
+                en_lista "$v" "${ORIGIN_IPS[@]:-}" && v="$SERVER_IP_DNS"
+                ;;
+            AAAA)
+                [[ "$rn" == "@" ]] && continue
+                en_lista "${v,,}" "${ORIGIN_IP6[@]:-}" && continue
+                ;;
+            MX)
+                # Con correo local manda el MX de QemuCP (mail.dominio); los del
+                # origen competirian con el. Con correo externo se respetan.
+                [[ -z "$EXT" ]] && continue
+                pr="${v%% *}"; v="${v#* }"
+                [[ "$pr" =~ ^[0-9]+$ ]] || continue
+                ;;
+            SRV)
+                pr="${v%% *}"; v="${v#* }"
+                [[ "$pr" =~ ^[0-9]+$ ]] || continue
+                ;;
+            TXT)
+                v="${v//\\;/;}"
+                if [[ "$rn" == "@" && "$v" == *"v=spf1"* ]]; then SPF_CLIENTE="$v"; continue; fi
+                if [[ "$rn" == "_dmarc" ]]; then DMARC_CLIENTE="$v"; continue; fi
+                ;;
+            CAA)
+                [[ "$v" == *issue* ]] && CAA_ISSUE+=("$v")
+                ;;
+        esac
+        [[ -z "$v" ]] && continue
+        # CNAME con valor relativo al dominio -> absoluto con punto final
+        [[ "$t" =~ ^(CNAME|NS|MX)$ ]] && v="${v%.}."
+        [[ "$t" == "SRV" ]] && v="${v%.}."
+        zona_escribir "$ZONE_CONF" "$rn" "$t" "$pr" "$v" && REC_COUNT=$((REC_COUNT+1)) || true
+    done < "$TSV"
 
-            # Si el registro apunta a una IP del servidor de ORIGEN, se
-            # reescribe a la IP de ESTE servidor. Si no, la web/servicio
-            # seguiria resolviendo al hosting antiguo tras la migracion.
-            if [[ "$rtype" == "A" && "$rec_val" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                if [[ "$rec_val" != "$SERVER_IP" && "$rec_val" != "127.0.0.1" ]]; then
-                    rec_val="$SERVER_IP"
-                fi
-            fi
+    # ---- Correo: MX, SRV, SPF, DMARC, DKIM -----------------------
+    if [[ -n "$EXT" ]]; then
+        zona_borrar "$ZONE_CONF" "TYPE='MX' PRIORITY='0' VALUE='mail.${ZD}.'"
+        sed -i "/TYPE='MX' PRIORITY='[0-9]*' VALUE='mail\.${ZD//./\\.}\.'/d" "$ZONE_CONF"
+        for s in _submission._tcp _imap._tcp _imaps._tcp _pop3._tcp _pop3s._tcp; do
+            sed -i "/RECORD='$s' TYPE='SRV' .*mail\.${ZD//./\\.}\.'/d" "$ZONE_CONF"
+        done
+        info "  $ZD: correo externo ($EXT): MX del proveedor, sin MX/SRV locales"
+    else
+        # mail y webmail siempre a ESTE servidor (si no, falla el SSL de correo)
+        sed -i "/RECORD='mail' /d; /RECORD='webmail' /d" "$ZONE_CONF"
+        zona_escribir "$ZONE_CONF" mail A '' "$SERVER_IP_DNS" || true
+        zona_escribir "$ZONE_CONF" webmail A '' "$SERVER_IP_DNS" || true
+    fi
 
-            # MX: con el correo en ESTE servidor, QemuCP ya ha creado su MX
-            # (mail.DOMINIO). Los MX de cPanel que apuntan dentro de la zona
-            # (al dominio pelado o a mail.DOMINIO) son el correo local del
-            # servidor de origen: importarlos deja dos MX con la misma
-            # prioridad y los emisores reparten al azar entre ellos.
-            # Visto en ganaderiagranda.es: "0 mail.dominio." y "0 dominio.".
-            # Con correo externo se conservan todos (Google, Microsoft...).
-            if [[ "$rtype" == "MX" && "$MAIL_EXTERNO" != "si" ]]; then
-                MX_DEST="${rec_val%.}"
-                if [[ "$MX_DEST" == "$ZONE_DOMAIN" || "$MX_DEST" == *".$ZONE_DOMAIN" ]]; then
-                    continue
-                fi
-            fi
-
-            # TXT entre comillas: cPanel escribe los ';' como '\;' en el
-            # fichero de zona. Dentro de comillas un ';' no es comentario,
-            # asi que se guarda limpio, igual que los registros de QemuCP.
-            if [[ "$rtype" == "TXT" && "$rec_val" == \"* ]]; then
-                rec_val="${rec_val//\\;/;}"
-            fi
-
-            # Escribimos el registro DIRECTAMENTE en el fichero de zona de
-            # HestiaCP en lugar de llamar a v-add-dns-record. Ese comando,
-            # aun con restart=no, ejecuta sort_dns_records +
-            # update_domain_serial + rebuild_dns_domain_conf en CADA llamada
-            # (~1-2s), lo que hacia que una zona de 35 registros tardase mas
-            # de un minuto. Aqui acumulamos y reconstruimos una vez por zona.
-            # NOTA: esto aplica a TODOS los tipos (A, CNAME, TXT, MX, SRV...),
-            # no solo a los que llevan prioridad.
-            ZONE_CONF="/usr/local/hestia/data/users/$CPANEL_USER/dns/${ZONE_DOMAIN}.conf"
-            if [[ -f "$ZONE_CONF" ]]; then
-                # IDEMPOTENCIA: si el registro YA existe (mismo nombre, tipo,
-                # prioridad y valor) no volver a anadirlo. Sin esto, reejecutar
-                # el migrador sobre una cuenta ya migrada multiplica la zona
-                # (visto en produccion: 115 registros donde debia haber 20).
-                if grep -qF "RECORD='${rec_name:-@}' TYPE='$rtype' PRIORITY='$rec_prio' VALUE='$rec_val'" \
-                    "$ZONE_CONF" 2>/dev/null; then
-                    continue
-                fi
-                # DMARC: solo puede haber UNO. QemuCP crea el suyo
-                # (p=quarantine) y cPanel trae el del cliente; con los dos, el
-                # receptor no puede elegir politica y Proofpoint rechaza el
-                # correo con "554 5.7.5 Permanent error evaluating DMARC
-                # policy" (ganaderiagranda.es, artifactum.com). Se conserva
-                # el del cliente, que es la politica que tenia en produccion:
-                # cambiarla al migrar podria mandar su correo a spam.
-                if [[ "$rtype" == "TXT" && "$rec_name" == "_dmarc" ]]; then
-                    sed -i "/RECORD='_dmarc' TYPE='TXT'/d" "$ZONE_CONF" 2>/dev/null || true
-                fi
-                NEXT_ID=$(( $(awk -F"ID='" '{print $2}' "$ZONE_CONF" 2>/dev/null \
-                    | cut -d"'" -f1 | sort -n | tail -1) + 1 ))
-                [[ -z "$NEXT_ID" || "$NEXT_ID" -lt 1 ]] && NEXT_ID=1
-                NOW_T=$(date +'%T'); NOW_D=$(date +'%F')
-                printf "ID='%s' RECORD='%s' TYPE='%s' PRIORITY='%s' VALUE='%s' SUSPENDED='no' TIME='%s' DATE='%s'\n" \
-                    "$NEXT_ID" "${rec_name:-@}" "$rtype" "$rec_prio" "$rec_val" "$NOW_T" "$NOW_D" \
-                    >> "$ZONE_CONF" 2>/dev/null && REC_COUNT=$((REC_COUNT+1)) || true
-            fi
-        done < <(grep -v "^;" "$ZONE_FILE" 2>/dev/null | grep -v "^$" || true)
-
-        # ---- Saneado de la zona tras importar --------------------------
-        # 1. mail/webmail DEBEN apuntar a ESTE servidor. Los del backup
-        #    apuntan al servidor de origen, y entonces falla la emision del
-        #    SSL de correo (HestiaCP pide cert para mail.DOM y webmail.DOM).
-        # 2. Un nombre con CNAME no puede tener otros registros: BIND
-        #    rechaza la zona ENTERA ("CNAME and other data") y el dominio
-        #    deja de resolver. Se elimina el CNAME y se conserva el A.
-        ZONE_CONF="/usr/local/hestia/data/users/$CPANEL_USER/dns/${ZONE_DOMAIN}.conf"
-        if [[ -f "$ZONE_CONF" ]]; then
-            # Con correo EXTERNO no se toca 'mail' (podria ser parte de la
-            # configuracion del proveedor) y se elimina el MX local que
-            # HestiaCP anade al crear la zona, que competiria con los MX de
-            # Google/Microsoft y desviaria el correo al servidor equivocado.
-            if [[ "$MAIL_EXTERNO" == "si" ]]; then
-                # Eliminar el MX local SEA CUAL SEA su prioridad: HestiaCP lo
-                # crea con PRIORITY='0' en unas versiones y '10' en otras, asi
-                # que fijar el numero dejaba el MX local conviviendo con los
-                # del proveedor externo (dos rutas de correo compitiendo).
-                sed -i "/TYPE='MX' PRIORITY='[0-9]*' VALUE='mail\.${ZONE_DOMAIN}\.'/d" \
-                    "$ZONE_CONF" 2>/dev/null || true
-                SUBS_A_CREAR="webmail"
-                warn "  $ZONE_DOMAIN: MX local eliminado, se mantienen los del proveedor"
-            else
-                SUBS_A_CREAR="mail webmail"
-            fi
-
-            for SUB in $SUBS_A_CREAR; do
-                # Quitar cualquier registro previo de ese nombre (del origen)
-                sed -i "/RECORD='${SUB}' /d" "$ZONE_CONF" 2>/dev/null || true
-                # Insertar un A limpio apuntando a este servidor
-                NID=$(( $(grep -oP "ID='\K[0-9]+" "$ZONE_CONF" 2>/dev/null \
-                    | sort -n | tail -1) + 1 ))
-                [[ -z "$NID" || "$NID" -lt 1 ]] && NID=1
-                printf "ID='%s' RECORD='%s' TYPE='A' PRIORITY='' VALUE='%s' SUSPENDED='no' TIME='%s' DATE='%s'\n" \
-                    "$NID" "$SUB" "$SERVER_IP" "$(date +%T)" "$(date +%F)" \
-                    >> "$ZONE_CONF"
+    # SPF: uno solo. Dos registros SPF invalidan los dos.
+    SPF_HESTIA=$( { grep "RECORD='@' TYPE='TXT'" "$ZONE_CONF" || true; } | grep -oP "VALUE='\K\"v=spf1[^']*" | head -1 || true)
+    sed -i "/RECORD='@' TYPE='TXT' PRIORITY='[^']*' VALUE='\"v=spf1/d" "$ZONE_CONF"
+    SPF_FINAL=""
+    if [[ -n "$SPF_CLIENTE" ]]; then
+        SPF_CLI=$(echo "$SPF_CLIENTE" | tr -d '"' | sed 's/^[[:space:]]*//')
+        for ip in "${ORIGIN_IPS[@]:-}"; do [[ -n "$ip" ]] && SPF_CLI="${SPF_CLI//ip4:$ip/ip4:$SERVER_IP_DNS}"; done
+        if [[ -n "$EXT" ]]; then
+            SPF_FINAL="\"$SPF_CLI\""
+        else
+            # Correo local: el SPF de QemuCP + lo que el cliente autorizaba
+            # (newsletters, CRM, Google para envios...) menos el origen.
+            EXTRA=""
+            ALL_Q=$(echo "$SPF_CLI" | grep -oE '[~?+-]?all\b' | tail -1 || true)
+            for tok in $SPF_CLI; do
+                case "$tok" in
+                    v=spf1|a|+a|mx|+mx|ptr|+ptr|*all|"ip4:$SERVER_IP_DNS"|"+ip4:$SERVER_IP_DNS") ;;
+                    include:*|+include:*|ip4:*|+ip4:*|ip6:*|+ip6:*|a:*|mx:*|exists:*) EXTRA="$EXTRA ${tok#+}" ;;
+                esac
             done
-            log "  ${SUBS_A_CREAR// //} de $ZONE_DOMAIN apuntando a $SERVER_IP"
-
-            # Resolver conflictos CNAME + otro tipo (rompen la zona en BIND).
-            # OJO: no usar NC como contador, es la variable del color de los
-            # mensajes definida al inicio del script.
-            for N in $(grep -oP "RECORD='\K[^']+" "$ZONE_CONF" | sort -u); do
-                # OJO: 'grep -c' devuelve codigo 1 cuando cuenta 0 y con
-                # 'set -e' eso aborta el bucle en silencio. De ahi el '|| true'.
-                CNT_CNAME=$(grep "RECORD='$N' " "$ZONE_CONF" | grep -c "TYPE='CNAME'" || true)
-                CNT_OTRO=$(grep "RECORD='$N' " "$ZONE_CONF" | grep -vc "TYPE='CNAME'" || true)
-                [[ -z "$CNT_CNAME" ]] && CNT_CNAME=0
-                [[ -z "$CNT_OTRO" ]] && CNT_OTRO=0
-                if [[ "$CNT_CNAME" -gt 0 && "$CNT_OTRO" -gt 0 ]]; then
-                    sed -i "/RECORD='$N' TYPE='CNAME'/d" "$ZONE_CONF"
-                    warn "  $ZONE_DOMAIN: CNAME '$N' eliminado (colisionaba con otro registro)"
-                fi
-                # Varios CNAME para el mismo nombre: dejar solo el primero
-                if [[ "$CNT_CNAME" -gt 1 ]]; then
-                    awk -v n="$N" '
-                        $0 ~ "RECORD=\x27"n"\x27 TYPE=\x27CNAME\x27" {
-                            if (seen[n]++) next
-                        } {print}' "$ZONE_CONF" > "${ZONE_CONF}.tmp" \
-                        && mv "${ZONE_CONF}.tmp" "$ZONE_CONF"
-                    warn "  $ZONE_DOMAIN: CNAMEs duplicados de '$N' eliminados"
-                fi
-            done
-            REC_COUNT=$((REC_COUNT+2))
+            SPF_FINAL="\"v=spf1 a mx ip4:$SERVER_IP_DNS${EXTRA} ${ALL_Q:-~all}\""
         fi
+    elif [[ -z "$EXT" ]]; then
+        SPF_FINAL="${SPF_HESTIA:-\"v=spf1 a mx ip4:$SERVER_IP_DNS ~all\"}"
+    fi
+    # Con correo externo y sin SPF del cliente no se pone ninguno: el de
+    # QemuCP (a mx ip4:este -all) haria fallar el correo de Google/Microsoft.
+    [[ -n "$SPF_FINAL" ]] && zona_escribir "$ZONE_CONF" @ TXT '' "$SPF_FINAL" || true
 
-        # Reconstruir ESTA zona una sola vez (en vez de una vez por registro)
-        if [[ $REC_COUNT -gt 0 ]]; then
-            [[ -f "$ZONE_CONF" ]] && chmod 660 "$ZONE_CONF" 2>/dev/null || true
-            $BIN/v-rebuild-dns-domain "$CPANEL_USER" "$ZONE_DOMAIN" 'no' 2>/dev/null
-            # El serial del SOA no puede pasar de 10 digitos o BIND rechaza la
-            # zona ("out of range"). HestiaCP lo desborda al reconstruir muchas
-            # veces el mismo dia.
-            ZFILE="/home/$CPANEL_USER/conf/dns/${ZONE_DOMAIN}.db"
-            if [[ -f "$ZFILE" ]]; then
-                LONGSER=$(grep -oP '^\s+\K[0-9]{11,}' "$ZFILE" 2>/dev/null | head -1)
-                if [[ -n "$LONGSER" ]]; then
-                    sed -i "s/$LONGSER/$(date +%Y%m%d)01/" "$ZFILE"
-                    warn "  $ZONE_DOMAIN: serial corregido (excedia 10 digitos)"
-                fi
-            fi || true
-            log "  $REC_COUNT registros DNS importados en $ZONE_DOMAIN"
+    # DMARC: uno solo; se conserva la politica del cliente
+    if [[ -n "$DMARC_CLIENTE" ]]; then
+        sed -i "/RECORD='_dmarc' TYPE='TXT'/d" "$ZONE_CONF"
+        zona_escribir "$ZONE_CONF" _dmarc TXT '' "$DMARC_CLIENTE" || true
+    elif [[ -n "$EXT" ]]; then
+        sed -i "/RECORD='_dmarc' TYPE='TXT'/d" "$ZONE_CONF"
+    fi
+
+    # DKIM de ESTE servidor (el dominio de correo se crea antes que la zona,
+    # y entonces QemuCP no llega a publicarlo).
+    if [[ -z "$EXT" ]] && [[ -f "$HESTIA/data/users/$CPANEL_USER/mail/$ZD.pub" ]]; then
+        if ! grep -q "RECORD='mail._domainkey'" "$ZONE_CONF"; then
+            P=$(grep -v ' KEY---' "$HESTIA/data/users/$CPANEL_USER/mail/$ZD.pub" | tr -d '\n')
+            zona_escribir "$ZONE_CONF" mail._domainkey TXT '' "\"v=DKIM1; k=rsa; p=$P\"" || true
+        fi
+    fi
+
+    # CAA que no autoriza a Let's Encrypt: el SSL fallaria
+    if [[ ${#CAA_ISSUE[@]} -gt 0 ]] && ! printf '%s\n' "${CAA_ISSUE[@]}" | grep -q 'letsencrypt.org'; then
+        zona_escribir "$ZONE_CONF" @ CAA '' '0 issue "letsencrypt.org"' || true
+        info "  $ZD: CAA ampliado para permitir Let's Encrypt"
+    fi
+
+    # Web del dominio alojada fuera del servidor de origen: no romperla
+    if [[ -n "$APEX_EXTERNA" ]]; then
+        sed -i "/RECORD='@' TYPE='A' /d" "$ZONE_CONF"
+        zona_escribir "$ZONE_CONF" @ A '' "$APEX_EXTERNA" || true
+        pendiente "$ZD apuntaba a $APEX_EXTERNA (no es el servidor cPanel): se mantiene esa IP. Si la web se aloja aqui, cambia el A de @ a $SERVER_IP_DNS"
+    fi
+
+    # CNAME + otro registro con el mismo nombre: BIND rechaza la zona entera
+    for N in $(grep -oP "RECORD='\K[^']+" "$ZONE_CONF" | sort -u); do
+        CNT_CNAME=$(grep "RECORD='$N' " "$ZONE_CONF" | grep -c "TYPE='CNAME'" || true)
+        CNT_OTRO=$(grep "RECORD='$N' " "$ZONE_CONF" | grep -vc "TYPE='CNAME'" || true)
+        if [[ "${CNT_CNAME:-0}" -gt 0 && "${CNT_OTRO:-0}" -gt 0 ]]; then
+            sed -i "/RECORD='$N' TYPE='CNAME'/d" "$ZONE_CONF"
+            info "  $ZD: CNAME '$N' eliminado (colisionaba con otro registro)"
+        elif [[ "${CNT_CNAME:-0}" -gt 1 ]]; then
+            awk -v n="$N" '$0 ~ "RECORD=\047"n"\047 TYPE=\047CNAME\047" { if (seen++) next } { print }' \
+                "$ZONE_CONF" > "$ZONE_CONF.qtmp" && cat "$ZONE_CONF.qtmp" > "$ZONE_CONF" && rm -f "$ZONE_CONF.qtmp"
         fi
     done
-    # Reconstruir y reiniciar DNS UNA sola vez, al terminar todas las zonas
-    $BIN/v-rebuild-dns-domains "$CPANEL_USER" 2>/dev/null || true
-    $BIN/v-restart-dns 2>/dev/null || true
-    log "DNS reconstruido y reiniciado (una sola vez)"
+
+    chmod 660 "$ZONE_CONF" 2>/dev/null || true
+    $BIN/v-rebuild-dns-domain "$CPANEL_USER" "$ZD" 'no' >> "$LOG" 2>&1 || pendiente "Error reconstruyendo la zona $ZD (ver $LOG)"
+    log "  $ZD: $REC_COUNT registros del cliente importados"
+done
+if [[ ${#ZONA_TSV[@]} -gt 0 ]]; then
+    $BIN/v-restart-dns >> "$LOG" 2>&1 || true
 else
-    warn "No se encontro directorio dnszones/ en el backup"
+    info "El backup no tiene zonas DNS"
 fi
 
-# -- Ajustar open_basedir para rutas fuera de public_html -------
-header "Ajustando open_basedir"
-
-# Algunas apps (Moodle, PrestaShop antiguo) necesitan acceder a rutas
-# fuera de public_html. Anadimos rutas comunes al open_basedir.
-PHP_POOL_DIR="/etc/php"
-for POOL_FILE in $(find "$PHP_POOL_DIR" -name "${CPANEL_USER}*" -o -name "*.conf" 2>/dev/null |     xargs grep -l "$CPANEL_USER" 2>/dev/null | head -5); do
-    if grep -q "open_basedir" "$POOL_FILE" 2>/dev/null; then
-        # Anadir home del usuario y tmp al open_basedir si no estan ya
-        EXTRA_PATHS="/home/$CPANEL_USER/web:/home/$CPANEL_USER/tmp"
-        if ! grep "open_basedir" "$POOL_FILE" | grep -q "/home/$CPANEL_USER/web"; then
-            sed -i "s|php_admin_value\[open_basedir\] = .*|&:$EXTRA_PATHS|" "$POOL_FILE" 2>/dev/null || true
-            log "open_basedir ampliado en $POOL_FILE"
-        fi
+# ============================================================
+#  VERSION DE PHP
+# ============================================================
+header "Asignando version de PHP"
+for DOM in "${WEB_CREADOS[@]:-}"; do
+    [[ -z "$DOM" ]] && continue
+    PHP_TPL="${PHP_DETECTADA[$DOM]:-}"
+    if [[ -z "$PHP_TPL" ]]; then
+        info "$DOM: version de PHP no detectada, se usa la de por defecto"
+        continue
+    fi
+    if [[ -f "$HESTIA/data/templates/web/php-fpm/${PHP_TPL}.tpl" ]]; then
+        $BIN/v-change-web-domain-backend-tpl "$CPANEL_USER" "$DOM" "$PHP_TPL" "no" >> "$LOG" 2>&1 \
+            && log "$DOM -> $PHP_TPL" || pendiente "No se pudo asignar $PHP_TPL a $DOM"
+    else
+        pendiente "$DOM usaba ${PHP_TPL} en cPanel y no esta instalada aqui: se usa la de por defecto"
     fi
 done
 
-# -- Detectar y asignar version PHP por dominio ---------------
-header "Detectando version PHP de cada dominio"
-
-# Detecta la version PHP de un dominio desde varias fuentes del backup cPanel
-detect_php_version() {
-    local DOMAIN="$1"
-    local WEBROOT="$2"
-    local VERSION=""
-
-    # Fuente 1: .htaccess del dominio (AddHandler/AddType/SetHandler)
-    if [[ -f "$WEBROOT/.htaccess" ]]; then
-        # ea-php74, php74, php-74 -> 74
-        VERSION=$(grep -iP "x-httpd-(ea-)?php[0-9]{2}" "$WEBROOT/.htaccess" 2>/dev/null |             grep -oP "php[0-9]{2}" | grep -oP "[0-9]{2}" | head -1)
-    fi
-
-    # Fuente 2: .user.ini o php.ini con referencia de version
-    if [[ -z "$VERSION" && -f "$WEBROOT/.user.ini" ]]; then
-        VERSION=$(grep -oP "php[0-9]{2}" "$WEBROOT/.user.ini" 2>/dev/null | grep -oP "[0-9]{2}" | head -1)
-    fi
-
-    # Fuente 3: userdata del backup (formato cPanel EA4)
-    for UD in "$BACKUP_PATH/userdata/$DOMAIN" "$BACKUP_PATH/userdata/${DOMAIN}.json"; do
-        if [[ -z "$VERSION" && -f "$UD" ]]; then
-            # phpversion: "ea-php74" o "ea-php81"
-            VERSION=$(grep -iP "phpversion" "$UD" 2>/dev/null |                 grep -oP "php[0-9]{2}" | grep -oP "[0-9]{2}" | head -1)
-        fi
+# ============================================================
+#  SSL VIGENTE DE CPANEL
+# ============================================================
+# Si el certificado del origen sigue valido se instala: al cambiar el DNS
+# la web sigue en https sin esperar a Let's Encrypt. Despues se sustituye
+# por uno de Let's Encrypt con los comandos del final.
+header "Importando certificados SSL vigentes"
+SSL_OK=()
+TLS_FILES=()
+for f in "$BACKUP_PATH"/apache_tls/* "$BACKUP_PATH"/ssl/*.pem; do [[ -f "$f" ]] && TLS_FILES+=("$f"); done
+if [[ ${#TLS_FILES[@]} -gt 0 ]]; then
+    for DOM in "${WEB_CREADOS[@]:-}"; do
+        [[ -z "$DOM" ]] && continue
+        for f in "${TLS_FILES[@]}"; do
+            T="$WORK_DIR/ssl-$DOM"; rm -rf "$T"; mkdir -p "$T"
+            awk -v d="$T" '
+                /-----BEGIN .*PRIVATE KEY-----/ { out = d "/key"; k = 1 }
+                /-----BEGIN CERTIFICATE-----/ { n++; out = (n == 1) ? d "/crt" : d "/ca" }
+                out { print >> out }
+                /-----END/ { out = "" }' "$f"
+            [[ -s "$T/key" && -s "$T/crt" ]] || continue
+            openssl x509 -in "$T/crt" -noout -checkend 604800 >/dev/null 2>&1 || continue
+            openssl x509 -in "$T/crt" -noout -checkhost "$DOM" 2>/dev/null | grep -q "does match" || continue
+            [[ "$(openssl x509 -in "$T/crt" -noout -pubkey 2>/dev/null | sha256sum)" == \
+               "$(openssl pkey -in "$T/key" -pubout 2>/dev/null | sha256sum)" ]] || continue
+            mv "$T/crt" "$T/$DOM.crt"; mv "$T/key" "$T/$DOM.key"; [[ -s "$T/ca" ]] && mv "$T/ca" "$T/$DOM.ca"
+            if $BIN/v-add-web-domain-ssl "$CPANEL_USER" "$DOM" "$T" '' 'no' >> "$LOG" 2>&1; then
+                SSL_OK+=("$DOM")
+                log "$DOM: SSL de cPanel instalado (caduca $(openssl x509 -in "$T/$DOM.crt" -noout -enddate | cut -d= -f2))"
+            fi
+            break
+        done
     done
+fi
+[[ ${#SSL_OK[@]} -eq 0 ]] && info "Ningun certificado vigente que importar"
 
-    # Fuente 4: fichero cp/ del usuario
-    if [[ -z "$VERSION" && -f "$BACKUP_PATH/cp/$CPANEL_USER" ]]; then
-        VERSION=$(grep -iP "phpversion|php_version" "$BACKUP_PATH/cp/$CPANEL_USER" 2>/dev/null |             grep -oP "php[0-9]{2}" | grep -oP "[0-9]{2}" | head -1)
-    fi
-
-    # Convertir 74 -> 7_4, 81 -> 8_1
-    if [[ -n "$VERSION" && ${#VERSION} -eq 2 ]]; then
-        echo "PHP-${VERSION:0:1}_${VERSION:1:1}"
-    else
-        echo ""
-    fi
-}
-
-# Aplicar version PHP a cada dominio
-assign_php_version() {
-    local DOMAIN="$1"
-    local WEBROOT="/home/$CPANEL_USER/web/$DOMAIN/public_html"
-    local PHP_TPL
-    PHP_TPL=$(detect_php_version "$DOMAIN" "$WEBROOT")
-
-    if [[ -n "$PHP_TPL" ]]; then
-        # Verificar que la version existe en el sistema
-        # OJO: la plantilla es PHP-8_1 pero el directorio es /etc/php/8.1
-        # (punto, no guion bajo). Sin esta conversion la comprobacion SIEMPRE
-        # fallaba y ningun dominio recibia la version de PHP detectada.
-        PHP_NUM="${PHP_TPL#PHP-}"
-        PHP_NUM="${PHP_NUM//_/.}"
-        if [[ -d "/etc/php/$PHP_NUM" ]] \
-            || ls "$HESTIA/data/templates/web/php-fpm/${PHP_TPL}.tpl" &>/dev/null 2>&1; then
-            $BIN/v-change-web-domain-backend-tpl "$CPANEL_USER" "$DOMAIN" "$PHP_TPL" "no"                 2>/dev/null && log "  $DOMAIN -> $PHP_TPL" ||                 warn "  No se pudo asignar $PHP_TPL a $DOMAIN"
-        else
-            warn "  $DOMAIN necesita $PHP_TPL pero no esta instalada - usando por defecto"
-        fi
-    else
-        info "  $DOMAIN: version PHP no detectada, usando por defecto"
-    fi
-}
-
-[[ -n "$MAIN_DOMAIN" ]] && assign_php_version "$MAIN_DOMAIN"
-for ADDON in "${ADDON_DOMAINS[@]:-}"; do
-    assign_php_version "$ADDON"
-done
-
-# -- Detectar y actualizar credenciales de CMS ----------------
+# ============================================================
+#  CREDENCIALES DE LOS CMS
+# ============================================================
 header "Actualizando credenciales de CMS"
-
 # Extrae el nombre de DB configurado en un fichero de config de CMS
 get_config_dbname() {
     local FILE="$1"
@@ -1212,7 +1539,7 @@ process_domain_configs() {
             DB_FINAL=$(echo "$DB_ENTRY" | cut -d: -f1)
             DB_USER=$(echo "$DB_ENTRY" | cut -d: -f2)
             DB_PASS=$(echo "$DB_ENTRY" | cut -d: -f3-)
-            if [[ "$DB_FINAL" == "$CONFIG_DB" ]]; then
+            if [[ "$DB_FINAL" == "$CONFIG_DB" || "$(quitar_prefijo "${DB_FINAL#${CPANEL_USER}_}")" == "$(quitar_prefijo "$CONFIG_DB")" ]]; then
                 update_one_config "$FOUND_CONFIG" "$FOUND_TYPE" "$DB_FINAL" "$DB_USER" "$DB_PASS"
                 log "  Config actualizado con DB $DB_FINAL (match exacto)"
                 MATCHED="yes"
@@ -1230,7 +1557,7 @@ process_domain_configs() {
                 update_one_config "$FOUND_CONFIG" "$FOUND_TYPE" "$DB_FINAL" "$DB_USER" "$DB_PASS"
                 log "  Config actualizado con DB $DB_FINAL (unica DB migrada)"
             else
-                warn "  Sin DB coincidente para $CONFIG_DB - revisar manualmente"
+                pendiente "CMS en $FOUND_CONFIG usa la base de datos $CONFIG_DB y no hay ninguna migrada con ese nombre: revisar a mano"
                 echo "CMS sin match: $FOUND_CONFIG (esperaba DB: $CONFIG_DB)" >> "$CREDS_FILE"
             fi
         fi
@@ -1240,113 +1567,153 @@ process_domain_configs() {
            -o -name "env.php" -o -name "local.xml" -o -name "database.php" -o -name ".env" \) \
         -type f 2>/dev/null)
 }
-
 if [[ ${#DB_CREATED[@]} -gt 0 ]]; then
-    log "DBs migradas en esta ejecucion: ${#DB_CREATED[@]}"
-    # Procesar TODOS los dominios: principal, addons Y subdominios.
-    # Un subdominio puede tener su propio CMS (blog.dominio.com, tienda...).
-    [[ -n "$MAIN_DOMAIN" ]] && \
-        process_domain_configs "/home/$CPANEL_USER/web/$MAIN_DOMAIN/public_html"
-    for ADDON in "${ADDON_DOMAINS[@]:-}"; do
-        [[ -n "$ADDON" ]] && \
-            process_domain_configs "/home/$CPANEL_USER/web/$ADDON/public_html"
-    done
-    for SUB in "${SUB_DOMAINS[@]:-}"; do
-        [[ -n "$SUB" ]] && \
-            process_domain_configs "/home/$CPANEL_USER/web/$SUB/public_html"
+    for DOM in "${WEB_CREADOS[@]:-}"; do
+        [[ -n "$DOM" ]] && process_domain_configs "/home/$CPANEL_USER/web/$DOM/public_html"
     done
 else
-    warn "No hay DBs migradas en esta ejecucion - saltando actualizacion de CMS"
+    info "No hay bases de datos migradas: nada que actualizar"
 fi
 
-# -- Reconstruir configuracion de usuario -----------------------
+# ============================================================
+#  RECONSTRUIR Y VERIFICAR
+# ============================================================
 header "Reconstruyendo configuracion"
+$BIN/v-rebuild-user "$CPANEL_USER" 'no' >> "$LOG" 2>&1 && log "Configuracion reconstruida" || warn "v-rebuild-user devolvio error (ver $LOG)"
+$BIN/v-update-user-counters "$CPANEL_USER" >> "$LOG" 2>&1 || true
 
-ALL_DOMAINS=()
-[[ -n "$MAIN_DOMAIN" ]] && ALL_DOMAINS+=("$MAIN_DOMAIN")
-# Anadir addons y subdominios (protegido para arrays vacios con set -u)
-for d in "${ADDON_DOMAINS[@]:-}"; do [[ -n "$d" ]] && ALL_DOMAINS+=("$d"); done
-for d in "${SUB_DOMAINS[@]:-}"; do [[ -n "$d" ]] && ALL_DOMAINS+=("$d"); done
+# Las contrasenas originales deben seguir en passwd tras la reconstruccion
+PASS_PERDIDAS=0
+for MD in "$HESTIA/data/users/$CPANEL_USER/mail/"*.conf; do
+    [[ -f "$MD" ]] || continue
+    dom=$(basename "$MD" .conf); PW="$DEST_HOME/conf/mail/$dom/passwd"
+    [[ -f "$PW" ]] || continue
+    while IFS= read -r l; do
+        acc=$(echo "$l" | grep -oP "^ACCOUNT='\K[^']+"); h=$(echo "$l" | grep -oP "MD5='\K[^']+")
+        [[ -z "$acc" || -z "$h" ]] && continue
+        if ! awk -F: -v a="$acc" -v h="$h" '$1 == a && $2 == h { f = 1 } END { exit !f }' "$PW"; then
+            awk -F: -v OFS=: -v a="$acc" -v h="$h" '$1 == a { $2 = h } { print }' "$PW" > "$PW.qtmp" \
+                && cat "$PW.qtmp" > "$PW" && rm -f "$PW.qtmp"
+            PASS_PERDIDAS=$((PASS_PERDIDAS+1))
+        fi
+    done < "$MD"
+done
+[[ $PASS_PERDIDAS -gt 0 ]] && warn "$PASS_PERDIDAS contrasenas de correo restauradas tras la reconstruccion"
 
-# Reconstruir configuracion del usuario para aplicar todos los cambios
-$BIN/v-rebuild-user "$CPANEL_USER" 2>/dev/null && log "Configuracion reconstruida" || true
-
-# -- VERIFICACION FINAL de permisos de correo -------------------
-# Los pasos anteriores (rebuild-user, rebuild-mail-domains) pueden
-# revertir el propietario del directorio de configuracion. Si queda mal,
-# Dovecot no puede leer el passwd y RECHAZA TODOS los logins: el cliente
-# ve que "la contrasena deja de funcionar sola".
 header "Verificando permisos de correo"
 PERM_FIX=0
 for MD in /home/$CPANEL_USER/conf/mail/*/; do
     [[ -d "$MD" ]] || continue
-    if [[ "$(stat -c '%U:%G' "$MD" 2>/dev/null)" != "Debian-exim:mail" ]]; then
-        chown Debian-exim:mail "$MD" 2>/dev/null || true
-        chmod 771 "$MD" 2>/dev/null || true
-        PERM_FIX=$((PERM_FIX+1))
+    if [[ "$(stat -c '%U:%G' "$MD")" != "Debian-exim:mail" ]]; then
+        chown Debian-exim:mail "$MD"; chmod 771 "$MD"; PERM_FIX=$((PERM_FIX+1))
     fi
-    if [[ -f "$MD/passwd" ]] && \
-       [[ "$(stat -c '%U:%G' "$MD/passwd" 2>/dev/null)" != "dovecot:mail" ]]; then
-        chown dovecot:mail "$MD/passwd" 2>/dev/null || true
-        chmod 660 "$MD/passwd" 2>/dev/null || true
-        PERM_FIX=$((PERM_FIX+1))
+    if [[ -f "$MD/passwd" ]] && [[ "$(stat -c '%U:%G' "$MD/passwd")" != "dovecot:mail" ]]; then
+        chown dovecot:mail "$MD/passwd"; chmod 660 "$MD/passwd"; PERM_FIX=$((PERM_FIX+1))
     fi
-    # Ficheros que lee EXIM. Visto en produccion: el directorio quedaba
-    # correcto pero estos volvian a USUARIO:USUARIO, y entonces Exim no
-    # puede leerlos y RECHAZA el correo entrante con 451:
-    #   failed to open /etc/exim4/domains/DOM/aliases: Permission denied
     for MF in accounts aliases ip limits antispam antivirus fwd_only dkim.pem; do
         [[ -f "$MD$MF" ]] || continue
-        if [[ "$(stat -c '%U:%G' "$MD$MF" 2>/dev/null)" != "Debian-exim:mail" ]]; then
-            chown Debian-exim:mail "$MD$MF" 2>/dev/null || true
-            chmod 660 "$MD$MF" 2>/dev/null || true
-            PERM_FIX=$((PERM_FIX+1))
+        if [[ "$(stat -c '%U:%G' "$MD$MF")" != "Debian-exim:mail" ]]; then
+            chown Debian-exim:mail "$MD$MF"; chmod 660 "$MD$MF"; PERM_FIX=$((PERM_FIX+1))
         fi
     done
 done
 if [[ $PERM_FIX -gt 0 ]]; then
-    warn "$PERM_FIX permisos de correo corregidos en la verificacion final"
+    warn "$PERM_FIX permisos de correo corregidos"
     systemctl restart dovecot 2>/dev/null || true
     systemctl restart exim4 2>/dev/null || true
 else
     log "Permisos de correo correctos"
 fi
 
-# SSL: NO se emite automaticamente durante la migracion.
-# Motivo: al migrar, el DNS del dominio suele seguir apuntando al servidor
-# de origen, por lo que la validacion de Let's Encrypt falla y cada intento
-# fallido cuenta para el limite de la API (5 fallos/hora por dominio).
-# Se listan los comandos para ejecutarlos cuando el DNS ya apunte aqui.
-header "SSL (emision manual)"
-if [[ ${#ALL_DOMAINS[@]} -gt 0 ]]; then
-    warn "El SSL NO se emite automaticamente (el DNS aun puede apuntar al origen)."
-    warn "Cuando el DNS apunte a este servidor, ejecuta:"
-    echo ""
-    for DOMAIN in "${ALL_DOMAINS[@]:-}"; do
-        [[ -z "$DOMAIN" ]] && continue
-        echo "  $BIN/v-add-letsencrypt-domain $CPANEL_USER $DOMAIN www.$DOMAIN yes"
+# ---- Comprobacion de las zonas DNS -------------------------------
+# Se pregunta al DNS de ESTE servidor lo que respondera cuando se cambien los
+# DNS del dominio: zona valida, web, correo, un solo SPF y DMARC, DKIM.
+header "Comprobando las zonas DNS"
+DNS_MAL=0
+if command -v dig >/dev/null 2>&1 && [[ ${#ZONA_CREADA[@]} -gt 0 ]]; then
+    sleep 2
+    for ZD in $(printf '%s\n' "${!ZONA_CREADA[@]}" | sort); do
+        PROB=()
+        ZF="$DEST_HOME/conf/dns/$ZD.db"
+        if command -v named-checkzone >/dev/null 2>&1 && [[ -f "$ZF" ]]; then
+            named-checkzone -q "$ZD" "$ZF" >/dev/null 2>&1 || PROB+=("la zona no es valida: $(named-checkzone "$ZD" "$ZF" 2>&1 | head -1)")
+        fi
+        A=""
+        for _i in 1 2 3 4 5; do
+            A=$(dig +short +time=2 +tries=1 @127.0.0.1 "$ZD" A 2>/dev/null | head -1)
+            [[ -n "$A" ]] && break; sleep 2
+        done
+        [[ -z "$A" ]] && PROB+=("no responde el A de $ZD")
+        MX=$(dig +short +time=2 @127.0.0.1 "$ZD" MX 2>/dev/null | awk '{print $2}' | tr '\n' ' ')
+        EXT="${CORREO_EXTERNO[$ZD]:-}"
+        if [[ -n "$EXT" ]]; then
+            [[ " $MX " == *" $EXT. "* ]] || PROB+=("MX no apunta al proveedor externo $EXT (tiene: ${MX:-nada})")
+        else
+            [[ " $MX " == *" mail.$ZD. "* ]] || PROB+=("MX no apunta a mail.$ZD (tiene: ${MX:-nada})")
+            MA=$(dig +short +time=2 @127.0.0.1 "mail.$ZD" A 2>/dev/null | tail -1)
+            [[ "$MA" == "$SERVER_IP_DNS" ]] || PROB+=("mail.$ZD no apunta a este servidor (${MA:-nada})")
+            if $BIN/v-list-mail-domain "$CPANEL_USER" "$ZD" &>/dev/null; then
+                dig +short +time=2 @127.0.0.1 "mail._domainkey.$ZD" TXT 2>/dev/null | grep -q "v=DKIM1" \
+                    || PROB+=("falta el DKIM (mail._domainkey)")
+            fi
+        fi
+        NSPF=$(dig +short +time=2 @127.0.0.1 "$ZD" TXT 2>/dev/null | grep -c "v=spf1" || true)
+        [[ "${NSPF:-0}" -gt 1 ]] && PROB+=("$NSPF registros SPF (debe haber uno)")
+        [[ -z "$EXT" && "${NSPF:-0}" -eq 0 ]] && PROB+=("sin SPF")
+        NDM=$(dig +short +time=2 @127.0.0.1 "_dmarc.$ZD" TXT 2>/dev/null | grep -c "v=DMARC1" || true)
+        [[ "${NDM:-0}" -gt 1 ]] && PROB+=("$NDM registros DMARC (debe haber uno)")
+        if [[ ${#PROB[@]} -eq 0 ]]; then
+            log "$ZD: DNS correcto (A $A, MX ${MX% }, SPF $NSPF, DMARC $NDM)"
+        else
+            DNS_MAL=$((DNS_MAL+1))
+            for p in "${PROB[@]}"; do pendiente "DNS de $ZD: $p"; done
+        fi
     done
-    echo ""
-    log "${#ALL_DOMAINS[@]} dominios pendientes de SSL (ver comandos arriba)"
+else
+    info "Sin zonas que comprobar (o sin dig)"
 fi
+
+# ============================================================
+#  SSL (Let's Encrypt, cuando el DNS apunte aqui)
+# ============================================================
+# No se pide durante la migracion: el DNS suele apuntar aun al origen, la
+# validacion falla y cada fallo cuenta para el limite de Let's Encrypt.
+header "SSL de Let's Encrypt (cuando el DNS apunte aqui)"
+for DOM in "${WEB_CREADOS[@]:-}"; do
+    [[ -z "$DOM" ]] && continue
+    MAILSSL="no"; $BIN/v-list-mail-domain "$CPANEL_USER" "$DOM" &>/dev/null && MAILSSL="yes"
+    echo "  $BIN/v-add-letsencrypt-domain $CPANEL_USER $DOM www.$DOM $MAILSSL" | tee -a "$LOG"
+done
+[[ ${#SSL_OK[@]} -gt 0 ]] && info "Mientras tanto ya tienen el SSL de cPanel: ${SSL_OK[*]}"
 
 # -- Limpieza ---------------------------------------------------
 rm -rf "$WORK_DIR"
 
 # -- Resumen ----------------------------------------------------
 header "IMPORTACION COMPLETADA"
+INFORME="/root/qemucp-import-$CPANEL_USER-$(date +%Y%m%d-%H%M).txt"
+{
+    echo "Importacion de $ORIG_USER (cPanel) -> $CPANEL_USER (QemuCP)  $(date)"
+    echo "Plan: $PLAN"
+    echo "Dominio principal: $MAIN_DOMAIN"
+    echo "Dominios adicionales: ${ADDON_DOMAINS[*]:-ninguno}"
+    echo "Subdominios: ${SUB_DOMAINS[*]:-ninguno}"
+    echo "Alias (aparcados): ${PARKED_DOMAINS[*]:-ninguno}"
+    echo "Bases de datos: ${#DB_CREATED[@]}"
+    echo "Correo: $N_CUENTAS cuentas ($N_PASS_ORIG con contrasena original), $N_FWD reenvios"
+    for zd in $(printf '%s\n' "${!CORREO_EXTERNO[@]}" | sort); do echo "Correo externo: $zd -> ${CORREO_EXTERNO[$zd]}"; done
+    echo ""
+    if [[ ${#PENDIENTES[@]} -gt 0 ]]; then
+        echo "REVISAR A MANO (${#PENDIENTES[@]}):"
+        for p in "${PENDIENTES[@]}"; do echo "  - $p"; done
+    else
+        echo "Nada pendiente de revisar."
+    fi
+} > "$INFORME"
+cat "$INFORME" | tee -a "$LOG"
 echo ""
-log "Usuario: $CPANEL_USER"
-log "Dominio principal: ${MAIN_DOMAIN:-ninguno}"
-log "Addon domains: ${ADDON_DOMAINS[*]:-ninguno}"
-log "Credenciales en: $CREDS_FILE"
-log "Log completo en: $LOG"
-echo ""
-warn "Actualiza las cadenas de conexion a DB en tus aplicaciones"
-warn "Apunta los DNS de tus dominios a este servidor"
-echo ""
+log "Credenciales nuevas: $CREDS_FILE"
+log "Informe: $INFORME"
+log "Log completo: $LOG"
 
-# Salida explicita: sin esto el script devuelve el codigo del ULTIMO comando
-# ejecutado. Un simple aviso ("Sin DB coincidente...") marcaba la migracion
-# entera como fallida aunque webs, correo y DNS estuviesen correctos.
 exit 0
