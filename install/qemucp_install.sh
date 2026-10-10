@@ -8,6 +8,10 @@
 #    QEMUCP_HOSTNAME=panel.tudominio.com QEMUCP_KEY='...' bash qemucp_install.sh
 #                                         desatendido
 #    bash qemucp_install.sh --set-pass    genera el hash de una clave nueva
+#    bash qemucp_install.sh --actualizar  actualiza el panel de un servidor ya
+#                                         instalado a lo ultimo de la rama
+#                                         release del fork (no toca webs,
+#                                         correo, DNS ni bases de datos)
 #
 #  Por defecto el panel se compila e instala desde NUESTRO fork, no desde
 #  apt.hestiacp.com, y se bloquea con apt-mark hold. Para la via clasica:
@@ -69,6 +73,14 @@ _qemucp_rechazo() {
     echo ""
     exit 1
 }
+
+# --actualizar: se quita de los argumentos antes de pedir la clave (si no,
+# la compatibilidad con la clave como $1 lo tomaria por una clave).
+QEMUCP_MODO="instalar"
+if [[ "${1:-}" == "--actualizar" ]]; then
+    QEMUCP_MODO="actualizar"
+    shift
+fi
 
 # --set-pass: genera el hash de una clave nueva. No instala nada.
 if [[ "${1:-}" == "--set-pass" ]]; then
@@ -183,6 +195,102 @@ error()  { echo -e "${RED}[!!]${NC} $1"; exit 1; }
 info()   { echo -e "${BLUE}[..]${NC} $1"; }
 header() {
     QEMUCP_PASO="$1" echo -e "\n${BLUE}======================================${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}======================================${NC}\n"; }
+
+# =============================================================================
+#  MODO --actualizar
+# =============================================================================
+# Actualiza SOLO el panel (paquete hestia) a lo ultimo de la rama release del
+# fork. Es lo que se hace cuando hemos incorporado una version nueva de
+# HestiaCP al fork o subido una correccion nuestra:
+#   1. compila el .deb desde el fork (el mismo que usa la instalacion)
+#   2. lo instala con dpkg; el postinst del paquete migra lo que haga falta
+#      y llama al hook /etc/hestiacp/hooks/post_install.sh, que vuelve a
+#      dejar las plantillas, el limite de subdominios y la cola de cron bien
+#   3. vuelve a bloquear el paquete (apt-mark hold) para que apt no lo cambie
+# No toca usuarios, webs, correo, DNS ni bases de datos. Sirve tambien para
+# pasar al fork un servidor que se instalo desde apt.hestiacp.com.
+if [[ "$QEMUCP_MODO" == "actualizar" ]]; then
+    trap 'RC=$?; [ $RC -ne 0 ] && echo -e "\n${RED}[!!]${NC} La actualizacion se ha detenido (codigo $RC). El panel sigue con la version anterior salvo que el fallo fuera en dpkg: revisa /var/log/qemucp-actualizar.log"' EXIT
+    header "QemuCP - Actualizacion del panel desde el fork"
+    [[ $EUID -ne 0 ]] && error "Ejecuta como root"
+    [[ -f /usr/local/hestia/conf/hestia.conf ]] \
+        || error "No hay QemuCP instalado en este servidor. Para instalar: bash $0"
+
+    AC_SRC="/opt/qemucp-src"
+    AC_DEBS="/tmp/hestiacp-src/deb"
+    AC_LOG="/var/log/qemucp-actualizar.log"
+    : > "$AC_LOG"
+    rm -rf "$AC_SRC" "$AC_DEBS"
+
+    if [[ -n "${QEMUCP_FORK_SRC:-}" ]]; then
+        mkdir -p "$AC_SRC" && cp -a "$QEMUCP_FORK_SRC/." "$AC_SRC/" || error "No se pudo copiar $QEMUCP_FORK_SRC"
+    else
+        command -v git >/dev/null 2>&1 || apt-get install -y -qq git >> "$AC_LOG" 2>&1 \
+            || error "No se pudo instalar git"
+        git clone -q --depth 1 -b release https://github.com/qemugen/qemucp.git "$AC_SRC" >> "$AC_LOG" 2>&1 \
+            || error "No se pudo descargar el fork (ver $AC_LOG)"
+    fi
+    AC_COMMIT=$(git -C "$AC_SRC" rev-parse --short HEAD 2>/dev/null || echo "?")
+    AC_ANTES=$(dpkg-query -W -f='${Version}' hestia 2>/dev/null || echo "?")
+    AC_ORIGEN_ANTES=$(cut -d' ' -f1-2 /usr/local/hestia/conf/qemucp-origen 2>/dev/null || echo "desconocido")
+    info "Instalado ahora: hestia $AC_ANTES ($AC_ORIGEN_ANTES)"
+    info "Compilando el fork (commit $AC_COMMIT); tarda unos minutos..."
+    ( cd "$AC_SRC" && bash src/hst_autocompile.sh --hestia --noinstall --keepbuild '~localsrc' ) \
+        > /var/log/qemucp-build.log 2>&1 || true
+    AC_DEB=$(ls -1 "$AC_DEBS"/hestia_*.deb 2>/dev/null | head -1 || true)
+    [[ -n "$AC_DEB" ]] && dpkg-deb -I "$AC_DEB" >/dev/null 2>&1 \
+        || error "La compilacion fallo (ver /var/log/qemucp-build.log). No se ha cambiado nada."
+    AC_NUEVA=$(dpkg-deb -f "$AC_DEB" Version)
+    log "Paquete hestia $AC_NUEVA compilado"
+
+    # Copia de la configuracion del panel por si hubiera que volver atras
+    AC_BK="/root/qemucp-backups/actualizar-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$AC_BK"
+    cp -a /usr/local/hestia/conf "$AC_BK/conf" 2>/dev/null || true
+    cp -a /usr/local/hestia/data/templates "$AC_BK/templates" 2>/dev/null || true
+    log "Copia de la configuracion del panel en $AC_BK"
+
+    # Antes de dpkg: el hook mira este fichero para saber que el panel viene
+    # del fork (no rebrandear encima, volver a poner el hold).
+    echo "fork $AC_COMMIT $(date '+%F %T')" > /usr/local/hestia/conf/qemucp-origen
+
+    info "Instalando el paquete (el hook post_install se ejecuta solo)..."
+    AC_HOOK_N=$(wc -l < /var/log/qemucp-post-install.log 2>/dev/null || echo 0)
+    apt-mark unhold hestia >> "$AC_LOG" 2>&1 || true
+    dpkg -i --force-confold "$AC_DEB" >> "$AC_LOG" 2>&1 \
+        || error "dpkg fallo (ver $AC_LOG). Copia de la configuracion en $AC_BK"
+    apt-mark hold hestia >> "$AC_LOG" 2>&1 \
+        && log "Paquete hestia bloqueado: apt no lo cambiara por el de upstream" \
+        || warn "No se pudo bloquear el paquete hestia (apt-mark hold hestia)"
+
+    if tail -n +"$((AC_HOOK_N+1))" /var/log/qemucp-post-install.log 2>/dev/null | grep -q "QemuCP post_install"; then
+        log "Hook post_install ejecutado (ver /var/log/qemucp-post-install.log)"
+    else
+        warn "El hook post_install no ha dejado rastro: ejecuta /etc/hestiacp/hooks/post_install.sh"
+    fi
+
+    systemctl restart hestia >> "$AC_LOG" 2>&1 || true
+    sleep 3
+    AC_PUERTO=$( { grep "^BACKEND_PORT=" /usr/local/hestia/conf/hestia.conf || true; } | cut -d"'" -f2)
+    AC_PUERTO="${AC_PUERTO:-8083}"
+    if systemctl is-active --quiet hestia \
+        && curl -sk --max-time 10 "https://127.0.0.1:${AC_PUERTO}/login/" | grep -qi "qemucp"; then
+        log "Panel respondiendo en el puerto $AC_PUERTO"
+    else
+        warn "El panel no responde en el puerto $AC_PUERTO: systemctl status hestia"
+    fi
+    for s in nginx apache2 php8.3-fpm; do
+        systemctl list-unit-files "$s.service" >/dev/null 2>&1 || continue
+        systemctl is-active --quiet "$s" 2>/dev/null || warn "$s no esta activo tras actualizar"
+    done
+
+    echo ""
+    log "Actualizado: hestia $AC_ANTES -> $AC_NUEVA (fork, commit $AC_COMMIT)"
+    rm -rf "$AC_SRC" /tmp/hestiacp-src
+    rm -f "$0" 2>/dev/null || true
+    trap - EXIT
+    exit 0
+fi
 
 # ---------------------------------------------
 #  COMPROBACIONES PREVIAS

@@ -243,6 +243,25 @@ desatendido. **Nunca** como argumento: queda en el historial y se ve en
 caracteres). La clave actual se generó al azar y solo está su hash; la
 antigua (`QemuCP2024#Cloud`) estuvo en claro en el repo y ya no sirve.
 
+## Actualizar (versión nueva de HestiaCP o corrección nuestra)
+
+Los servidores tienen `hestia` en `apt-mark hold`: apt nunca lo cambia por
+el de upstream. Flujo:
+
+1. Incorporar la versión de upstream al fork: `git fetch upstream --tags`,
+   `git merge <tag>` (p.ej. `1.10.6`) en `release`, resolver conflictos
+   conservando nuestros parches (subdominios, marca, cola de cron…).
+2. `git push` → la CI instala desde cero, relanza, prueba `--actualizar` y
+   pasa la batería de HestiaCP. Solo seguir si `RESULTADO.md` sale en verde.
+3. En cada servidor: `bash qemucp_install.sh --actualizar` (pide la clave).
+   Compila el fork, `dpkg -i` (el postinst migra y llama al hook), vuelve a
+   poner el hold, comprueba el panel. Copia de `conf/` y `templates/` en
+   `/root/qemucp-backups/actualizar-*`. Log: `/var/log/qemucp-actualizar.log`.
+   También pasa al fork un servidor instalado desde apt.
+
+Relanzar el instalador sin `--actualizar` NO actualiza el panel: solo
+reaplica optimizaciones.
+
 ## Convenciones
 
 Los scripts de `install/` son idempotentes, hacen backup antes de tocar

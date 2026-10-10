@@ -139,6 +139,37 @@ jobs:
             echo "HOOK_OK"
           '
 
+      # El modo de actualizacion que se usara en produccion: recompila el fork
+      # e instala el paquete sobre el servidor en marcha. Se estropea antes una
+      # plantilla y se quita el hold para comprobar que lo deja todo bien.
+      - name: Actualizar con qemucp_install.sh --actualizar
+        id: actualizar
+        continue-on-error: true
+        run: |
+          docker exec qemucp-ci bash -lc '
+            set -euo pipefail
+            K=$(cat /root/.ci-key); H=$(printf "%s" "$K" | sha256sum | cut -d" " -f1)
+            cp /hestiacp-git/install/qemucp_install.sh /root/qemucp_install.sh
+            sed -i "s/^QEMUCP_KEY_HASH=\"[0-9a-f]*\"/QEMUCP_KEY_HASH=\"$H\"/" /root/qemucp_install.sh
+            T=/usr/local/hestia/data/templates/web/php-fpm/default.tpl
+            sed -i "1a php_admin_value[session.save_path] = /home/%user%/tmp" "$T"
+            apt-mark unhold hestia >/dev/null
+            L=/hestiacp-git/ci-out/13-actualizar.log
+            QEMUCP_KEY="$K" QEMUCP_FORK_SRC=/hestiacp-git bash /root/qemucp_install.sh --actualizar 2>&1 | tee "$L"
+            grep -q "Actualizado: hestia" "$L"
+            ! grep -q "no responde" "$L"
+            [ "$(grep -c "^php_admin_value\[session.save_path\]" "$T")" -eq 1 ]
+            apt-mark showhold | grep -qx hestia
+            grep -q "^fork " /usr/local/hestia/conf/qemucp-origen
+            [ ! -f /root/qemucp_install.sh ]
+            echo "ACTUALIZAR_OK"
+          '
+
+      - name: Pruebas QemuCP (3a pasada, tras --actualizar)
+        id: pruebas3
+        continue-on-error: true
+        run: docker exec qemucp-ci bash -lc 'set -o pipefail; cd /hestiacp-git && bats --tap test/qemucp.bats 2>&1 | tee ci-out/14-pruebas-tras-actualizar.tap'
+
       - name: Recoger diagnostico
         if: always()
         run: |
@@ -173,9 +204,11 @@ jobs:
             echo "| Relanzar el instalador | $(est '${{ steps.relanzar.outcome }}') |"
             echo "| Pruebas tras relanzar | $(est '${{ steps.pruebas2.outcome }}') — $(cuenta ci-out/04-pruebas-tras-relanzar.tap) |"
             echo "| Actualizacion + hook | $(est '${{ steps.hook.outcome }}') |"
+            echo "| Actualizar (--actualizar) | $(est '${{ steps.actualizar.outcome }}') |"
+            echo "| Pruebas tras actualizar | $(est '${{ steps.pruebas3.outcome }}') — $(cuenta ci-out/14-pruebas-tras-actualizar.tap) |"
             echo "| Bateria de HestiaCP | $(est '${{ steps.upstream.outcome }}') — $(cuenta ci-out/06-pruebas-hestiacp.tap) |"
             echo ""
-            for f in 02-pruebas-qemucp 04-pruebas-tras-relanzar 06-pruebas-hestiacp; do
+            for f in 02-pruebas-qemucp 04-pruebas-tras-relanzar 14-pruebas-tras-actualizar 06-pruebas-hestiacp; do
               if [ -f "ci-out/$f.tap" ] && grep -q '^not ok ' "ci-out/$f.tap"; then
                 echo "## Fallos en $f"; echo ""; fallos "ci-out/$f.tap"; echo ""
               fi
@@ -208,7 +241,10 @@ jobs:
           [ "${{ steps.pruebas1.outcome }}" = "success" ] &&
           [ "${{ steps.relanzar.outcome }}" = "success" ] &&
           [ "${{ steps.pruebas2.outcome }}" = "success" ] &&
-          [ "${{ steps.hook.outcome }}" = "success" ]
+          [ "${{ steps.hook.outcome }}" = "success" ] &&
+          [ "${{ steps.actualizar.outcome }}" = "success" ] &&
+          [ "${{ steps.pruebas3.outcome }}" = "success" ] &&
+          [ "${{ steps.upstream.outcome }}" = "success" ]
 
       - name: Limpiar
         if: always()
