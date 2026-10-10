@@ -123,6 +123,10 @@ jobs:
             echo "despues: save_path=$n"
             grep -q "QemuCP post_install" /var/log/qemucp-post-install.log
             [ "$n" -eq 1 ]
+            # dpkg -i quita el hold; el hook lo reaplica en cuanto dpkg suelta
+            # el bloqueo. Sin esto, el siguiente apt upgrade meteria upstream.
+            for i in $(seq 1 30); do apt-mark showhold | grep -qx hestia && break; sleep 3; done
+            echo "retencion tras actualizar: $(apt-mark showhold | grep -x hestia || echo PERDIDA)"
             apt-mark showhold | grep -qx hestia
             echo "HOOK_OK"
           '

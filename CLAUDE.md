@@ -145,6 +145,24 @@ nada". Atajo: `v-restart-dns yes`.
   `; -- QemuCP: Optimizaciones de rendimiento --`. El hook normaliza las
   plantillas a exactamente un bloque completo. **Al escribir una llave de
   idempotencia, comprobar que coincide con el texto que se escribe.**
+- **Plantillas php-fpm: se normalizan por directiva** (`qemucp_normalizar_tpl`,
+  igual en el instalador y en el hook): se quita cualquier línea que defina
+  algo que también define el bloque de QemuCP y se pone el bloque una vez.
+  Buscar una línea concreta falló tres veces; la última, porque las
+  `PHP-X_Y.tpl` salen de `multiphp.tpl`, que ya trae la línea de Redis.
+- **Relanzar el instalador rompía nginx**: el paso de Brotli añadía sus
+  `load_module` sin comprobar si ya estaban; duplicados, `nginx -t` falla,
+  nginx no recarga y ningún `v-add-web-domain` funciona (código 20). Ahora
+  comprueba y además elimina duplicados de relanzamientos anteriores.
+- **fail2ban no arrancaba** (ni en servidores reales): el instalador
+  sobreescribía el `jail.local` de HestiaCP con uno peor, y fail2ban no
+  arranca ninguna jaula si falta un solo fichero de log (`auth.log` no existe
+  hasta el primer acceso). Ahora se usa el `jail.local` del paquete, se crean
+  los logs que falten y se comprueba que queda activo. `fail2ban-client -t`
+  NO detecta los logs que faltan: solo falla al arrancar.
+- **`dpkg -i` quita el `apt-mark hold`**: tras actualizar desde el fork, un
+  `apt upgrade` metería el paquete de upstream. El hook lo reaplica con un
+  proceso que espera a que dpkg suelte el bloqueo.
 - **`info()` no estaba definida** y el instalador la llamaba en ocho sitios;
   con `set -e`, cualquiera que se ejecutase abortaba la instalación con
   "command not found". Al añadir un helper, buscar que esté definido.

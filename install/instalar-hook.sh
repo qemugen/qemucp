@@ -148,40 +148,12 @@ if [ "$MODO" = "instalar" ]; then
         echo "  File Manager parcheado"
     fi
 
-    # 2. Plantillas php-fpm: deben llevar el bloque de QemuCP (sesiones en
-    #    Redis, OPcache, limites) y UNA sola linea session.save_path.
-    #    Dos situaciones posibles tras una actualizacion:
-    #    a) La plantilla perdio el bloque. Pasa si una version activa
-    #       UPGRADE_UPDATE_WEB_TEMPLATES: v-update-web-templates regenera los
-    #       PHP-*.tpl desde multiphp.tpl. Las sesiones volverian a fichero.
-    #    b) Tiene el bloque Y la linea de fichero de HestiaCP: dos
-    #       session.save_path, PHP usa la de fichero y revienta la sesion en
-    #       PrestaShop, Joomla y Moodle.
-    #    c) Tiene VARIOS bloques: el instalador antiguo anadia uno nuevo cada
-    #       vez que se relanzaba, porque su llave nunca coincidia.
-    #    Correcta = exactamente un bloque y ninguna linea de fichero. Si no lo
-    #    esta, se quitan todos los bloques y la linea de fichero y se pone uno.
-    MARCA='; -- QemuCP: Optimizaciones de rendimiento --'
-    TOCADAS=0
-    for T in "$H"/data/templates/web/php-fpm/*.tpl; do
-        [ -f "$T" ] || continue
-        NB=$(grep -c "^$MARCA\$" "$T" 2>/dev/null || true)
-        NF=$(grep -c '^php_admin_value\[session.save_path\] = /home/' "$T" 2>/dev/null || true)
-        NC=$(grep -c '^php_admin_value\[opcache.save_comments\] = 1$' "$T" 2>/dev/null || true)
-        # Correcta: un bloque completo (marca y cierre) y ninguna linea de fichero
-        [ "${NB:-0}" -eq 1 ] && [ "${NC:-0}" -eq 1 ] && [ "${NF:-0}" -eq 0 ] && continue
-        # Un bloque sin su linea de cierre haria que el borrado por rango se
-        # llevara el resto del fichero: en ese caso no se toca y se avisa.
-        if [ "${NB:-0}" -gt "${NC:-0}" ]; then
-            echo "  AVISO: $(basename "$T") tiene un bloque QemuCP incompleto, revisalo a mano"
-            continue
-        fi
-        sed -i "/^$MARCA\$/,/^php_admin_value\[opcache.save_comments\] = 1\$/d" "$T"
-        sed -i '/^php_admin_value\[session.save_path\] = \/home\//d' "$T"
-        # quitar lineas en blanco que hayan quedado al final
-        sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$T"
-        cat >> "$T" << 'QTPLEOF'
-
+    # 2. Plantillas php-fpm: bloque de QemuCP (sesiones en Redis, OPcache,
+    #    limites) UNA vez y cada directiva UNA vez. Mismo normalizador que el
+    #    instalador. Cubre: plantillas regeneradas por una actualizacion que
+    #    perdieron el bloque, PHP-X_Y.tpl con dos session.save_path, y bloques
+    #    acumulados por relanzar el instalador antiguo.
+    QEMUCP_TPL_BLOQUE=$(cat << 'QTPLEOF'
 ; -- QemuCP: Optimizaciones de rendimiento --
 ; Memoria y uploads
 php_admin_value[memory_limit] = 512M
@@ -213,7 +185,34 @@ php_admin_value[opcache.validate_timestamps] = 1
 php_admin_value[opcache.revalidate_freq] = 60
 php_admin_value[opcache.save_comments] = 1
 QTPLEOF
-        TOCADAS=$((TOCADAS+1))
+)
+    # Deja la plantilla con el bloque QemuCP UNA vez y cada directiva que define
+    # el bloque UNA sola vez (gana el valor del bloque). Funciona por directiva,
+    # no por texto: da igual como venga escrita la plantilla de origen.
+    # Devuelve 0 si la cambio y 1 si ya estaba bien.
+    qemucp_normalizar_tpl() {
+        local f="$1" tmp
+        tmp=$(mktemp)
+        printf '%s\n' "$QEMUCP_TPL_BLOQUE" | awk '
+            function clave(l,   k) {
+                if (match(l, /^php_(admin_)?(value|flag)\[[^]]+\]/)) {
+                    k = substr(l, RSTART, RLENGTH); sub(/^php_(admin_)?(value|flag)/, "", k); return k
+                }
+                return ""
+            }
+            NR == FNR { k = clave($0); if (k != "") K[k] = 1; else if ($0 ~ /^;/) C[$0] = 1; next }
+            { k = clave($0); if (k != "" && (k in K)) next; if ($0 in C) next; print }
+        ' - "$f" > "$tmp"
+        # quitar lineas en blanco del final y poner el bloque
+        sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$tmp"
+        printf '\n%s\n' "$QEMUCP_TPL_BLOQUE" >> "$tmp"
+        if cmp -s "$tmp" "$f"; then rm -f "$tmp"; return 1; fi
+        cat "$tmp" > "$f"; rm -f "$tmp"; return 0
+    }
+    TOCADAS=0
+    for T in "$H"/data/templates/web/php-fpm/*.tpl; do
+        [ -f "$T" ] || continue
+        qemucp_normalizar_tpl "$T" && TOCADAS=$((TOCADAS+1))
     done
     [ "$TOCADAS" -gt 0 ] && echo "  $TOCADAS plantilla(s) php-fpm corregidas"
 
@@ -245,6 +244,16 @@ QTPLEOF
         "$H/data/qemucp/arreglar-crons.sh" >> /var/log/qemucp-crons.log 2>&1 \
             && echo "  cola de reinicios verificada" \
             || echo "  AVISO: fallo al verificar la cola de reinicios"
+    fi
+
+    # 6. Retencion del paquete. 'dpkg --install' devuelve el paquete al
+    #    estado 'install' y le quita el hold: tras actualizar desde el fork,
+    #    el siguiente 'apt upgrade' lo cambiaria por el de upstream. Aqui no
+    #    sirve apt-mark, porque dpkg tiene el bloqueo mientras se ejecuta este
+    #    hook; se deja un proceso que lo reintenta hasta que dpkg termina.
+    if [ "$ORIGEN" = "fork" ]; then
+        nohup setsid bash -c 'for i in $(seq 1 120); do sleep 5; apt-mark hold hestia >/dev/null 2>&1 && apt-mark showhold | grep -qx hestia && break; done' >/dev/null 2>&1 &
+        echo "  retencion del paquete: se reaplica en cuanto termine dpkg"
     fi
 
     echo "=== fin QemuCP post_install ==="

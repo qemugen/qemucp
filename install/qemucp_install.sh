@@ -409,40 +409,12 @@ if [ "$MODO" = "instalar" ]; then
         echo "  File Manager parcheado"
     fi
 
-    # 2. Plantillas php-fpm: deben llevar el bloque de QemuCP (sesiones en
-    #    Redis, OPcache, limites) y UNA sola linea session.save_path.
-    #    Dos situaciones posibles tras una actualizacion:
-    #    a) La plantilla perdio el bloque. Pasa si una version activa
-    #       UPGRADE_UPDATE_WEB_TEMPLATES: v-update-web-templates regenera los
-    #       PHP-*.tpl desde multiphp.tpl. Las sesiones volverian a fichero.
-    #    b) Tiene el bloque Y la linea de fichero de HestiaCP: dos
-    #       session.save_path, PHP usa la de fichero y revienta la sesion en
-    #       PrestaShop, Joomla y Moodle.
-    #    c) Tiene VARIOS bloques: el instalador antiguo anadia uno nuevo cada
-    #       vez que se relanzaba, porque su llave nunca coincidia.
-    #    Correcta = exactamente un bloque y ninguna linea de fichero. Si no lo
-    #    esta, se quitan todos los bloques y la linea de fichero y se pone uno.
-    MARCA='; -- QemuCP: Optimizaciones de rendimiento --'
-    TOCADAS=0
-    for T in "$H"/data/templates/web/php-fpm/*.tpl; do
-        [ -f "$T" ] || continue
-        NB=$(grep -c "^$MARCA\$" "$T" 2>/dev/null || true)
-        NF=$(grep -c '^php_admin_value\[session.save_path\] = /home/' "$T" 2>/dev/null || true)
-        NC=$(grep -c '^php_admin_value\[opcache.save_comments\] = 1$' "$T" 2>/dev/null || true)
-        # Correcta: un bloque completo (marca y cierre) y ninguna linea de fichero
-        [ "${NB:-0}" -eq 1 ] && [ "${NC:-0}" -eq 1 ] && [ "${NF:-0}" -eq 0 ] && continue
-        # Un bloque sin su linea de cierre haria que el borrado por rango se
-        # llevara el resto del fichero: en ese caso no se toca y se avisa.
-        if [ "${NB:-0}" -gt "${NC:-0}" ]; then
-            echo "  AVISO: $(basename "$T") tiene un bloque QemuCP incompleto, revisalo a mano"
-            continue
-        fi
-        sed -i "/^$MARCA\$/,/^php_admin_value\[opcache.save_comments\] = 1\$/d" "$T"
-        sed -i '/^php_admin_value\[session.save_path\] = \/home\//d' "$T"
-        # quitar lineas en blanco que hayan quedado al final
-        sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$T"
-        cat >> "$T" << 'QTPLEOF'
-
+    # 2. Plantillas php-fpm: bloque de QemuCP (sesiones en Redis, OPcache,
+    #    limites) UNA vez y cada directiva UNA vez. Mismo normalizador que el
+    #    instalador. Cubre: plantillas regeneradas por una actualizacion que
+    #    perdieron el bloque, PHP-X_Y.tpl con dos session.save_path, y bloques
+    #    acumulados por relanzar el instalador antiguo.
+    QEMUCP_TPL_BLOQUE=$(cat << 'QTPLEOF'
 ; -- QemuCP: Optimizaciones de rendimiento --
 ; Memoria y uploads
 php_admin_value[memory_limit] = 512M
@@ -474,7 +446,34 @@ php_admin_value[opcache.validate_timestamps] = 1
 php_admin_value[opcache.revalidate_freq] = 60
 php_admin_value[opcache.save_comments] = 1
 QTPLEOF
-        TOCADAS=$((TOCADAS+1))
+)
+    # Deja la plantilla con el bloque QemuCP UNA vez y cada directiva que define
+    # el bloque UNA sola vez (gana el valor del bloque). Funciona por directiva,
+    # no por texto: da igual como venga escrita la plantilla de origen.
+    # Devuelve 0 si la cambio y 1 si ya estaba bien.
+    qemucp_normalizar_tpl() {
+        local f="$1" tmp
+        tmp=$(mktemp)
+        printf '%s\n' "$QEMUCP_TPL_BLOQUE" | awk '
+            function clave(l,   k) {
+                if (match(l, /^php_(admin_)?(value|flag)\[[^]]+\]/)) {
+                    k = substr(l, RSTART, RLENGTH); sub(/^php_(admin_)?(value|flag)/, "", k); return k
+                }
+                return ""
+            }
+            NR == FNR { k = clave($0); if (k != "") K[k] = 1; else if ($0 ~ /^;/) C[$0] = 1; next }
+            { k = clave($0); if (k != "" && (k in K)) next; if ($0 in C) next; print }
+        ' - "$f" > "$tmp"
+        # quitar lineas en blanco del final y poner el bloque
+        sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$tmp"
+        printf '\n%s\n' "$QEMUCP_TPL_BLOQUE" >> "$tmp"
+        if cmp -s "$tmp" "$f"; then rm -f "$tmp"; return 1; fi
+        cat "$tmp" > "$f"; rm -f "$tmp"; return 0
+    }
+    TOCADAS=0
+    for T in "$H"/data/templates/web/php-fpm/*.tpl; do
+        [ -f "$T" ] || continue
+        qemucp_normalizar_tpl "$T" && TOCADAS=$((TOCADAS+1))
     done
     [ "$TOCADAS" -gt 0 ] && echo "  $TOCADAS plantilla(s) php-fpm corregidas"
 
@@ -506,6 +505,16 @@ QTPLEOF
         "$H/data/qemucp/arreglar-crons.sh" >> /var/log/qemucp-crons.log 2>&1 \
             && echo "  cola de reinicios verificada" \
             || echo "  AVISO: fallo al verificar la cola de reinicios"
+    fi
+
+    # 6. Retencion del paquete. 'dpkg --install' devuelve el paquete al
+    #    estado 'install' y le quita el hold: tras actualizar desde el fork,
+    #    el siguiente 'apt upgrade' lo cambiaria por el de upstream. Aqui no
+    #    sirve apt-mark, porque dpkg tiene el bloqueo mientras se ejecuta este
+    #    hook; se deja un proceso que lo reintenta hasta que dpkg termina.
+    if [ "$ORIGEN" = "fork" ]; then
+        nohup setsid bash -c 'for i in $(seq 1 120); do sleep 5; apt-mark hold hestia >/dev/null 2>&1 && apt-mark showhold | grep -qx hestia && break; done' >/dev/null 2>&1 &
+        echo "  retencion del paquete: se reaplica en cuanto termine dpkg"
     fi
 
     echo "=== fin QemuCP post_install ==="
@@ -2814,28 +2823,8 @@ HESTIA_PHP_TPL="$HESTIA/data/templates/web/php-fpm"
 TPL_BACKUP_DIR="$HESTIA/data/templates/web/php-fpm-backups"
 mkdir -p "$TPL_BACKUP_DIR"
 
-for TPL_FILE in "$HESTIA_PHP_TPL"/*.tpl; do
-    [[ -f "$TPL_FILE" ]] || continue
-cp "$TPL_FILE" "$TPL_BACKUP_DIR/$(basename "$TPL_FILE").bak" 2>/dev/null || true
-
-    # Insertar optimizaciones si no estan ya.
-    # La llave es la linea de comentario del bloque. Antes era
-    # "memory_limit = 512M", que NUNCA coincidia con su propio bloque (lo
-    # escrito es "memory_limit] = 512M", con corchete): cada vez que se
-    # relanzaba el instalador se anadia otro bloque con otra linea
-    # session.save_path a todas las plantillas.
-    if ! grep -q "^; -- QemuCP: Optimizaciones de rendimiento --" "$TPL_FILE" 2>/dev/null; then
-        # La plantilla de HestiaCP YA trae session.save_path apuntando a
-        # /home/%user%/tmp. Si se deja esa linea y se anade la de Redis,
-        # el pool acaba con DOS session.save_path y PHP toma el equivocado:
-        # las webs con sesiones fallan con "Redis connection not available
-        # ... Failed to read session data: redis (path: /home/USER/tmp)".
-        # Visto en produccion en PrestaShop, Joomla y Moodle.
-        sed -i '/^php_admin_value\[session.save_path\] = \/home\//d' "$TPL_FILE" 2>/dev/null || true
-
-        # Anadir valores optimizados al final del template
-        cat >> "$TPL_FILE" << 'TPLEOF'
-
+# Bloque de QemuCP para las plantillas (sesiones en Redis, OPcache, limites).
+QEMUCP_TPL_BLOQUE=$(cat << 'TPLEOF'
 ; -- QemuCP: Optimizaciones de rendimiento --
 ; Memoria y uploads
 php_admin_value[memory_limit] = 512M
@@ -2867,9 +2856,47 @@ php_admin_value[opcache.validate_timestamps] = 1
 php_admin_value[opcache.revalidate_freq] = 60
 php_admin_value[opcache.save_comments] = 1
 TPLEOF
-        log "Template PHP-FPM optimizado: $(basename $TPL_FILE)"
+)
+
+# Deja la plantilla con el bloque QemuCP UNA vez y cada directiva que define
+# el bloque UNA sola vez (gana el valor del bloque). Funciona por directiva,
+# no por texto: da igual como venga escrita la plantilla de origen.
+# Devuelve 0 si la cambio y 1 si ya estaba bien.
+qemucp_normalizar_tpl() {
+    local f="$1" tmp
+    tmp=$(mktemp)
+    printf '%s\n' "$QEMUCP_TPL_BLOQUE" | awk '
+        function clave(l,   k) {
+            if (match(l, /^php_(admin_)?(value|flag)\[[^]]+\]/)) {
+                k = substr(l, RSTART, RLENGTH); sub(/^php_(admin_)?(value|flag)/, "", k); return k
+            }
+            return ""
+        }
+        NR == FNR { k = clave($0); if (k != "") K[k] = 1; else if ($0 ~ /^;/) C[$0] = 1; next }
+        { k = clave($0); if (k != "" && (k in K)) next; if ($0 in C) next; print }
+    ' - "$f" > "$tmp"
+    # quitar lineas en blanco del final y poner el bloque
+    sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$tmp"
+    printf '\n%s\n' "$QEMUCP_TPL_BLOQUE" >> "$tmp"
+    if cmp -s "$tmp" "$f"; then rm -f "$tmp"; return 1; fi
+    cat "$tmp" > "$f"; rm -f "$tmp"; return 0
+}
+
+# Cada plantilla queda con el bloque UNA vez y cada directiva UNA vez.
+# Antes se buscaba una linea concreta para decidir, y fallo tres veces: la
+# llave tenia un corchete de menos (cada relanzamiento anadia otro bloque),
+# solo se quitaba la session.save_path de /home (las PHP-X_Y.tpl, que salen
+# de multiphp.tpl, ya traian la de Redis y quedaban con dos), etc. Ahora se
+# trabaja por directiva y da igual como venga escrita la plantilla.
+TPL_CAMBIADAS=0
+for TPL_FILE in "$HESTIA_PHP_TPL"/*.tpl; do
+    [[ -f "$TPL_FILE" ]] || continue
+    cp "$TPL_FILE" "$TPL_BACKUP_DIR/$(basename "$TPL_FILE").bak" 2>/dev/null || true
+    if qemucp_normalizar_tpl "$TPL_FILE"; then
+        TPL_CAMBIADAS=$((TPL_CAMBIADAS+1))
     fi
 done
+log "Plantillas PHP-FPM: $TPL_CAMBIADAS ajustadas (bloque QemuCP y cada directiva una sola vez)"
 
 # ------ Optimizar PHP via ficheros .ini dedicados en conf.d/ ---------------------------------------------------------
 # Usamos /etc/php/VERSION/fpm/conf.d/ y cli/conf.d/ que es la forma correcta
@@ -3103,17 +3130,36 @@ rm -rf /root/tmp_brotli 2>/dev/null || true
 
 # Anadir load_module de Brotli SOLO si se compilo
 if [ "${BROTLI_MODULE:-no}" = "yes" ] && [ -f /etc/nginx/modules/ngx_http_brotli_filter_module.so ]; then
-    if grep -q "ngx_http_geoip2_module" /etc/nginx/nginx.conf 2>/dev/null; then
+    if grep -q "ngx_http_brotli_filter_module" /etc/nginx/nginx.conf 2>/dev/null; then
+        # Ya estaba. Antes no se comprobaba y al relanzar el instalador se
+        # duplicaban las lineas: nginx -t fallaba ('module ... is already
+        # loaded'), nginx no recargaba y no se podia crear ninguna web.
+        log "Brotli load_module ya presente en nginx.conf"
+    elif grep -q "ngx_http_geoip2_module" /etc/nginx/nginx.conf 2>/dev/null; then
         sed -i 's|load_module modules/ngx_http_geoip2_module.so;|load_module modules/ngx_http_geoip2_module.so;\nload_module modules/ngx_http_brotli_filter_module.so;\nload_module modules/ngx_http_brotli_static_module.so;|' \
             /etc/nginx/nginx.conf
+        log "Brotli load_module anadido"
     else
         # No hay geoip2 - anadir brotli al inicio del fichero
         { echo "load_module modules/ngx_http_brotli_filter_module.so;"; echo "load_module modules/ngx_http_brotli_static_module.so;"; cat /etc/nginx/nginx.conf; } > /tmp/nginx_brotli_tmp.conf && \
         mv /tmp/nginx_brotli_tmp.conf /etc/nginx/nginx.conf
+        log "Brotli load_module anadido"
     fi
-    log "Brotli load_module anadido"
 else
     warn "Brotli no compilado - se omite load_module"
+fi
+
+# Reparar servidores donde un relanzamiento anterior ya duplico algun
+# load_module: se queda la primera aparicion de cada linea identica.
+if [ -f /etc/nginx/nginx.conf ]; then
+    # '|| true': sin ningun load_module grep devuelve 1 y, con pipefail, abortaria
+    DUP_LM=$( { grep '^load_module' /etc/nginx/nginx.conf || true; } | sort | uniq -d | wc -l)
+    if [ "$DUP_LM" -gt 0 ]; then
+        cp /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.bak-dup-$(date +%s)"
+        awk '!(/^load_module/ && seen[$0]++)' /etc/nginx/nginx.conf > /tmp/nginx_dedup.conf \
+            && mv /tmp/nginx_dedup.conf /etc/nginx/nginx.conf
+        log "nginx.conf: $DUP_LM load_module duplicado(s) eliminados"
+    fi
 fi
 
 # Anadir configuracion Brotli en el bloque http{} SOLO si el modulo se cargo
@@ -3298,73 +3344,20 @@ fi
 # ---------------------------------------------
 header "PASO 10: Configurando seguridad"
 
-cat > /etc/fail2ban/jail.local << 'F2BEOF'
-[DEFAULT]
-bantime  = 3600
-findtime = 600
-maxretry = 5
-ignoreip = 127.0.0.1/8 ::1
-
-[sshd]
-enabled = true
-port    = ssh
-maxretry = 5
-bantime = 7200
-
-[nginx-http-auth]
-enabled = true
-filter  = nginx-http-auth
-port    = http,https
-logpath = /var/log/nginx/error.log
-
-[nginx-botsearch]
-enabled  = true
-filter   = nginx-botsearch
-port     = http,https
-logpath  = /var/log/nginx/access.log
-maxretry = 2
-
-[nginx-limit-req]
-enabled = true
-filter  = nginx-limit-req
-port    = http,https
-logpath = /var/log/nginx/error.log
-
-[hestia]
-enabled  = true
-port     = 8083
-filter   = hestia
-maxretry = 5
-
-[mysql-auth]
-enabled  = true
-port     = 3306
-filter   = mysqld-auth
-logpath  = /var/log/mysql/error.log
-maxretry = 3
-bantime  = 86400
-
-[nginx-badbots]
-enabled  = true
-filter   = nginx-badbots
-port     = http,https
-logpath  = /var/log/nginx/access.log
-maxretry = 3
-bantime  = 3600
-findtime = 3600
-
-[nginx-444]
-enabled  = true
-filter   = nginx-444
-port     = http,https
-logpath  = /var/log/nginx/access_all.log
-maxretry = 10
-bantime  = 3600
-findtime = 3600
-
-F2BEOF
-
-log "Fail2ban configurado"
+# fail2ban: se usa el jail.local del paquete de HestiaCP (el del fork), que
+# ya trae todas las jaulas (SSH, correo, panel, BD, Roundcube, phpMyAdmin,
+# nginx, recidive) integradas con el cortafuegos del panel
+# (action = hestia[...]), y que hst-install ajusta segun lo instalado. Antes
+# se sobreescribia con uno propio que perdia todo eso y dejaba la jaula
+# 'hestia' sin logpath, con lo que fail2ban se negaba a arrancar. Solo se
+# repone si alguien lo sustituyo.
+if ! grep -q 'action *= *hestia\[' /etc/fail2ban/jail.local 2>/dev/null \
+   && [ -f "$HESTIA/install/deb/fail2ban/jail.local" ]; then
+    cp /etc/fail2ban/jail.local "/etc/fail2ban/jail.local.bak-$(date +%s)" 2>/dev/null || true
+    cp "$HESTIA/install/deb/fail2ban/jail.local" /etc/fail2ban/jail.local
+    log "fail2ban: repuesto el jail.local de HestiaCP"
+fi
+log "Fail2ban configurado (jaulas de HestiaCP)"
 
 # Filtro para bots conocidos por User-Agent (acceso.log de Nginx)
 cat > /etc/fail2ban/filter.d/nginx-badbots.conf << 'FILTEREOF'
@@ -4056,8 +4049,37 @@ systemctl restart redis-server 2>/dev/null && log "Redis reiniciado"
 systemctl restart apache2 2>/dev/null  && log "Apache reiniciado"
 systemctl restart nginx 2>/dev/null    && log "Nginx reiniciado (GeoIP2 + Brotli activos)"
 systemctl restart hestia   && log "QemuCP reiniciado"
+# fail2ban no arranca si falta UN solo fichero de log de una jaula activa,
+# y en un servidor recien instalado alguno no existe aun (auth.log aparece
+# con el primer acceso). Se crean vacios.
+if [ -f /etc/fail2ban/jail.local ]; then
+    awk '/^\[/ { if (en && lp != "") print lp; en=0; lp=""; next }
+         /^enabled[ \t]*=[ \t]*true/ { en=1 }
+         /^logpath[ \t]*=/ { lp=$0; sub(/^logpath[ \t]*=[ \t]*/, "", lp) }
+         END { if (en && lp != "") print lp }' /etc/fail2ban/jail.local | sort -u | \
+    while read -r F2B_LOG; do
+        [ -n "$F2B_LOG" ] && [ ! -e "$F2B_LOG" ] || continue
+        mkdir -p "$(dirname "$F2B_LOG")" && touch "$F2B_LOG"
+        [ "$F2B_LOG" = "/var/log/auth.log" ] && { chown syslog:adm "$F2B_LOG" 2>/dev/null || true; chmod 640 "$F2B_LOG"; }
+        log "fail2ban: creado $F2B_LOG (no existia)"
+    done
+fi
 systemctl enable fail2ban 2>/dev/null || true
-systemctl restart fail2ban 2>/dev/null && log "Fail2ban activado y reiniciado"
+# Antes: 'systemctl restart && log activado'. El restart devuelve exito en
+# cuanto lanza el proceso, y fail2ban moria un segundo despues al leer la
+# configuracion: el instalador decia "activado" con fail2ban caido.
+if fail2ban-client -t > /tmp/qemucp-f2b-test.log 2>&1; then
+    systemctl restart fail2ban 2>/dev/null || true
+    sleep 3
+    if systemctl is-active --quiet fail2ban; then
+        log "Fail2ban activo"
+    else
+        warn "Fail2ban no arranca. Revisa: journalctl -u fail2ban -n 30"
+    fi
+else
+    warn "La configuracion de fail2ban no es valida, no se arranca:"
+    { grep ERROR /tmp/qemucp-f2b-test.log || true; } | head -5 | while read -r F2B_ERR; do warn "  $F2B_ERR"; done
+fi
 
 for VER in "${PHP_VERSIONS[@]}"; do
     systemctl restart "php${VER}-fpm" 2>/dev/null && \

@@ -21,18 +21,24 @@ setup_file() {
     # Plan como los que se venden: 1 dominio (el principal) y 2 subdominios
     cp "$H/data/packages/default.pkg" "$H/data/packages/ciplan.pkg"
     sed -i "s/^WEB_DOMAINS=.*/WEB_DOMAINS='1'/; s/^WEB_SUBDOMAINS=.*/WEB_SUBDOMAINS='2'/" "$H/data/packages/ciplan.pkg"
+    # Usuario SOLO para las pruebas de cupos, sin ningun dominio previo. Antes
+    # compartian usuario con la prueba de sesiones, que ya le habia creado un
+    # dominio, y el plan de "1 dominio" llegaba lleno.
+    "$B/v-add-user" "cis${CI_ID}" 'Ci-Pass-2026!x' "s@qemucp.test" ciplan "CIS" >/dev/null
 }
 
 teardown_file() {
     CI_ID="$(cat /tmp/qemucp-ci-id)"
     "$B/v-delete-user" "ciq${CI_ID}" >/dev/null 2>&1 || true
     "$B/v-delete-user" "ciw${CI_ID}" >/dev/null 2>&1 || true
+    "$B/v-delete-user" "cis${CI_ID}" >/dev/null 2>&1 || true
     rm -f "$H/data/packages/ciplan.pkg"
 }
 
 setup() {
     CI_ID="$(cat /tmp/qemucp-ci-id)"
     U="ciq${CI_ID}"
+    S="cis${CI_ID}"
     IP=$(hostname -I | awk '{print $1}')
 }
 
@@ -89,8 +95,9 @@ crear() {
     for t in "$H"/data/templates/web/php-fpm/*.tpl; do
         nb=$(grep -c '^; -- QemuCP: Optimizaciones de rendimiento --$' "$t" || true)
         ns=$(grep -c '^php_admin_value\[session.save_path\]' "$t" || true)
+        nh=$(grep -c '^php_admin_value\[session.save_handler\]' "$t" || true)
         nf=$(grep -c '^php_admin_value\[session.save_path\] = /home/' "$t" || true)
-        [ "$nb" -eq 1 ] && [ "$ns" -eq 1 ] && [ "$nf" -eq 0 ] || malas="$malas $(basename $t)(bloques=$nb save_path=$ns fichero=$nf)"
+        [ "$nb" -eq 1 ] && [ "$ns" -eq 1 ] && [ "$nh" -eq 1 ] && [ "$nf" -eq 0 ] || malas="$malas $(basename $t)(bloques=$nb save_path=$ns handler=$nh fichero=$nf)"
     done
     echo "plantillas mal:${malas:- ninguna}"
     [ -z "$malas" ]
@@ -159,27 +166,27 @@ crear() {
 
 # ---------------------------------------------------- dominios y subdominios
 @test "limite de subdominios: plan de 1 dominio y 2 subdominios" {
-    "$B/v-change-user-package" "$U" ciplan >/dev/null
-    [ "$(crear $U ciq${CI_ID}.test)" = "CREADO" ]
-    [ "$(crear $U a.ciq${CI_ID}.test)" = "CREADO" ]
-    [ "$(crear $U b.ciq${CI_ID}.test)" = "CREADO" ]
-    r=$(crear $U c.ciq${CI_ID}.test); echo "tercer subdominio: $r"
+    "$B/v-change-user-package" "$S" ciplan >/dev/null
+    [ "$(crear $S cis${CI_ID}.test)" = "CREADO" ]
+    [ "$(crear $S a.cis${CI_ID}.test)" = "CREADO" ]
+    [ "$(crear $S b.cis${CI_ID}.test)" = "CREADO" ]
+    r=$(crear $S c.cis${CI_ID}.test); echo "tercer subdominio: $r"
     [ "$r" = "RECHAZADO WEB_SUBDOMAINS limit is reached" ]
-    r=$(crear $U otro${CI_ID}.test); echo "segundo dominio: $r"
+    r=$(crear $S otro${CI_ID}.test); echo "segundo dominio: $r"
     [ "$r" = "RECHAZADO WEB_DOMAINS limit is reached" ]
 }
 
 @test "el boton del panel (v-add-domain) crea el vhost de un subdominio con el cupo de dominios lleno" {
     sed -i "s/^WEB_SUBDOMAINS=.*/WEB_SUBDOMAINS='5'/" "$H/data/packages/ciplan.pkg"
-    "$B/v-change-user-package" "$U" ciplan >/dev/null
-    D="panel.ciq${CI_ID}.test"
-    "$B/v-add-domain" "$U" "$D" >/dev/null 2>&1 || true
-    grep -q "DOMAIN='$D'" "$H/data/users/$U/web.conf"
+    "$B/v-change-user-package" "$S" ciplan >/dev/null
+    D="panel.cis${CI_ID}.test"
+    "$B/v-add-domain" "$S" "$D" >/dev/null 2>&1 || true
+    grep -q "DOMAIN='$D'" "$H/data/users/$S/web.conf"
 }
 
 @test "los contadores de dominios y subdominios se guardan bien" {
-    "$B/v-update-user-counters" "$U"
-    run "$B/v-list-user" "$U"
+    "$B/v-update-user-counters" "$S"
+    run "$B/v-list-user" "$S"
     echo "$output" | grep -iE "web (sub)?domains"
     echo "$output" | grep -qE "WEB DOMAINS: +1/1"
     echo "$output" | grep -qE "WEB SUBDOMAINS: +3/5"
@@ -187,7 +194,7 @@ crear() {
 
 @test "un plan que no cubre el uso se rechaza con el mensaje de subdominios" {
     sed -i "s/^WEB_SUBDOMAINS=.*/WEB_SUBDOMAINS='1'/" "$H/data/packages/ciplan.pkg"
-    run "$B/v-change-user-package" "$U" ciplan
+    run "$B/v-change-user-package" "$S" ciplan
     echo "$output"
     echo "$output" | grep -q "WEB_SUBDOMAIN usage"
 }
@@ -204,6 +211,21 @@ crear() {
 
 @test "el JSON de paquetes que lee el panel es valido e incluye WEB_SUBDOMAINS" {
     "$B/v-list-user-packages" json | python3 -c 'import json,sys; d=json.load(sys.stdin); assert all("WEB_SUBDOMAINS" in v for v in d.values())'
+}
+
+@test "fail2ban esta activo y con las jaulas de HestiaCP cargadas" {
+    systemctl is-active --quiet fail2ban
+    n=$(fail2ban-client status | grep -oP 'Number of jail:\s*\K[0-9]+')
+    echo "jaulas activas: $n"; fail2ban-client status | grep 'Jail list'
+    [ "$n" -ge 5 ]
+    fail2ban-client status | grep -q 'ssh-iptables'
+    fail2ban-client status | grep -q 'hestia-iptables'
+}
+
+@test "nginx.conf no tiene load_module duplicados" {
+    d=$(grep '^load_module' /etc/nginx/nginx.conf | sort | uniq -d)
+    echo "duplicados: ${d:-ninguno}"
+    [ -z "$d" ]
 }
 
 # ------------------------------------------------------------------ nginx
