@@ -175,6 +175,15 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
     [ "$(stat -c %U:%G /home/$U/mail/principal-ci.com/juan/cur)" = "$U:mail" ]
 }
 
+@test "migrador: buzon en formato mdbox convertido a maildir" {
+    command -v doveadm >/dev/null || skip "sin doveadm"
+    doveadm auth test archivo@principal-ci.com 'ClaveArchivo1!'
+    doveadm search -u archivo@principal-ci.com mailbox INBOX ALL | grep -q .
+    doveadm search -u archivo@principal-ci.com mailbox Archivados ALL | grep -q .
+    [ -d /home/$U/mail/principal-ci.com/archivo/cur ]
+    [ ! -d /home/$U/mail/principal-ci.com/archivo/storage ]
+}
+
 @test "migrador: cuota del buzon" {
     [ "$(mailval QUOTA principal-ci.com info)" = "500" ]
 }
@@ -310,4 +319,34 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
     [ "$(wc -l < "$H/data/users/$U/cron.conf")" -eq "$C1" ]
     [ "$(web_doms)" = "adicional-ci.com blog.principal-ci.com otro-ci.org principal-ci.com promo.aparcado-ci.net shop.adicional-ci.com tienda-ci.es " ]
     doveadm auth test info@principal-ci.com 'ClaveInfo2024!'
+}
+
+@test "migrador: no mezcla clientes si el usuario ya existe y es de otro" {
+    v-add-user ajenoci 'Clave-Ajeno-123' ajeno@example.org default >/dev/null
+    run bash "$MIG" "$BK" ajenoci
+    echo "$output" | tail -5
+    [ "$status" -ne 0 ]
+    echo "$output" | grep -q "parece otro cliente"
+    [ -z "$(v-list-web-domains ajenoci plain)" ]
+    v-delete-user ajenoci >/dev/null
+}
+
+@test "migrador: se para si los dominios ya estan en otra cuenta" {
+    run bash "$MIG" "$BK" nuevoci
+    echo "$output" | tail -8
+    [ "$status" -ne 0 ]
+    echo "$output" | grep -q "principal-ci.com (cuenta cpclient)"
+    ! v-list-user nuevoci >/dev/null 2>&1
+}
+
+@test "migrador en lote: sigue tras un fallo y deja resumen" {
+    L=/tmp/cpanel-ci/lista.txt
+    printf '%s - cimigjusto\n/tmp/cpanel-ci/no-existe.tar.gz\n' "$BK" > "$L"
+    run bash /hestiacp-git/install/migrate/cpanel-import-lote.sh "$L"
+    echo "$output" | tail -15
+    [ "$status" -ne 0 ]
+    R=$(ls -td /root/qemucp-lote-* | head -1)/RESUMEN.txt
+    grep -q "OK .*backup-10.9.2026_10-00-00_cpclient .*usuario cpclient" "$R"
+    grep -q "FALLO .*no-existe" "$R"
+    grep -q "Correctas: 1   Fallidas: 1" "$R"
 }

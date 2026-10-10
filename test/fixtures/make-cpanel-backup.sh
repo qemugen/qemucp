@@ -163,6 +163,31 @@ msg "$H/mail/principal-ci.com/juan/.Sent" 2002
 # cuenta por defecto (cpclient@principal-ci.com): mail/{cur,new,tmp}
 msg "$H/mail" 9001
 msg "$H/mail/.Sent" 9002
+# archivo@principal-ci.com en formato mdbox (cPanel lo permite). Solo si hay
+# doveadm para fabricarlo (en la prueba de CI, dentro del servidor QemuCP).
+if command -v doveadm >/dev/null 2>&1; then
+    MD="$H/mail/principal-ci.com/archivo"; mkdir -p "$MD"
+    msg "$TMP/archivo-src" 5001
+    msg "$TMP/archivo-src/.Archivados" 5002
+    cat > "$TMP/dc.conf" << EOF
+mail_location = mdbox:$MD
+first_valid_uid = 0
+userdb {
+  driver = static
+  args = uid=0 gid=0 home=$MD
+}
+passdb {
+  driver = static
+  args = nopassword=y
+}
+ssl = no
+log_path = /dev/stderr
+EOF
+    doveadm -c "$TMP/dc.conf" import -s -u archivo "maildir:$TMP/archivo-src" "" all
+    ls "$MD"/storage/m.* >/dev/null
+    printf 'archivo:x:1001:1001::/home/%s/mail/principal-ci.com/archivo:/home/%s\n' $U $U >> "$H/etc/principal-ci.com/passwd"
+    printf 'archivo:%s:19000::::::\n' "$(openssl passwd -6 'ClaveArchivo1!')" >> "$H/etc/principal-ci.com/shadow"
+fi
 # tienda-ci.es (local por el MX del hosting viejo)
 mkdir -p "$H/etc/tienda-ci.es"
 printf 'ventas:x:1001:1001::/home/%s/mail/tienda-ci.es/ventas:/home/%s\n' $U $U > "$H/etc/tienda-ci.es/passwd"

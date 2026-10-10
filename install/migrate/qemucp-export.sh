@@ -2,14 +2,18 @@
 # ============================================================
 # QemuCP Migrator - Exportador Universal
 # Soporta: cPanel, Plesk
-# Uso: bash qemucp-export.sh [cpanel|plesk] [usuario|all]
+# Uso: bash qemucp-export.sh [cpanel|plesk] [usuario|usuario1,usuario2|all]
+#
+# cPanel: genera las copias oficiales (pkgacct) de las cuentas; se importan
+# en QemuCP con cpanel-import-lote.sh. Plesk: exportacion basica (sin probar
+# en CI: revisar el resultado).
 # ============================================================
 
 set -euo pipefail
 
 PANEL="${1:-auto}"
 USER_FILTER="${2:-all}"
-EXPORT_DIR="/tmp/qemucp-migration-$(date +%Y%m%d_%H%M%S)"
+EXPORT_DIR="${EXPORT_DIR:-/home/qemucp-migration-$(date +%Y%m%d_%H%M%S)}"
 LOG="$EXPORT_DIR/migration.log"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -41,147 +45,46 @@ log "Directorio de exportacion: $EXPORT_DIR"
 # EXPORTACION cPANEL
 # ============================================================
 export_cpanel() {
-    header "Exportando desde cPanel"
-
-    # Obtener lista de usuarios
+    # Para cPanel se usa su copia oficial (pkgacct): lleva todo lo que el
+    # importador de QemuCP necesita (tipos de dominio, contrasenas de correo,
+    # reenviadores, zonas, crons, SSL...). La exportacion "a mano" que habia
+    # aqui perdia subdominios, contrasenas y registros DNS.
+    header "Exportando desde cPanel (copias oficiales pkgacct)"
+    [[ -x /scripts/pkgacct ]] || error "No esta /scripts/pkgacct: ¿es un servidor cPanel/WHM con acceso root?"
     if [ "$USER_FILTER" = "all" ]; then
-        USERS=$(ls /var/cpanel/users/ 2>/dev/null | grep -v "^root$" || true)
+        USERS=$(ls /var/cpanel/users/ 2>/dev/null | grep -v "^root$" | grep -v "^system$" || true)
     else
-        USERS="$USER_FILTER"
+        USERS="${USER_FILTER//,/ }"
     fi
-
+    BK_DIR="$EXPORT_DIR/cpanel"
+    mkdir -p "$BK_DIR"
+    LIBRE=$(df -Pm "$BK_DIR" | awk 'NR==2 {print $4}')
+    TOTAL=0
     for CUSER in $USERS; do
-        [[ ! -f /var/cpanel/users/$CUSER ]] && continue
-        log "Exportando usuario: $CUSER"
-
-        USER_DIR="$EXPORT_DIR/users/$CUSER"
-        mkdir -p "$USER_DIR"
-
-        # Datos del usuario
-        python3 << PYEOF
-import re, json
-
-with open("/var/cpanel/users/$CUSER") as f:
-    content = f.read()
-
-data = {}
-for line in content.split('\n'):
-    if '=' in line:
-        k, _, v = line.partition('=')
-        data[k.strip()] = v.strip()
-
-user_info = {
-    'username': '$CUSER',
-    'email':    data.get('CONTACTEMAIL', '${CUSER}@localhost'),
-    'password': data.get('ENCTYPE', 'sha-512') + ':' + data.get('PASSWORD', ''),
-    'plan':     data.get('PLAN', 'default'),
-    'source':   'cpanel',
-}
-
-with open('$USER_DIR/user.json', 'w') as f:
-    json.dump(user_info, f, indent=2)
-print(f"  Usuario exportado: {user_info['email']}")
-PYEOF
-
-        # Dominios web
-        mkdir -p "$USER_DIR/domains"
-        if [ -f /var/cpanel/userdata/$CUSER/main ]; then
-            python3 << PYEOF
-import yaml, json, os, re
-
-try:
-    import yaml
-    with open("/var/cpanel/userdata/$CUSER/main") as f:
-        data = yaml.safe_load(f)
-    domains = data.get('addon_domains', {})
-    domains[data.get('main_domain', '')] = ''
-    sub = data.get('sub_domains', [])
-except:
-    domains = {}
-    sub = []
-
-result = {'domains': list(domains.keys()), 'subdomains': sub if isinstance(sub, list) else []}
-with open('$USER_DIR/domains/domains.json', 'w') as f:
-    json.dump(result, f, indent=2)
-print(f"  Dominios: {list(domains.keys())}")
-PYEOF
-        fi
-
-        # Bases de datos MySQL
-        mkdir -p "$USER_DIR/databases"
-        if command -v mysql &>/dev/null; then
-            mysql -e "SHOW DATABASES LIKE '${CUSER}%';" 2>/dev/null | tail -n +2 | while read DB; do
-                log "  Exportando DB: $DB"
-                mysqldump --single-transaction --routines --triggers \
-                    "$DB" > "$USER_DIR/databases/${DB}.sql" 2>/dev/null || \
-                    warn "  No se pudo exportar $DB"
-            done
-
-            # Usuarios de DB y sus grants
-            mysql -e "SELECT User, Host, authentication_string FROM mysql.user WHERE User LIKE '${CUSER}_%';" \
-                2>/dev/null > "$USER_DIR/databases/db_users.txt" || true
-        fi
-
-        # Cuentas de email
-        mkdir -p "$USER_DIR/mail"
-        if [ -d /home/$CUSER/mail ]; then
-            python3 << PYEOF
-import os, json
-
-mail_data = {}
-mail_base = "/home/$CUSER/mail"
-
-if os.path.isdir(mail_base):
-    for domain in os.listdir(mail_base):
-        domain_path = os.path.join(mail_base, domain)
-        if os.path.isdir(domain_path):
-            mail_data[domain] = []
-            for account in os.listdir(domain_path):
-                if os.path.isdir(os.path.join(domain_path, account)):
-                    mail_data[domain].append(account)
-
-with open("$USER_DIR/mail/accounts.json", "w") as f:
-    json.dump(mail_data, f, indent=2)
-print(f"  Dominios de email: {list(mail_data.keys())}")
-PYEOF
-        fi
-
-        # Passwords de email desde shadow
-        if [ -f /etc/vdomainpasswd ]; then
-            grep "^${CUSER}" /etc/vdomainpasswd > "$USER_DIR/mail/passwords.txt" 2>/dev/null || true
-        fi
-
-        # DNS zones
-        mkdir -p "$USER_DIR/dns"
-        if [ -d /var/named ]; then
-            for ZONE in $(ls /var/named/${CUSER}*.db 2>/dev/null); do
-                cp "$ZONE" "$USER_DIR/dns/" 2>/dev/null || true
-            done
-        fi
-        # cPanel DNS alternativo
-        if [ -d /var/cpanel/zone ]; then
-            find /var/cpanel/zone -name "*.db" 2>/dev/null | while read Z; do
-                cp "$Z" "$USER_DIR/dns/" 2>/dev/null || true
-            done
-        fi
-
-        # SSL certificates
-        mkdir -p "$USER_DIR/ssl"
-        if [ -d /etc/letsencrypt/live ]; then
-            for CERTDIR in /etc/letsencrypt/live/*/; do
-                DOMAIN=$(basename "$CERTDIR")
-                mkdir -p "$USER_DIR/ssl/$DOMAIN"
-                cp "$CERTDIR"*.pem "$USER_DIR/ssl/$DOMAIN/" 2>/dev/null || true
-            done
-        fi
-
-        # Ficheros web (lista para rsync posterior)
-        echo "rsync -avz /home/$CUSER/ DESTUSER@DESTSERVER:/home/$CUSER/" \
-            > "$USER_DIR/rsync_command.sh"
-        chmod +x "$USER_DIR/rsync_command.sh"
-
-        log "Usuario $CUSER exportado correctamente"
+        [[ -f /var/cpanel/users/$CUSER ]] || { warn "No existe la cuenta cPanel $CUSER"; continue; }
+        TOTAL=$(( TOTAL + $(du -sm "/home/$CUSER" 2>/dev/null | cut -f1 || echo 0) ))
     done
+    [[ "$LIBRE" -gt "$TOTAL" ]] || error "Espacio libre en $EXPORT_DIR: ${LIBRE}MB; las cuentas ocupan ~${TOTAL}MB. Usa: EXPORT_DIR=/otro/disco"
+    N=0
+    for CUSER in $USERS; do
+        [[ -f /var/cpanel/users/$CUSER ]] || continue
+        log "Copia de $CUSER..."
+        if /scripts/pkgacct --skipbwdata "$CUSER" "$BK_DIR" >> "$LOG" 2>&1; then
+            N=$((N+1))
+        else
+            warn "  pkgacct fallo para $CUSER (ver $LOG)"
+        fi
+    done
+    log "$N copias en $BK_DIR"
+    echo ""
+    echo "Siguiente paso - en el servidor QemuCP:"
+    echo "  rsync -av root@$(hostname -f 2>/dev/null || hostname):$BK_DIR/ /root/backups-cpanel/"
+    echo "  bash cpanel-import-lote.sh /root/backups-cpanel [plan]"
+    echo ""
+    echo "Para renombrar cuentas o dar planes distintos, usa una lista:"
+    echo "  echo '/root/backups-cpanel/cpmove-pepe.tar.gz pepe2 plan_basico' > lista.txt"
+    echo "  bash cpanel-import-lote.sh lista.txt"
+    exit 0
 }
 
 # ============================================================

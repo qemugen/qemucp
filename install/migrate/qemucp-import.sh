@@ -35,6 +35,13 @@ MIGRATION_PATH="$WORK_DIR/$MIGRATION_DIR"
 
 log "Directorio de trabajo: $MIGRATION_PATH"
 
+# Los paquetes antiguos de cPanel hechos con este flujo pierden subdominios,
+# contrasenas de correo y registros DNS. Para cPanel: copias oficiales +
+# cpanel-import-lote.sh (qemucp-export.sh ya las genera asi).
+if grep -qs '"source": *"cpanel"' "$MIGRATION_PATH"/users/*/user.json; then
+    error "Este paquete es de cPanel con el formato antiguo. Usa las copias oficiales: en el cPanel 'bash qemucp-export.sh cpanel all' y aqui 'bash cpanel-import-lote.sh carpeta'"
+fi
+
 # -- Resumen de lo que se va a importar ----------------------
 USERS=$(ls "$MIGRATION_PATH/users/" 2>/dev/null || true)
 echo ""

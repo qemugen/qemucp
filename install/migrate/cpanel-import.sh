@@ -549,6 +549,30 @@ info "El backup necesita: $N_TOP dominios, $N_SUB subdominios, $N_DBS bases de d
 
 USUARIO_EXISTE="no"
 $BIN/v-list-user "$CPANEL_USER" &>/dev/null && USUARIO_EXISTE="si"
+
+# Migrando varios cPanel es facil que dos clientes distintos se llamen igual
+# (info, web, admin1...) o que un dominio ya este en otra cuenta. Se comprueba
+# ANTES de crear nada para no mezclar clientes.
+if [[ "$USUARIO_EXISTE" == "si" ]] && [[ "${QEMUCP_FUSIONAR:-no}" != "si" ]] \
+   && ! $BIN/v-list-web-domain "$CPANEL_USER" "$MAIN_DOMAIN" &>/dev/null; then
+    error "El usuario $CPANEL_USER ya existe en QemuCP y NO tiene $MAIN_DOMAIN: parece otro cliente. Importa con otro nombre: bash $0 $BACKUP otro_usuario [plan]  (o QEMUCP_FUSIONAR=si si de verdad es el mismo cliente)"
+fi
+OCUPADOS=()
+for d in "${WEB_DOMAINS_ALL[@]}" "${PARKED_DOMAINS[@]:-}" "${!ZONA_TSV[@]}"; do
+    [[ -z "$d" ]] && continue
+    for f in "$HESTIA"/data/users/*/web.conf "$HESTIA"/data/users/*/dns.conf "$HESTIA"/data/users/*/mail.conf; do
+        [[ -f "$f" ]] || continue
+        du_=$(basename "$(dirname "$f")"); [[ "$du_" == "$CPANEL_USER" ]] && continue
+        if grep -q "^DOMAIN='$d'" "$f" || grep -qP "ALIAS='([^']*,)?\Q$d\E(,[^']*)?'" "$f"; then
+            OCUPADOS+=("$d (cuenta $du_)"); break
+        fi
+    done
+done
+if [[ ${#OCUPADOS[@]} -gt 0 ]]; then
+    for o in $(printf '%s\n' "${OCUPADOS[@]}" | sort -u | tr ' ' '#'); do warn "  Ya existe en otra cuenta: ${o//#/ }"; done
+    error "Hay dominios del backup que ya estan en otras cuentas de este servidor. Quitalos de alli o revisa si el backup es el correcto."
+fi
+
 if [[ "$USUARIO_EXISTE" == "si" ]]; then
     warn "El usuario $CPANEL_USER ya existe: se importa sobre el (su plan no se cambia)"
 else
@@ -983,10 +1007,20 @@ for MAIL_DOMAIN in "${MAIL_DOMS[@]:-}"; do
             if [[ -d "$SRC_MAIL/storage" ]] && ls "$SRC_MAIL/storage"/m.* >/dev/null 2>&1; then
                 # cPanel puede guardar los buzones en mdbox; QemuCP usa maildir
                 MDB_OK="no"
-                if command -v doveadm >/dev/null 2>&1; then
-                    mkdir -p "$DEST_MAIL"; chown -R "$CPANEL_USER:mail" "$DEST_MAIL"
-                    # Importa del mdbox del backup al buzon (maildir) de la cuenta
-                    doveadm import -s -u "$ACCOUNT@$MAIL_DOMAIN" "mdbox:$SRC_MAIL" "" all >> "$LOG" 2>&1 && MDB_OK="si"
+                if [[ -n "$(find "$DEST_MAIL" -path '*/cur/*' -type f -print -quit 2>/dev/null)" ]]; then
+                    # Reejecucion: ya se importo (importar otra vez duplicaria)
+                    MDB_OK="si"
+                elif command -v doveadm >/dev/null 2>&1; then
+                    chown -R "$CPANEL_USER:mail" "$DEST_MAIL"
+                    # doveadm lee el origen con el uid del usuario: el backup
+                    # descomprimido (root, 700) no le es accesible. Se copia a
+                    # su tmp, se importa al buzon (maildir) y se borra.
+                    MDB_TMP="$DEST_HOME/tmp/mdbox-$ACCOUNT-$$"
+                    rm -rf "$MDB_TMP"; mkdir -p "$DEST_HOME/tmp"
+                    cp -a "$SRC_MAIL" "$MDB_TMP" && chown -R "$CPANEL_USER:mail" "$MDB_TMP" \
+                        && doveadm import -s -u "$ACCOUNT@$MAIL_DOMAIN" "mdbox:$MDB_TMP" "" all >> "$LOG" 2>&1 \
+                        && MDB_OK="si"
+                    rm -rf "$MDB_TMP"
                 fi
                 [[ "$MDB_OK" == "si" ]] && info "  $ACCOUNT@$MAIL_DOMAIN: buzon mdbox convertido" \
                     || pendiente "$ACCOUNT@$MAIL_DOMAIN esta en formato mdbox y no se pudo convertir: migrarlo con imapsync"
