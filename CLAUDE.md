@@ -198,6 +198,11 @@ falle en producción).
 - DNS: solo los A que apuntan al origen pasan a este servidor (IP NAT si la
   hay); un SPF y un DMARC; DKIM propio; CAA con letsencrypt; sin registros
   de cPanel; cada subdominio web con su registro.
+- En lote: en el cPanel `qemucp-export.sh cpanel all` (copias pkgacct);
+  aquí `cpanel-import-lote.sh carpeta [plan]` o `lista.txt` (backup
+  usuario plan). Resumen en `/root/qemucp-lote-*/RESUMEN.txt`. El
+  importador se para si el usuario existe y no tiene el dominio principal
+  (otro cliente; `QEMUCP_FUSIONAR=si`) o si un dominio está en otra cuenta.
 - Reejecutable: no duplica DNS, crons ni alias; las BBDD se vacían y
   reimportan. Recarga web/proxy/php-fpm al final (todo se crea con
   restart=no). Informe en `/root/qemucp-import-USUARIO-*.txt`.
