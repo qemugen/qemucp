@@ -15,6 +15,22 @@ OUT=/tmp/cpanel-ci/importacion.log
 
 setup_file() {
     mkdir -p /tmp/cpanel-ci
+    # Un buzon en formato mdbox, hecho con el Dovecot de este servidor a
+    # traves de una cuenta temporal
+    if command -v doveadm >/dev/null; then
+        v-add-user mdboxci 'Clave-Mdbox-123' mdbox@example.org default >/dev/null
+        v-add-mail-domain mdboxci mdbox-ci.test >/dev/null
+        v-add-mail-account mdboxci mdbox-ci.test archivo 'Clave-Tmp-12345' >/dev/null
+        S=/tmp/cpanel-ci/md-src; D=/tmp/cpanel-ci/mdbox; rm -rf "$S" "$D"
+        for c in "$S" "$S/.Archivados"; do
+            mkdir -p "$c"/{cur,new,tmp}
+            printf 'From: a@example.org\nTo: b@example.org\nSubject: mdbox\n\nhola\n' > "$c/cur/${RANDOM}.host:2,S"
+        done
+        mkdir -p "$D"; chown -R mdboxci:mail "$S" "$D"
+        doveadm -o "mail_location=mdbox:$D" import -s -u archivo@mdbox-ci.test "maildir:$S" "" all
+        v-delete-user mdboxci >/dev/null
+        export CI_MDBOX="$D"
+    fi
     bash /hestiacp-git/test/fixtures/make-cpanel-backup.sh "$BK" >/dev/null
     # Plan pequeno: el migrador debe negarse ANTES de crear nada
     cp "$H/data/packages/default.pkg" "$H/data/packages/cimig.pkg"
