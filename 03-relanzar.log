@@ -1,0 +1,362 @@
+
+[0;34m======================================[0m
+[0;34m  QemuCP Installer - Comprobaciones previas[0m
+[0;34m======================================[0m
+
+[0;32m[OK][0m Sistema: Ubuntu 24.04
+[0;32m[OK][0m RAM: 15989MB
+
+[0;34m  Configuracion del servidor[0m
+[0;34m--------------------------------------[0m
+
+[0;32m[OK][0m Hostname configurado: qemucp-ci.local.test
+
+[0;34m======================================[0m
+[0;34m  PASO 0: Desplegando scripts auxiliares[0m
+[0;34m======================================[0m
+
+[0;32m[OK][0m 3 scripts auxiliares desplegados en /opt/qemucp y verificados
+
+[0;34m======================================[0m
+[0;34m  PASO 1: Preparando sistema base[0m
+[0;34m======================================[0m
+
+[0;32m[OK][0m Timezone: Europe/Madrid
+[0;32m[OK][0m Locale: es_ES.UTF-8 (o C.UTF-8 si no disponible)
+[0;32m[OK][0m Hostname: qemucp-ci.local.test
+[0;32m[OK][0m Paquetes base instalados
+Hit:1 http://security.ubuntu.com/ubuntu noble-security InRelease
+Hit:2 https://deb.nodesource.com/node_24.x nodistro InRelease
+Hit:4 https://nginx.org/packages/mainline/ubuntu noble InRelease
+Hit:5 https://apt.hestiacp.com noble InRelease
+Hit:6 http://archive.ubuntu.com/ubuntu noble InRelease
+Hit:3 https://dlm.mariadb.com/repo/mariadb-server/11.8/repo/ubuntu noble InRelease
+Hit:7 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:8 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+Hit:9 https://ppa.launchpadcontent.net/ondrej/php/ubuntu noble InRelease
+Reading package lists...
+PPA publishes dbgsym, you may need to include 'main/debug' component
+Repository: 'Types: deb
+URIs: https://ppa.launchpadcontent.net/ondrej/php/ubuntu/
+Suites: noble
+Components: main
+'
+Description:
+This repository is in process of being merged into https://packages.sury.org/php/;
+
+For Ubuntu Resolute, https://packages.sury.org/php/ is the canonical way of getting PHP packages, for previous releases, I will provide a simple way how to migrate to the new repositories in upcoming weeks, you can still use this repository for Ubuntu Jammy and Ubuntu Noble.
+More info: https://launchpad.net/~ondrej/+archive/ubuntu/php
+Adding repository.
+Found existing deb entry in /etc/apt/sources.list.d/ondrej-ubuntu-php-noble.sources
+[0;32m[OK][0m Versiones PHP obsoletas bloqueadas (5.6, 7.0, 7.1)
+
+[0;34m======================================[0m
+[0;34m  PASO 2: Instalando QemuCP[0m
+[0;34m======================================[0m
+
+[1;33m[!][0m QemuCP/HestiaCP YA esta instalado (version 1.10.5)
+[1;33m[!][0m Se SALTA la instalacion base y se aplican solo las optimizaciones.
+[1;33m[!][0m Si quieres una instalacion limpia, reinstala el sistema operativo.
+[0;32m[OK][0m Instalador base eliminado
+
+[0;34m======================================[0m
+[0;34m  PASO 2C: Forzando idioma Espanol + tema Dark[0m
+[0;34m======================================[0m
+
+[0;32m[OK][0m Idioma admin: Espanol
+[0;32m[OK][0m Tema admin: Dark
+[0;32m[OK][0m Idioma global del panel: Espanol
+[0;32m[OK][0m Hook post-creacion escrito (el idioma real lo fija LANGUAGE en hestia.conf)
+
+[0;34m======================================[0m
+[0;34m  PASO 3: Aplicando personalizacion QemuCP[0m
+[0;34m======================================[0m
+
+[0;32m[OK][0m Logo descargado desde el fork
+[0;32m[OK][0m Favicon y apple-touch-icon generados
+[0;32m[OK][0m CSS de marca creado
+[0;32m[OK][0m Referencias de marca reemplazadas
+[0;32m[OK][0m Instalando logos QemuCP...
+[0;32m[OK][0m logo-header.svg instalado
+[0;32m[OK][0m logo.svg instalado
+[0;32m[OK][0m Logos QemuCP instalados correctamente
+[0;32m[OK][0m APP_NAME configurado como QemuCP Control Panel
+[0;32m[OK][0m WordPress Optimizado (QemuCP) instalado
+[0;32m[OK][0m PrestaShop Optimizado (QemuCP) instalado
+[0;32m[OK][0m Logo de login actualizado
+
+[0;34m======================================[0m
+[0;34m  PASO 4: Compilando e instalando modulo GeoIP2 para Nginx[0m
+[0;34m======================================[0m
+
+[0;32m[OK][0m Nginx detectado: 1.31.6
+[0;32m[OK][0m Modulo ngx_http_geoip2_module.so compilado e instalado
+[0;32m[OK][0m Modulo GeoIP2 se cargara desde nginx.conf
+[0;32m[OK][0m Descargando base de datos GeoIP2-Country...
+[0;32m[OK][0m GeoIP2-Country.mmdb instalada desde zonasdnsprivadas.com
+
+[0;34m======================================[0m
+[0;34m  PASO 4A: Creando configuracion GeoIP2 para QemuCP/Nginx[0m
+[0;34m======================================[0m
+
+[0;32m[OK][0m 00-init.conf creado (con GeoIP2 activo)
+[0;32m[OK][0m 01-maps.conf creado
+[0;32m[OK][0m 02-logging.conf creado
+[0;32m[OK][0m server-includes/main-rules.conf creado
+[0;32m[OK][0m countries.list creado (RU, UA, VN, SG, CN, JP, IN, KR, MD)
+[0;32m[OK][0m bots.list creado
+[0;32m[OK][0m whitelist.list creado
+[0;32m[OK][0m main-rules.conf incluido en templates de vhost QemuCP
+[0;32m[OK][0m main-rules.conf incluido en vhosts existentes
+[0;32m[OK][0m Archivos temporales de compilacion eliminados
+
+[0;34m======================================[0m
+[0;34m  PASO 5: Optimizando Nginx de QemuCP[0m
+[0;34m======================================[0m
+
+[0;32m[OK][0m GeoIP2 load_module ya presente en nginx.conf
+[0;32m[OK][0m Optimizaciones Nginx aplicadas via conf.d
+[0;32m[OK][0m Nginx worker_processes ajustado a 4 cores
+[0;32m[OK][0m FastCGI cache path ya definido en nginx.conf
+[0;32m[OK][0m open_file_cache optimizado en nginx.conf
+[0;32m[OK][0m Nginx optimizado para maximo rendimiento
+
+[0;34m======================================[0m
+[0;34m  PASO 6: Optimizando Apache como motor web[0m
+[0;34m======================================[0m
+
+Conf performance already enabled
+Considering dependency filter for deflate:
+Module filter already enabled
+Module deflate already enabled
+Module expires already enabled
+Module headers already enabled
+Module rewrite already enabled
+[0;32m[OK][0m Apache optimizado como backend
+
+[0;34m======================================[0m
+[0;34m  PASO 7: Registrando versiones PHP en QemuCP y optimizando[0m
+[0;34m======================================[0m
+
+ERROR: Specified PHP version is already installed.
+[0;32m[OK][0m PHP 7.2 disponible en el panel
+ERROR: Specified PHP version is already installed.
+[0;32m[OK][0m PHP 7.3 disponible en el panel
+ERROR: Specified PHP version is already installed.
+[0;32m[OK][0m PHP 7.4 disponible en el panel
+ERROR: Specified PHP version is already installed.
+[0;32m[OK][0m PHP 8.0 disponible en el panel
+ERROR: Specified PHP version is already installed.
+[0;32m[OK][0m PHP 8.1 disponible en el panel
+ERROR: Specified PHP version is already installed.
+[0;32m[OK][0m PHP 8.2 disponible en el panel
+ERROR: Specified PHP version is already installed.
+[0;32m[OK][0m PHP 8.3 disponible en el panel
+ERROR: Specified PHP version is already installed.
+[0;32m[OK][0m PHP 8.4 disponible en el panel
+ERROR: Specified PHP version is already installed.
+[0;32m[OK][0m PHP 8.5 disponible en el panel
+[0;32m[OK][0m Extensiones PHP 7.2: mysql, gd, curl, mbstring, xml, zip, intl, bcmath, soap, imagick, redis, apcu, mcrypt
+[0;32m[OK][0m Extensiones PHP 7.3: mysql, gd, curl, mbstring, xml, zip, intl, bcmath, soap, imagick, redis, apcu, mcrypt
+[0;32m[OK][0m Extensiones PHP 7.4: mysql, gd, curl, mbstring, xml, zip, intl, bcmath, soap, imagick, redis, apcu, mcrypt
+[0;32m[OK][0m Extensiones PHP 8.0: mysql, gd, curl, mbstring, xml, zip, intl, bcmath, soap, imagick, redis, apcu, mcrypt
+[0;32m[OK][0m Extensiones PHP 8.1: mysql, gd, curl, mbstring, xml, zip, intl, bcmath, soap, imagick, redis, apcu, mcrypt
+[0;32m[OK][0m Extensiones PHP 8.2: mysql, gd, curl, mbstring, xml, zip, intl, bcmath, soap, imagick, redis, apcu, mcrypt
+[0;32m[OK][0m Extensiones PHP 8.3: mysql, gd, curl, mbstring, xml, zip, intl, bcmath, soap, imagick, redis, apcu, mcrypt
+[0;32m[OK][0m Extensiones PHP 8.4: mysql, gd, curl, mbstring, xml, zip, intl, bcmath, soap, imagick, redis, apcu, mcrypt
+[0;32m[OK][0m Extensiones PHP 8.5: mysql, gd, curl, mbstring, xml, zip, intl, bcmath, soap, imagick, redis, apcu, mcrypt
+[0;32m[OK][0m Plantillas PHP-FPM: 0 ajustadas (bloque QemuCP y cada directiva una sola vez)
+[0;32m[OK][0m PHP 7.2: OPcache + APCu configurados via conf.d
+[0;32m[OK][0m PHP 7.3: OPcache + APCu configurados via conf.d
+[0;32m[OK][0m PHP 7.4: OPcache + APCu configurados via conf.d
+[0;32m[OK][0m PHP 8.0: OPcache + APCu configurados via conf.d
+[0;32m[OK][0m PHP 8.1: OPcache + APCu configurados via conf.d
+[0;32m[OK][0m PHP 8.2: OPcache + APCu configurados via conf.d
+[0;32m[OK][0m PHP 8.3: OPcache + APCu configurados via conf.d
+[0;32m[OK][0m PHP 8.4: OPcache + APCu configurados via conf.d
+[0;32m[OK][0m PHP 8.5: OPcache + APCu configurados via conf.d
+
+[0;34m======================================[0m
+[0;34m  PASO 7B: Instalando y configurando Redis[0m
+[0;34m======================================[0m
+
+Synchronizing state of redis-server.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable redis-server
+sh: 0: getcwd() failed: No such file or directory
+[0;32m[OK][0m Redis instalado (3197MB RAM * LRU * solo localhost)
+[0;32m[OK][0m PHP 7.2 redis extension instalada
+[0;32m[OK][0m PHP 7.3 redis extension instalada
+[0;32m[OK][0m PHP 7.4 redis extension instalada
+[0;32m[OK][0m PHP 8.0 redis extension instalada
+[0;32m[OK][0m PHP 8.1 redis extension instalada
+[0;32m[OK][0m PHP 8.2 redis extension instalada
+[0;32m[OK][0m PHP 8.3 redis extension instalada
+[0;32m[OK][0m PHP 8.4 redis extension instalada
+[0;32m[OK][0m PHP 8.5 redis extension instalada
+[0;32m[OK][0m Redis listo ? activalo en WordPress con: WP Redis o W3 Total Cache
+[0;32m[OK][0m Redis listo ? activalo en PrestaShop con: modulo Redis Cache
+
+[0;34m======================================[0m
+[0;34m  PASO 7C: Activando FastCGI cache en vhosts Nginx[0m
+[0;34m======================================[0m
+
+[0;32m[OK][0m Snippet FastCGI cache creado: /etc/nginx/snippets/fastcgi-cache.conf
+[0;32m[OK][0m Snippet de exclusiones de cache creado
+[0;32m[OK][0m FastCGI cache integrado en templates de vhost
+
+[0;34m======================================[0m
+[0;34m  PASO 7D: Instalando modulo Brotli para Nginx[0m
+[0;34m======================================[0m
+
+Submodule path 'deps/brotli': checked out 'ed738e842d2fbdf2d6459e39267a633c4a9b2f5d'
+[0;32m[OK][0m Modulos Brotli compilados e instalados
+[0;32m[OK][0m Brotli load_module ya presente en nginx.conf
+[0;32m[OK][0m Brotli ya activado en Nginx
+
+[0;34m======================================[0m
+[0;34m  PASO 8: Optimizando MariaDB[0m
+[0;34m======================================[0m
+
+[0;32m[OK][0m MariaDB optimizado (InnoDB 7994MB * utf8mb4 * modo SQL compatible)
+
+[0;34m======================================[0m
+[0;34m  PASO 9: Configurando SSL automatico[0m
+[0;34m======================================[0m
+
+Error: Let's Encrypt acc registration failed 400
+Error: Let's Encrypt SSL creation failed
+[1;33m[!][0m SSL panel: apunta el DNS primero y ejecuta: v-add-letsencrypt-host
+
+[0;34m======================================[0m
+[0;34m  PASO 10: Configurando seguridad[0m
+[0;34m======================================[0m
+
+[0;32m[OK][0m Fail2ban configurado (jaulas de HestiaCP)
+[0;32m[OK][0m Filtro nginx-badbots creado
+[0;32m[OK][0m Filtro nginx-444 creado
+[0;32m[OK][0m FIX #1: Subsystem sftp internal-sftp (fuera de Match, sin duplicados)
+[0;32m[OK][0m FIX #1B: /run/sshd creado y persistido
+[0;32m[OK][0m FIX #2: PubkeyAuthentication yes verificado (File Manager)
+[0;32m[OK][0m FIX #3: Alias systemd spamassassin -> spamd creado
+[0;32m[OK][0m Clave SFTP admin registrada correctamente
+[0;32m[OK][0m SSH configurado y reiniciado (config valida)
+[0;32m[OK][0m FIX #4: FileGator migrate() ya presente o fichero no encontrado
+SKIP - ya aplicado o version diferente
+[0;32m[OK][0m FIX #6: File Manager tar.gz support anadido
+[0;32m[OK][0m FIX #5: Sudoers chmod ya presente
+[0;32m[OK][0m Parametros de kernel optimizados
+
+[0;34m======================================[0m
+[0;34m  PASO 10B: Corrigiendo configuracion Nginx para IP directa[0m
+[0;34m======================================[0m
+
+[1;33m[!][0m No se encontro /etc/nginx/conf.d/172.208.92.165.conf - HestiaCP puede no haberlo generado aun
+[0;32m[OK][0m phpmyadmin.inc corregido (root en lugar de alias)
+
+[0;34m======================================[0m
+[0;34m  PASO 10C: Parcheando bugs conocidos de HestiaCP[0m
+[0;34m======================================[0m
+
+[0;34m[..][0m File Manager ya parcheado o version distinta
+    [0;32mOK[0m     /etc/hestiacp/hooks/post_install.sh instalado
+    [0;32mOK[0m     el postinst del paquete hestia invoca /etc/hestiacp/hooks/post_install.sh
+    [0;32mOK[0m     bloque anterior de QemuCP retirado (backup guardado)
+    [0;32mOK[0m     bloque de QemuCP instalado en /etc/hestiacp/hooks/post_install.sh
+    [0;32mOK[0m     sintaxis del hook correcta
+    [1;33mAVISO[0m  sin copia local de qemucp-rebrand.sh: el hook lo descargara
+    [0;32mOK[0m     parche-subdominios.sh presente
+    [0;32mOK[0m     arreglar-crons.sh presente
+[0;32m[OK][0m Hook post_install instalado (reaplica los parches en cada apt upgrade)
+
+[0;34m======================================[0m
+[0;34m  PASO 10D: Limite de subdominios separado del de dominios[0m
+[0;34m======================================[0m
+
+[0;32m[OK][0m Limite de subdominios instalado (ver /var/log/qemucp-subdominios.log)
+[0;34m[..][0m Los paquetes existentes NO cambian hasta que les pongas
+[0;34m[..][0m un valor en 'Web Subdomains' desde Paquetes -> editar
+
+[0;34m======================================[0m
+[0;34m  PASO 10E: Verificando la cola de reinicios[0m
+[0;34m======================================[0m
+
+   [0;32mTodo correcto.[0m La cola de reinicios funciona: al crear una web,
+[0;32m[OK][0m Cola de reinicios verificada con arreglar-crons.sh
+[0;32m[OK][0m Servicio cron activo
+[0;32m[OK][0m Cola vaciada y DNS/web recargados
+[0;32m[OK][0m Comprobado: named sirve las zonas nuevas correctamente
+
+[0;34m======================================[0m
+[0;34m  PASO 11: Verificando configuracion y reiniciando servicios[0m
+[0;34m======================================[0m
+
+[0;32m[OK][0m Valores web basicos y puertos verificados
+[0;32m[OK][0m DB_SYSTEM presente (OK)
+[0;32m[OK][0m DNS_SYSTEM presente (OK)
+[0;32m[OK][0m BACKUP_SYSTEM presente (OK)
+[0;32m[OK][0m FIREWALL_SYSTEM presente (OK)
+[0;32m[OK][0m IMAP_SYSTEM presente (OK)
+[0;32m[OK][0m SIEVE_SYSTEM presente (OK)
+[0;32m[OK][0m ANTISPAM_SYSTEM presente (OK)
+[0;32m[OK][0m ANTIVIRUS_SYSTEM presente (OK)
+[0;32m[OK][0m FTP_SYSTEM presente (OK)
+[0;32m[OK][0m nginx -t: configuracion valida
+[0;32m[OK][0m MariaDB reiniciado
+[0;32m[OK][0m Redis reiniciado
+[0;32m[OK][0m Apache reiniciado
+[0;32m[OK][0m Nginx reiniciado (GeoIP2 + Brotli activos)
+[0;32m[OK][0m QemuCP reiniciado
+[0;32m[OK][0m Fail2ban activo
+[0;32m[OK][0m PHP 7.2 FPM reiniciado
+[0;32m[OK][0m PHP 7.3 FPM reiniciado
+[0;32m[OK][0m PHP 7.4 FPM reiniciado
+[0;32m[OK][0m PHP 8.0 FPM reiniciado
+[0;32m[OK][0m PHP 8.1 FPM reiniciado
+[0;32m[OK][0m PHP 8.2 FPM reiniciado
+[0;32m[OK][0m PHP 8.3 FPM reiniciado
+[0;32m[OK][0m PHP 8.4 FPM reiniciado
+[0;32m[OK][0m PHP 8.5 FPM reiniciado
+
+[0;32m+==========================================================+[0m
+[0;32m|          QemuCP instalado y configurado                  |[0m
+[0;32m+==========================================================+[0m
+
+  [0;34mPanel URL:[0m     https://172.17.0.2:8083
+  [0;34mPanel URL:[0m     https://qemucp-ci.local.test:8083
+  [0;34mUsuario:[0m       admin
+  [0;34mPassword:[0m      [0;31mdjld9gRs96noeVjHopOOt2Yq[0m
+  [0;34mEmail:[0m         soporte@qemugen.com
+
+  [1;33mCredenciales guardadas en:[0m /root/qemucp-credentials.txt [1;33m(chmod 600)[0m
+
+  [1;33mConfiguracion aplicada:[0m
+  OK Marca:       QemuCP * logo transparente * referencias eliminadas
+  OK Tema:        Dark * Idioma: Espanol (admin + nuevos usuarios)
+  OK PHP:         7.4 * 8.0 * 8.1 * 8.2 * 8.3 * 8.4 (512M * JIT 8+)
+  OK MariaDB:     10.11 LTS * InnoDB 7994MB buffer
+  OK Nginx:       Proxy inverso * FastCGI cache * GeoIP2 * Brotli activo
+  OK Redis:       Cache de objetos en RAM * 3197MB * LRU
+  OK FastCGI:     Cache de paginas completas * bypass WP/PS automatico
+  OK Brotli:      Compresion avanzada (CSS*JS*HTML*JSON*fonts)
+  OK GeoIP2:      Bloqueo RU,UA,VN,SG,CN,JP,IN,KR,MD * bots 444
+  OK Whitelist:   78.128.8.207 * 127.0.0.1 (bypass GeoIP+bots)
+  OK Apache:      Motor web backend optimizado
+  OK SSL:         Let's Encrypt * renovacion automatica 3:00 AM
+  OK Fail2ban:    SSH * Nginx * Panel * MySQL (ban 24h en remoto)
+  OK Kernel:      TCP stack * file descriptors optimizados
+  OK Timezone:    Europe/Madrid
+  OK Parches:     #1 FileManager SFTP * #2 PubkeyAuth * #3 SFTP homedir
+                 #4 SpamAssassin spamd * #5 Roundcube permisos * #6 phpMyAdmin * #7 SSL cron
+
+  [1;33mArchivos GeoIP2 editables:[0m
+  ? Paises bloqueados:  /etc/nginx/conf.d/lists/countries.list
+  ? Bots bloqueados:    /etc/nginx/conf.d/lists/bots.list
+  ? IPs permitidas:     /etc/nginx/conf.d/lists/whitelist.list
+  ? Reglas activas:     /etc/nginx/conf.d/server-includes/main-rules.conf
+
+  [0;31mIMPORTANTE:[0m
+  ? Apunta el DNS de qemucp-ci.local.test a 172.17.0.2 antes de usar SSL
+  ? Elimina /root/qemucp-credentials.txt tras anotar la contrasena
+  ? Para anadir/quitar paises edita countries.list y recarga nginx
+
+[0;32m==========================================================[0m

@@ -1,0 +1,15 @@
+
+[0;34m======================================[0m
+[0;34m  QemuCP - Actualizacion del panel desde el fork[0m
+[0;34m======================================[0m
+
+[0;34m[..][0m Instalado ahora: hestia 1.10.5-1+ubuntu24.04 (fork ?)
+[0;34m[..][0m Compilando el fork (commit ?); tarda unos minutos...
+[0;32m[OK][0m Paquete hestia 1.10.5-1+ubuntu24.04 compilado
+[0;32m[OK][0m Copia de la configuracion del panel en /root/qemucp-backups/actualizar-20261010-125224
+[0;34m[..][0m Instalando el paquete (el hook post_install se ejecuta solo)...
+[0;32m[OK][0m Paquete hestia bloqueado: apt no lo cambiara por el de upstream
+[0;32m[OK][0m Hook post_install ejecutado (ver /var/log/qemucp-post-install.log)
+[0;32m[OK][0m Panel respondiendo en el puerto 8083
+
+[0;32m[OK][0m Actualizado: hestia 1.10.5-1+ubuntu24.04 -> 1.10.5-1+ubuntu24.04 (fork, commit ?)

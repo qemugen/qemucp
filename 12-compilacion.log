@@ -1,0 +1,37 @@
+TERM environment variable not set.
+TERM environment variable not set.
+Build version 1.10.5, with Nginx version 1.30.4, PHP version 8.5.10 and Web Terminal version 1.0.5
+Updating system APT repositories...
+Installing dependencies for compilation...
+Installing Node.js...
+Building Hestia Control Panel package...
+
+added 465 packages, and audited 466 packages in 5s
+
+180 packages are looking for funding
+  run `npm fund` for details
+
+14 vulnerabilities (3 low, 2 moderate, 9 high)
+
+To address all issues, run:
+  npm audit fix
+
+Run `npm audit` for details.
+
+> hestia@1.10.5 build
+> node build.js
+
+🚀 Building JS and CSS...
+✅ JavaScript build completed for ./web/js/src/index.js
+✅ Dependency build completed for @alpinejs/collapse/dist/cdn.min.js
+✅ Dependency build completed for alpinejs/dist/cdn.min.js
+✅ Dependency build completed for chart.js/auto
+✅ Dependency build completed for @xterm/addon-webgl
+✅ Dependency build completed for @xterm/xterm
+✅ CSS build completed for web/css/src/themes/flat.css
+✅ CSS build completed for web/css/src/themes/dark.css
+✅ CSS build completed for web/css/src/themes/vestia.css
+✅ CSS build completed for web/css/src/themes/default.css
+🎉 Build completed.
+Building Hestia DEB
+dpkg-deb: building package 'hestia' in '/tmp/hestiacp-src/deb/hestia_1.10.5-1+ubuntu24.04_amd64.deb'.

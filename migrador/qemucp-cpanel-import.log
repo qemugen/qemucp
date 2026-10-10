@@ -1,0 +1,205 @@
+QemuCP cPanel Import - Sat Oct 10 12:47:32 PM UTC 2026
+
+[0;34m========================================[0m
+[0;34m QemuCP - Importador de Backup cPanel[0m
+[0;34m========================================[0m
+[0;32m[OK][0m Backup: /tmp/cpanel-ci/backup-10.9.2026_10-00-00_cpclient.tar.gz (12K)
+
+[0;34m========================================[0m
+[0;34m Descomprimiendo backup[0m
+[0;34m========================================[0m
+[0;32m[OK][0m Raiz del backup: /tmp/cpanel-import-m6IlPp/backup-10.9.2026_10-00-00_cpclient
+[0;32m[OK][0m Contenido: apache_tls cp cron dnszones homedir mysql mysql.sql shadow userdata va vad vf 
+[0;32m[OK][0m Usuario cPanel: cpclient -> usuario QemuCP: cpclient
+
+[0;34m========================================[0m
+[0;34m Detectando dominios[0m
+[0;34m========================================[0m
+[0;32m[OK][0m Tipos de dominio leidos de userdata/main
+[0;32m[OK][0m Dominio principal: principal-ci.com
+[0;32m[OK][0m Dominios adicionales (3): adicional-ci.com otro-ci.org tienda-ci.es
+[0;32m[OK][0m Subdominios: blog.principal-ci.com promo.aparcado-ci.net shop.adicional-ci.com
+[0;32m[OK][0m Dominios aparcados / alias: aparcado-ci.net
+  -> principal-ci.com -> /home/cpclient/public_html
+  -> adicional-ci.com -> /home/cpclient/adicional-ci.com
+  -> otro-ci.org -> /home/cpclient/otro-ci.org
+  -> tienda-ci.es -> /home/cpclient/public_html/tienda
+  -> blog.principal-ci.com -> /home/cpclient/public_html/blog
+  -> promo.aparcado-ci.net -> /home/cpclient/public_html/promo
+  -> shop.adicional-ci.com -> /home/cpclient/shop.adicional-ci.com
+[0;32m[OK][0m IPs del servidor de origen: 198.51.100.10 2001:db8::10
+[1;33m[!][0m MX de otro-ci.org: mail.otro-ci.org apunta a 192.0.2.25, que no es el servidor cPanel
+[1;33m[!][0m Correo de adicional-ci.com: EXTERNO (aspmx.l.google.com) -> no se crea correo local, se respetan MX y SPF
+  -> Correo de aparcado-ci.net: local (en este servidor)
+[1;33m[!][0m Correo de otro-ci.org: EXTERNO (mail.otro-ci.org) -> no se crea correo local, se respetan MX y SPF
+  -> Correo de principal-ci.com: local (en este servidor)
+  -> Correo de tienda-ci.es: local (en este servidor)
+[1;33m[!][0m adicional-ci.com tiene 1 buzones en el backup pero su correo esta en aspmx.l.google.com: NO se importan. Si el correo se va a mover aqui: QEMUCP_CORREO_LOCAL=adicional-ci.com
+
+[0;34m========================================[0m
+[0;34m Comprobando el plan 'cimigjusto'[0m
+[0;34m========================================[0m
+[1;33m[!][0m promo.aparcado-ci.net es subdominio de un dominio aparcado: en QemuCP cuenta como dominio
+  -> El backup necesita: 5 dominios, 2 subdominios, 2 bases de datos, 3 dominios de correo, 5 zonas DNS, 5 crons
+[1;33m[!][0m El usuario cpclient ya existe: se importa sobre el (su plan no se cambia)
+
+[0;34m========================================[0m
+[0;34m Creando usuario en QemuCP[0m
+[0;34m========================================[0m
+
+[0;34m========================================[0m
+[0;34m Creando dominios web[0m
+[0;34m========================================[0m
+[0;32m[OK][0m IP del servidor: 172.17.0.2 (publica 172.208.92.165)
+  -> Dominio principal-ci.com ya existe
+  -> Dominio adicional-ci.com ya existe
+  -> Dominio otro-ci.org ya existe
+  -> Dominio tienda-ci.es ya existe
+  -> Dominio blog.principal-ci.com ya existe
+  -> Dominio promo.aparcado-ci.net ya existe
+  -> Dominio shop.adicional-ci.com ya existe
+  -> Alias aparcado-ci.net ya estaba en principal-ci.com
+
+[0;34m========================================[0m
+[0;34m Importando ficheros web[0m
+[0;34m========================================[0m
+[0;32m[OK][0m Ficheros de principal-ci.com copiados (desde public_html)
+[0;32m[OK][0m Ficheros de adicional-ci.com copiados (desde adicional-ci.com)
+[0;32m[OK][0m Ficheros de otro-ci.org copiados (desde otro-ci.org)
+[0;32m[OK][0m Ficheros de tienda-ci.es copiados (desde public_html/tienda)
+[0;32m[OK][0m Ficheros de blog.principal-ci.com copiados (desde public_html/blog)
+[0;32m[OK][0m Ficheros de promo.aparcado-ci.net copiados (desde public_html/promo)
+[0;32m[OK][0m Ficheros de shop.adicional-ci.com copiados (desde shop.adicional-ci.com)
+[0;32m[OK][0m 1 .htaccess adaptados (directivas de cPanel comentadas; original en .htaccess.cpanel-orig)
+
+[0;34m========================================[0m
+[0;34m Importando bases de datos MySQL[0m
+[0;34m========================================[0m
+  -> DB: cpclient_tienda -> cpclient_tienda
+[1;33m[!][0m   DB cpclient_tienda ya existe: se vacia y se vuelve a importar del backup (contrasena nueva)
+[0;32m[OK][0m   Datos importados en cpclient_tienda (1 tablas)
+  -> DB: cpclient_wp -> cpclient_wp
+[1;33m[!][0m   DB cpclient_wp ya existe: se vacia y se vuelve a importar del backup (contrasena nueva)
+[0;32m[OK][0m   Datos importados en cpclient_wp (2 tablas)
+
+[0;34m========================================[0m
+[0;34m Importando correo[0m
+[0;34m========================================[0m
+  -> Dominio de correo: aparcado-ci.net
+  -> Dominio de correo: principal-ci.com
+  ->   archivo@principal-ci.com (contrasena original)
+  ->   archivo@principal-ci.com: buzon mdbox convertido
+  ->   info@principal-ci.com (contrasena original)
+  ->   juan@principal-ci.com (contrasena original)
+[0;32m[OK][0m   Cuenta por defecto cpclient@principal-ci.com (contrasena de cPanel)
+  -> Dominio de correo: tienda-ci.es
+  ->   ventas@tienda-ci.es (contrasena original)
+Error: forward juan@principal-ci.com exists
+Error: forward externo-ci@example.org exists
+Error: forward copia-ci@example.org exists
+[1;33m[!][0m Reenvio a programa no migrable: pipe@principal-ci.com ->  "|/home/cpclient/script.php"
+Error: CATCHALL=cpclient@principal-ci.com already exists
+[1;33m[!][0m No se pudo poner el catch-all de principal-ci.com -> cpclient@principal-ci.com
+Error: CATCHALL=cpclient@principal-ci.com already exists
+[0;32m[OK][0m   Alias de dominio de correo: aparcado-ci.net -> principal-ci.com (0 direcciones)
+[0;32m[OK][0m Correo: 6 cuentas (4 con su contrasena original), 0 reenvios
+
+[0;34m========================================[0m
+[0;34m Importando tareas programadas (cron)[0m
+[0;34m========================================[0m
+[1;33m[!][0m Cron @reboot no migrado: @reboot /home/cpclient/start.sh
+[0;32m[OK][0m Crons: 0 importados, 4 ya existian, 1 omitidos
+
+[0;34m========================================[0m
+[0;34m Importando DNS[0m
+[0;34m========================================[0m
+  -> Zona DNS adicional-ci.com ya existe
+  ->   adicional-ci.com: correo externo (aspmx.l.google.com): MX del proveedor, sin MX/SRV locales
+[0;32m[OK][0m   adicional-ci.com: 0 registros del cliente importados
+  -> Zona DNS aparcado-ci.net ya existe
+[0;32m[OK][0m   aparcado-ci.net: 0 registros del cliente importados
+  -> Zona DNS otro-ci.org ya existe
+  ->   otro-ci.org: correo externo (mail.otro-ci.org): MX del proveedor, sin MX/SRV locales
+[0;32m[OK][0m   otro-ci.org: 0 registros del cliente importados
+  -> Zona DNS principal-ci.com ya existe
+  ->   principal-ci.com: CAA ampliado para permitir Let's Encrypt
+[0;32m[OK][0m   principal-ci.com: 1 registros del cliente importados
+  -> Zona DNS tienda-ci.es ya existe
+[0;32m[OK][0m   tienda-ci.es: 0 registros del cliente importados
+
+[0;34m========================================[0m
+[0;34m Asignando version de PHP[0m
+[0;34m========================================[0m
+[0;32m[OK][0m principal-ci.com -> PHP-8_1
+[0;32m[OK][0m adicional-ci.com -> PHP-8_2
+  -> otro-ci.org: version de PHP no detectada, se usa la de por defecto
+  -> tienda-ci.es: version de PHP no detectada, se usa la de por defecto
+  -> blog.principal-ci.com: version de PHP no detectada, se usa la de por defecto
+  -> promo.aparcado-ci.net: version de PHP no detectada, se usa la de por defecto
+  -> shop.adicional-ci.com: version de PHP no detectada, se usa la de por defecto
+
+[0;34m========================================[0m
+[0;34m Importando certificados SSL vigentes[0m
+[0;34m========================================[0m
+Error: SSL=yes already exists
+  -> Ningun certificado vigente que importar
+
+[0;34m========================================[0m
+[0;34m Actualizando credenciales de CMS[0m
+[0;34m========================================[0m
+  -> CMS detectado (wordpress): /home/cpclient/web/principal-ci.com/public_html/wp-config.php [DB configurada: cpclient_wp]
+[0;32m[OK][0m   Config actualizado con DB cpclient_wp (match exacto)
+
+[0;34m========================================[0m
+[0;34m Reconstruyendo configuracion[0m
+[0;34m========================================[0m
+[0;32m[OK][0m Configuracion reconstruida
+
+[0;34m========================================[0m
+[0;34m Verificando permisos de correo[0m
+[0;34m========================================[0m
+[0;32m[OK][0m Permisos de correo correctos
+
+[0;34m========================================[0m
+[0;34m Comprobando las zonas DNS[0m
+[0;34m========================================[0m
+[0;32m[OK][0m adicional-ci.com: DNS correcto (A 172.208.92.165, MX alt1.aspmx.l.google.com. aspmx.l.google.com., SPF 1, DMARC 0)
+[0;32m[OK][0m aparcado-ci.net: DNS correcto (A 172.208.92.165, MX mail.aparcado-ci.net., SPF 1, DMARC 1)
+[0;32m[OK][0m otro-ci.org: DNS correcto (A 172.208.92.165, MX mail.otro-ci.org., SPF 0, DMARC 0)
+[0;32m[OK][0m principal-ci.com: DNS correcto (A 172.208.92.165, MX mail.principal-ci.com., SPF 1, DMARC 1)
+[0;32m[OK][0m tienda-ci.es: DNS correcto (A 172.208.92.165, MX mail.tienda-ci.es., SPF 1, DMARC 1)
+
+[0;34m========================================[0m
+[0;34m SSL de Let's Encrypt (cuando el DNS apunte aqui)[0m
+[0;34m========================================[0m
+  /usr/local/hestia/bin/v-add-letsencrypt-domain cpclient principal-ci.com 'www.principal-ci.com,aparcado-ci.net,www.aparcado-ci.net' yes
+  /usr/local/hestia/bin/v-add-letsencrypt-domain cpclient adicional-ci.com 'www.adicional-ci.com' no
+  /usr/local/hestia/bin/v-add-letsencrypt-domain cpclient otro-ci.org 'www.otro-ci.org' no
+  /usr/local/hestia/bin/v-add-letsencrypt-domain cpclient tienda-ci.es 'www.tienda-ci.es' yes
+  /usr/local/hestia/bin/v-add-letsencrypt-domain cpclient blog.principal-ci.com '' no
+  /usr/local/hestia/bin/v-add-letsencrypt-domain cpclient promo.aparcado-ci.net '' no
+  /usr/local/hestia/bin/v-add-letsencrypt-domain cpclient shop.adicional-ci.com '' no
+
+[0;34m========================================[0m
+[0;34m IMPORTACION COMPLETADA[0m
+[0;34m========================================[0m
+Importacion de cpclient (cPanel) -> cpclient (QemuCP)  Sat Oct 10 12:47:47 PM UTC 2026
+Plan: cimigjusto
+Dominio principal: principal-ci.com
+Dominios adicionales: adicional-ci.com otro-ci.org tienda-ci.es
+Subdominios: blog.principal-ci.com promo.aparcado-ci.net shop.adicional-ci.com
+Alias (aparcados): aparcado-ci.net
+Bases de datos: 2
+Correo: 6 cuentas (4 con contrasena original), 0 reenvios
+Correo externo: adicional-ci.com -> aspmx.l.google.com
+Correo externo: otro-ci.org -> mail.otro-ci.org
+
+REVISAR A MANO (4):
+  - adicional-ci.com tiene 1 buzones en el backup pero su correo esta en aspmx.l.google.com: NO se importan. Si el correo se va a mover aqui: QEMUCP_CORREO_LOCAL=adicional-ci.com
+  - Reenvio a programa no migrable: pipe@principal-ci.com ->  "|/home/cpclient/script.php"
+  - No se pudo poner el catch-all de principal-ci.com -> cpclient@principal-ci.com
+  - Cron @reboot no migrado: @reboot /home/cpclient/start.sh
+[0;32m[OK][0m Credenciales nuevas: /root/qemucp-import-credentials.txt
+[0;32m[OK][0m Informe: /root/qemucp-import-cpclient-20261010-1247.txt
+[0;32m[OK][0m Log completo: /var/log/qemucp-cpanel-import.log
+[0;31m[ERROR][0m Fichero no encontrado: /tmp/cpanel-ci/no-existe.tar.gz

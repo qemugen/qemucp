@@ -1,0 +1,16 @@
+Importacion de cpclient (cPanel) -> cpclient (QemuCP)  Sat Oct 10 12:47:47 PM UTC 2026
+Plan: cimigjusto
+Dominio principal: principal-ci.com
+Dominios adicionales: adicional-ci.com otro-ci.org tienda-ci.es
+Subdominios: blog.principal-ci.com promo.aparcado-ci.net shop.adicional-ci.com
+Alias (aparcados): aparcado-ci.net
+Bases de datos: 2
+Correo: 6 cuentas (4 con contrasena original), 0 reenvios
+Correo externo: adicional-ci.com -> aspmx.l.google.com
+Correo externo: otro-ci.org -> mail.otro-ci.org
+
+REVISAR A MANO (4):
+  - adicional-ci.com tiene 1 buzones en el backup pero su correo esta en aspmx.l.google.com: NO se importan. Si el correo se va a mover aqui: QEMUCP_CORREO_LOCAL=adicional-ci.com
+  - Reenvio a programa no migrable: pipe@principal-ci.com ->  "|/home/cpclient/script.php"
+  - No se pudo poner el catch-all de principal-ci.com -> cpclient@principal-ci.com
+  - Cron @reboot no migrado: @reboot /home/cpclient/start.sh

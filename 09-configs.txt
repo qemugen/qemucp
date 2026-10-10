@@ -1,0 +1,4 @@
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+AH00558: apache2: Could not reliably determine the server's fully qualified domain name, using qemucp-ci.local.test. Set the 'ServerName' directive globally to suppress this message
+Syntax OK

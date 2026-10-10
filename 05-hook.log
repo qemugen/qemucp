@@ -1,0 +1,82 @@
+antes: save_path=2
+(Reading database ... 53570 files and directories currently installed.)
+Preparing to unpack .../hestia_1.10.5-1+ubuntu24.04_amd64.deb ...
+Unpacking hestia (1.10.5-1+ubuntu24.04) over (1.10.5-1+ubuntu24.04) ...
+Setting up hestia (1.10.5-1+ubuntu24.04) ...
+
+                  _   _           _   _        ____ ____                      
+                 | | | | ___  ___| |_(_) __ _ / ___|  _ \                     
+                 | |_| |/ _ \/ __| __| |/ _` | |   | |_) |                    
+                 |  _  |  __/\__ \ |_| | (_| | |___|  __/                     
+                 |_| |_|\___||___/\__|_|\__,_|\____|_|                        
+                                                                              
+                    QemuCP Software Update                      
+                               Version: 1.10.5
+
+=============================================================================
+
+[ ! ] IMPORTANT INFORMATION:                                                 
+
+Default configuration files and templates may be modified or replaced        
+during the upgrade process. You may restore these files from:                
+
+Backup directory: /root/hst_backups/101020261251/
+Installation log: /root/hst_backups/101020261251/hst-upgrade-101020261251.log
+=============================================================================
+[ * ] Backing up existing templates and configuration files...
+=============================================================================
+[ ! ] Performing system health check before proceeding with installation...  
+[ * ] Health check complete. Starting upgrade from 1.10.5 to 1.10.5...
+=============================================================================
+
+[ ! ] The latest version of QemuCP is already installed.
+      Verifying configuration...
+
+[ + ] Update Awstats logrotate for Apache2...
+[ * ] File Manager is up to date (7.16.2)...
+[ * ] Roundcube is up to date (1.7.4)...
+[ ! ] Update Hestia PHP dependencies...
+[ * ] Updating Cloudflare IP Ranges for NGINX...
+[ * ] phpMyAdmin is up to date (5.2.3)...
+=============================================================================
+Installation tasks complete, performing clean-up...                          
+=============================================================================
+[ * ] Restarting services...
+=============================================================================
+
+Upgrade complete! If you encounter any issues or find a bug,                 
+please take a moment to report it to us on GitHub at the URL below:          
+https://github.com/qemugen/qemucp/issues                                  
+
+Read the release notes to learn about new fixes and features:                
+https://github.com/qemugen/qemucp/blob/release/CHANGELOG.md               
+
+We hope that you enjoy using this version of QemuCP,           
+have a wonderful day!                                                        
+
+Sincerely,                                                                   
+The QemuCP development team                                    
+
+Web:      https://qemucp.com/                                          
+Docs:     https://docs.qemucp.com/										   
+Forum:    https://forum.qemucp.com/                                        
+GitHub:   https://github.com/hestiacp/hestiacp/                              
+
+More info at https://qemucp.com/                                               
+https://qemucp.com/donate                                              
+
+Made with love & pride by the open-source community around the world.        
+
+=============================================================================
+
+=== 2026-10-10 12:51:55 QemuCP post_install ===
+  marca: el paquete ya es nuestro fork, no se injerta nada
+  1 plantilla(s) php-fpm corregidas
+  limite de subdominios reaplicado
+  pools php-fpm regenerados con las plantillas corregidas
+  cola de reinicios verificada
+  retencion del paquete: se reaplica en cuanto termine dpkg
+=== fin QemuCP post_install ===
+despues: save_path=1
+retencion tras actualizar: hestia
+HOOK_OK

@@ -1,0 +1,22 @@
+1..21
+ok 1 el panel se ha instalado desde el fork y esta retenido frente a apt
+ok 2 la version instalada es la del fork
+ok 3 servicios activos
+ok 4 el panel responde en el puerto 8083 con la marca QemuCP
+ok 5 las configuraciones de nginx, apache y php-fpm son validas
+ok 6 plantillas php-fpm: un unico bloque QemuCP y una sola session.save_path
+ok 7 redis responde
+ok 8 las sesiones PHP de una web se guardan en Redis
+ok 9 mariadb aplica las optimizaciones de QemuCP
+ok 10 el hook de post-actualizacion esta en la ruta que ejecuta HestiaCP
+ok 11 la cola de reinicios esta operativa (crontab de hestiaweb)
+ok 12 un dominio nuevo resuelve solo, sin guardar la zona a mano
+ok 13 limite de subdominios: plan de 1 dominio y 2 subdominios
+ok 14 el boton del panel (v-add-domain) crea el vhost de un subdominio con el cupo de dominios lleno
+ok 15 los contadores de dominios y subdominios se guardan bien
+ok 16 un plan que no cubre el uso se rechaza con el mensaje de subdominios
+ok 17 un usuario con plan heredado (sin WEB_SUBDOMAINS) se comporta como HestiaCP original
+ok 18 el JSON de paquetes que lee el panel es valido e incluye WEB_SUBDOMAINS
+ok 19 fail2ban esta activo y con las jaulas de HestiaCP cargadas
+ok 20 nginx.conf no tiene load_module duplicados
+ok 21 nginx carga los modulos GeoIP2 y Brotli

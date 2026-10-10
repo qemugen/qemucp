@@ -1,0 +1,256 @@
+1..255
+ok 1 RDNS: Check reverse Dns validation
+ok 2 User: Add new user
+ok 3 User: Add new user Failed 1
+ok 4 User: Add new user Failed 2
+ok 5 User: Add new user Failed 3
+ok 6 User: Add new user Failed 4
+ok 7 User: Add new user Failed 5
+ok 8 User: Add new user Failed 6
+ok 9 User: Add new user Failed 7
+ok 10 User: Add new user Success 1
+ok 11 User: Add new user Success 1 Delete
+ok 12 User: Add new user Success 2
+ok 13 User: Add new user Success 2 Delete
+ok 14 User: Change user password
+ok 15 User: Change user email
+ok 16 User: Change user contact invalid email 
+ok 17 User: Change user name
+ok 18 User: Change user shell
+ok 19 User: Change user invalid shell
+ok 20 User: Change user nologin
+ok 21 User: Change user bash with bubblewrap jail
+ok 22 User: Change user default ns
+ok 23 User: Change user language
+ok 24 User: Change user language (Does not exist)
+ok 25 User: Change user sort order
+ok 26 User: Change user theme
+ok 27 User: Change user theme (Does not exist)
+ok 28 User: Change user login ip
+ok 29 User: Change user login ip (Failed)
+ok 30 User: Add user notification
+ok 31 User: Add user notification with XSS payload is sanitized
+ok 32 User: Acknowledge user notification
+ok 33 User: List user notification
+ok 34 User: Delete user notification
+ok 35 User: Get User salt ipv4
+ok 36 User: Get User salt ipv4 invalid
+ok 37 User: Get User salt ipv6
+ok 38 User: Get User salt ipv6 not exists
+ok 39 User: Get User salt ipv6 invalid
+ok 40 User: Check user password
+ok 41 User: Check user password Incorrect password
+ok 42 User: Check user hash ipv4
+ok 43 User: Check user hash ipv6
+ok 44 User: Check user hash ipv6 incorrect
+ok 45 Cron: Add cron job
+ok 46 Cron: Suspend cron job
+ok 47 Cron: Unsuspend cron job
+ok 48 Cron: Delete cron job
+ok 49 Cron: Add cron job (duplicate)
+ok 50 Cron: Second cron job
+ok 51 Cron: Two cron jobs must be listed
+ok 52 Cron: rebuild
+ok 53 Ip: Add new ip on first interface
+ok 54 Ip: [Ubuntu] Netplan file updated
+ok 55 Ip: [Debian] Netplan file updated # skip
+ok 56 Ip: Add ip (duplicate)
+ok 57 Ip: Add extra ip
+ok 58 Ip: Delete ip 198.18.0.12
+ok 59 Ip: [Ubuntu] Netplan file changed
+ok 60 Ip: Delete ip 198.18.0.121
+ok 61 Ip: Add IP for rest of the test
+ok 62 WEB: Add web domain
+ok 63 WEB: Add web domain (duplicate)
+ok 64 WEB: Add web domain alias
+ok 65 WEB: Add web domain alias (duplicate)
+ok 66 WEB: Add web domain wildcard alias
+ok 67 WEB: Delete web domain wildcard alias
+ok 68 WEB: Add web domain stats
+ok 69 WEB: Add web domain stats user # skip
+ok 70 WEB: Suspend web domain
+ok 71 WEB: Unsuspend web domain
+ok 72 WEB: Add redirect to www.domain.com
+ok 73 WEB: Delete redirect to www.domain.com
+ok 74 WEB: Enable Fast CGI Cache # skip FastCGI cache is not supported
+ok 75 WEB: Disable Fast CGI Cache # skip FastCGI cache is not supported
+ok 76 WEB: Generate Self signed certificate
+ok 77 WEB: Add ssl
+ok 78 WEB: Rebuild web domain
+ok 79 WEB: Use quick install app on web domain
+ok 80 WEB: Add IDN domain UTF idn-tést.eu
+ok 81 WEB: Add IDN domain ASCII idn-tést.eu
+ok 82 WEB: Generate Self signed certificate ASCII idn-tést.eu
+ok 83 WEB: Delete IDN domain idn-tést.eu
+ok 84 WEB: Add IDN domain UTF bløst.рф
+ok 85 WEB: Generate Self signed certificate ASCII bløst.рф
+ok 86 WEB: Delete IDN domain bløst.рф
+ok 87 Multiphp: Default php Backend version
+ok 88 Multiphp: Change backend version - PHP v5.6 # skip PHP 5.6 not installed
+ok 89 Multiphp: Change backend version - PHP v7.0 # skip PHP 7.0 not installed
+ok 90 Multiphp: Change backend version - PHP v7.1 # skip PHP 7.1 not installed
+ok 91 Multiphp: Change backend version - PHP v7.2
+ok 92 Multiphp: Change backend version - PHP v7.3
+ok 93 Multiphp: Change backend version - PHP v7.4
+ok 94 Multiphp: Change backend version - PHP v8.0
+ok 95 Multiphp: Change backend version - PHP v8.1
+ok 96 Multiphp: Change backend version - PHP v8.2
+ok 97 Multiphp: Cleanup
+ok 98 Docroot: Self Subfolder
+ok 99 Docroot: Other domain subfolder
+ok 100 Docroot: Other domain root folder
+ok 101 Docroot: Reset
+ok 102 Docroot: Cleanup
+ok 103 DNS: Add domain
+ok 104 DNS: Add domain (duplicate)
+ok 105 DNS: Add domain record
+ok 106 DNS: Add domain record *.domain.com
+ok 107 DNS: Add domain record *.domain.com with ID 0
+ok 108 DNS: Change DNS record
+ok 109 DNS: Change DNS record (no update)
+ok 110 DNS: Change DNS record id
+ok 111 DNS: Change DNS record id (no update)
+ok 112 DNS: Delete domain record
+ok 113 DNS: Delete missing domain record
+ok 114 DNS: Change domain expire date
+ok 115 DNS: Add domain record MX
+ok 116 DNS: Add domain record NS
+ok 117 DNS: Add domain record SRV
+ok 118 DNS: Add domain record CNAME
+ok 119 DNS: Check txt dns records type1
+ok 120 DNS: Check txt dns records type2
+ok 121 DNS: Check serial rollover from max 32-bit value to 1 (RFC 1982)
+ok 122 DNS: Change domain ip
+ok 123 DNS: Suspend domain
+ok 124 DNS: Unsuspend domain
+ok 125 DNS: Rebuild
+ok 126 MAIL: Add domain
+ok 127 MAIL: Add mail domain webmail client (Roundcube)
+ok 128 Mail: Add SSL to mail domain
+ok 129 MAIL: Add mail domain webmail client (SnappyMail) # skip Webmail client SnappyMail not installed
+ok 130 MAIL: Disable webmail client
+ok 131 MAIL: Add domain (duplicate)
+ok 132 MAIL: Add account
+ok 133 MAIL: Add account (duplicate)
+ok 134 MAIL: Add account 2
+ok 135 MAIL: Add account alias
+ok 136 MAIL: Add account alias 2
+ok 137 MAIL: Add account alias 3
+ok 138 MAIL: Add account 3
+ok 139 MAIL: Add account 4
+ok 140 MAIL: Add account 5
+ok 141 MAIL: Add account 6
+ok 142 MAIL: Add account alias Invalid length
+ok 143 MAIL: Add account alias Invalid
+ok 144 MAIL: Add account alias starting with -
+ok 145 MAIL: Add account alias ending with -
+ok 146 MAIL: Add account alias Invalid 2
+ok 147 MAIL: Add account alias (duplicate)
+ok 148 MAIL: change mail account password
+ok 149 MAIL: change mail account password (Incorrect PW)
+ok 150 MAIL: Change rate limit
+ok 151 MAIL: Delete account
+ok 152 MAIL: Delete missing account
+ok 153 MAIL: Rebuild mail domain
+ok 154 MAIL: Delete DKIM
+ok 155 MAIL: Add DKIM
+ok 156 MAIL: Delete DKIM but preserve custom dkim records
+ok 157 Allow Users: User can't add user.user2.com 
+ok 158 Allow Users: User can't add user.user2.com as alias
+ok 159 Allow Users: User can't add user.user2.com as mail domain
+ok 160 Allow Users: User can't add user.user2.com as dns domain
+ok 161 Allow Users: Set Allow users
+ok 162 Allow Users: User can add user.user2.com
+ok 163 Allow Users: User can add user.user2.com as alias
+ok 164 Allow Users: User can add user.user2.com as mail domain
+ok 165 Allow Users: User can add user.user2.com as dns domain
+ok 166 Allow Users: Cleanup tests
+ok 167 Allow Users: Set Allow users no
+ok 168 Allow Users: User can't add user.user2.com again
+ok 169 Allow Users: user2 can add user.user2.com again
+ok 170 MYSQL: Add database
+ok 171 MYSQL: Add Database (Duplicate)
+ok 172 MYSQL: Rebuild Database
+ok 173 MYSQL: Change database user password
+ok 174 MYSQL: Change database user
+ok 175 MYSQL: Suspend database
+ok 176 MYSQL: Unsuspend database
+ok 177 MYSQL: Delete database
+ok 178 MYSQL: Delete missing database
+ok 179 PGSQL: Add database invalid user # skip PostGreSQL is not installed
+ok 180 PGSQL: Add database # skip PostGreSQL is not installed
+ok 181 PGSQL: Add Database (Duplicate) # skip PostGreSQL is not installed
+ok 182 PGSQL: Rebuild Database # skip PostGreSQL is not installed
+ok 183 PGSQL: Change database user password # skip PostGreSQL is not installed
+ok 184 PGSQL: Suspend database # skip PostGreSQL is not installed
+ok 185 PGSQL: Unsuspend database # skip PostGreSQL is not installed
+ok 186 PGSQL: Change database user # skip PostGreSQL is not installed
+ok 187 PGSQL: Delete database # skip PostGreSQL is not installed
+ok 188 PGSQL: Delete missing database # skip PostGreSQL is not installed
+ok 189 System: Set/Enable SMTP account for internal mail
+ok 190 System: Disable SMTP account for internal mail
+ok 191 System: Set/Enable SMTP relay
+ok 192 System: Delete SMTP relay
+ok 193 System: Add Mail DNSBL (Simple Syntax)
+ok 194 System: Add Mail DNSBL (Complex Syntax)
+ok 195 System: List Mail DNSBL
+ok 196 System: Delete Mail DNSBL (Cleanup)
+ok 197 Firewall: Add ip to banlist
+ok 198 Firewall: Delete ip to banlist
+ok 199 Firewall: Add ip to banlist for ALL
+ok 200 Firewall: Delete ip to banlist CHAIN = ALL
+ok 201 Test Whitelist Fail2ban
+ok 202 Test create ipset
+ok 203 Create firewall with Ipset
+ok 204 List firewall rules
+ok 205 Delete firewall with Ipset
+ok 206 Test delete ipset
+ok 207 Package: Create new Package
+ok 208 Package: Assign user to new Package
+ok 209 Package: Create new package (Duplicate)
+ok 210 Package: Update new Package
+ok 211 Package: Update package of user
+ok 212 Package: Copy package Not Exists
+ok 213 Package: Copy package
+ok 214 Package: Copy package Exists
+ok 215 Package: Delete package
+ok 216 Backup: Backup user
+ok 217 Backup: List Backups
+ok 218 Backup: Delete backups
+ok 219 Backup Exclusions: Domain with subpaths is allowed
+ok 220 Backup Exclusions: Wildcard for all is allowed
+ok 221 Backup Exclusions: Mail domain with mailbox exclusions is allowed
+ok 222 Backup Exclusions: Database name is allowed
+ok 223 Backup Exclusions: Database entry with domain-style colon is rejected
+ok 224 Backup Exclusions: User directory name is allowed
+ok 225 Backup Exclusions: User directory with domain-style colon is rejected
+ok 226 Backup Exclusions: DNS bare domain is allowed
+ok 227 Backup Exclusions: DNS with colon segment is rejected (no record-level exclusion exists)
+ok 228 Backup Exclusions: CRON wildcard is allowed
+ok 229 Backup Exclusions: CRON non-wildcard value is rejected (no per-job exclusion exists)
+ok 230 Backup Exclusions: Embedded newline / PATH injection is rejected
+ok 231 Backup Exclusions: Path traversal is rejected
+ok 232 Backup Exclusions: Leading dash (tar flag injection) is rejected
+ok 233 Backup Exclusions: Unknown key is rejected
+ok 234 Backup Exclusions: Clean up
+ok 235 Suspend: Add database
+ok 236 Suspend: Suspend user
+ok 237 Suspend: Check if login is disabled
+ok 238 Suspend: Check if web domain is disabled
+ok 239 Suspend: Check if mail domain is disabled
+ok 240 Suspend: Check if database is disabled
+ok 241 Unsuspend: Unsuspend user
+ok 242 Unsuspend: Check if login is enabled
+ok 243 Unsuspend: Check if web domain is enabled
+ok 244 Unsuspend: Check if mail domain is enabled
+ok 245 Unsuspend: Check if database is enabled
+ok 246 Change: Change domain owner
+ok 247 Change: Change database owner
+ok 248 Change: Delete database
+ok 249 Mail: Delete domain
+ok 250 DNS: Delete domain
+ok 251 WEB: Delete domain
+ok 252 Delete user
+ok 253 Delete user2
+ok 254 Ip: Delete the test IP
+ok 255 assert()

@@ -1,0 +1,44 @@
+
+[0;34m========================================[0m
+[0;34m QemuCP - Importador de Backup cPanel[0m
+[0;34m========================================[0m
+[0;32m[OK][0m Backup: /tmp/cpanel-ci/backup-10.9.2026_10-00-00_cpclient.tar.gz (12K)
+
+[0;34m========================================[0m
+[0;34m Descomprimiendo backup[0m
+[0;34m========================================[0m
+[0;32m[OK][0m Raiz del backup: /tmp/cpanel-import-lbif5Q/backup-10.9.2026_10-00-00_cpclient
+[0;32m[OK][0m Contenido: apache_tls cp cron dnszones homedir mysql mysql.sql shadow userdata va vad vf 
+[0;32m[OK][0m Usuario cPanel: cpclient -> usuario QemuCP: cpclient
+
+[0;34m========================================[0m
+[0;34m Detectando dominios[0m
+[0;34m========================================[0m
+[0;32m[OK][0m Tipos de dominio leidos de userdata/main
+[0;32m[OK][0m Dominio principal: principal-ci.com
+[0;32m[OK][0m Dominios adicionales (3): adicional-ci.com otro-ci.org tienda-ci.es
+[0;32m[OK][0m Subdominios: blog.principal-ci.com promo.aparcado-ci.net shop.adicional-ci.com
+[0;32m[OK][0m Dominios aparcados / alias: aparcado-ci.net
+  -> principal-ci.com -> /home/cpclient/public_html
+  -> adicional-ci.com -> /home/cpclient/adicional-ci.com
+  -> otro-ci.org -> /home/cpclient/otro-ci.org
+  -> tienda-ci.es -> /home/cpclient/public_html/tienda
+  -> blog.principal-ci.com -> /home/cpclient/public_html/blog
+  -> promo.aparcado-ci.net -> /home/cpclient/public_html/promo
+  -> shop.adicional-ci.com -> /home/cpclient/shop.adicional-ci.com
+[0;32m[OK][0m IPs del servidor de origen: 198.51.100.10 2001:db8::10
+[1;33m[!][0m MX de otro-ci.org: mail.otro-ci.org apunta a 192.0.2.25, que no es el servidor cPanel
+[1;33m[!][0m Correo de adicional-ci.com: EXTERNO (aspmx.l.google.com) -> no se crea correo local, se respetan MX y SPF
+  -> Correo de aparcado-ci.net: local (en este servidor)
+[1;33m[!][0m Correo de otro-ci.org: EXTERNO (mail.otro-ci.org) -> no se crea correo local, se respetan MX y SPF
+  -> Correo de principal-ci.com: local (en este servidor)
+  -> Correo de tienda-ci.es: local (en este servidor)
+[1;33m[!][0m adicional-ci.com tiene 1 buzones en el backup pero su correo esta en aspmx.l.google.com: NO se importan. Si el correo se va a mover aqui: QEMUCP_CORREO_LOCAL=adicional-ci.com
+
+[0;34m========================================[0m
+[0;34m Comprobando el plan 'cimigviejo'[0m
+[0;34m========================================[0m
+[1;33m[!][0m promo.aparcado-ci.net es subdominio de un dominio aparcado: en QemuCP cuenta como dominio
+  -> El backup necesita: 5 dominios, 2 subdominios, 2 bases de datos, 3 dominios de correo, 5 zonas DNS, 5 crons
+[1;33m[!][0m   Dominios (incluye subdominios en este plan): el backup necesita 7 y el plan permite 5
+[0;31m[ERROR][0m El plan 'cimigviejo' se queda corto. Usa otro plan (tercer argumento) o QEMUCP_IGNORAR_LIMITES=si
