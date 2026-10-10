@@ -1744,14 +1744,24 @@ if getent group admin > /dev/null 2>&1; then
 fi
 fi   # fin de: solo en instalacion nueva
 
-timedatectl set-timezone "$TIMEZONE"
+# En contenedores (y en algunos VPS minimos) systemd-timedated no esta
+# disponible; con set -e, un fallo aqui abortaria toda la instalacion.
+if ! timedatectl set-timezone "$TIMEZONE" 2>/dev/null; then
+    ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime 2>/dev/null || true
+    echo "$TIMEZONE" > /etc/timezone 2>/dev/null || true
+fi
 log "Timezone: $TIMEZONE"
 
 # El locale ya se genero al inicio; solo persistir la config del sistema
 update-locale LANG=es_ES.UTF-8 LC_ALL=es_ES.UTF-8 2>/dev/null || true
 log "Locale: es_ES.UTF-8 (o C.UTF-8 si no disponible)"
 
-hostnamectl set-hostname "$HOSTNAME"
+# hostnamectl falla en contenedores (Docker monta /etc/hostname). Fuera de
+# ellos funciona igual que antes.
+if ! hostnamectl set-hostname "$HOSTNAME" 2>/dev/null; then
+    hostname "$HOSTNAME" 2>/dev/null || true
+    echo "$HOSTNAME" > /etc/hostname 2>/dev/null || true
+fi
 echo "127.0.0.1 $HOSTNAME" >> /etc/hosts
 log "Hostname: $HOSTNAME"
 
@@ -1822,8 +1832,16 @@ fi
 if [ "$SKIP_BASE_INSTALL" = "no" ]; then
 
 cd /tmp || error "No se puede acceder a /tmp"
-wget -q --timeout=30 "https://raw.githubusercontent.com/qemugen/qemucp/release/install/hst-install.sh" \
-    -O hst-install.sh || error "No se pudo descargar el instalador de QemuCP"
+# QEMUCP_FORK_SRC=/ruta: usar una copia local del fork en lugar de descargar
+# (la prueba automatica lo usa para instalar exactamente el commit probado).
+if [[ -n "${QEMUCP_FORK_SRC:-}" ]]; then
+    [[ -f "$QEMUCP_FORK_SRC/install/hst-install.sh" ]] || error "QEMUCP_FORK_SRC no contiene el fork: $QEMUCP_FORK_SRC"
+    cp "$QEMUCP_FORK_SRC/install/hst-install.sh" hst-install.sh
+    info "Usando el fork local: $QEMUCP_FORK_SRC"
+else
+    wget -q --timeout=30 "https://raw.githubusercontent.com/qemugen/qemucp/release/install/hst-install.sh" \
+        -O hst-install.sh || error "No se pudo descargar el instalador de QemuCP"
+fi
 
 # Modificar textos de marca en el instalador usando sed (mas fiable)
 sed -i \
@@ -1841,8 +1859,13 @@ sed -i \
 # en lugar de descargarlo (evita cache de GitHub Raw con version antigua).
 # Descargamos ubuntu.sh nosotros con cache-buster y neutralizamos el version check.
 CACHE_BUST=$(date +%s)
-wget -q --timeout=30 "https://raw.githubusercontent.com/qemugen/qemucp/release/install/hst-install-${OS_TYPE}.sh?cb=${CACHE_BUST}" \
-    -O "hst-install-${OS_TYPE}.sh" || error "No se pudo descargar hst-install-${OS_TYPE}.sh"
+if [[ -n "${QEMUCP_FORK_SRC:-}" ]]; then
+    cp "$QEMUCP_FORK_SRC/install/hst-install-${OS_TYPE}.sh" "hst-install-${OS_TYPE}.sh" \
+        || error "No esta hst-install-${OS_TYPE}.sh en $QEMUCP_FORK_SRC"
+else
+    wget -q --timeout=30 "https://raw.githubusercontent.com/qemugen/qemucp/release/install/hst-install-${OS_TYPE}.sh?cb=${CACHE_BUST}" \
+        -O "hst-install-${OS_TYPE}.sh" || error "No se pudo descargar hst-install-${OS_TYPE}.sh"
+fi
 
 # Neutralizar CUALQUIER version check que quede (defensa multi-capa)
 # 1. Desactivar el bloque if del release_branch_ver
@@ -1885,7 +1908,14 @@ else
     info "Compilando el paquete hestia desde el fork ($FORK_RAMA)..."
     info "  (tarda unos minutos: instala Node y compila los assets del panel)"
     rm -rf "$FORK_SRC" "$FORK_DEBS"
-    if git clone -q --depth 1 -b "$FORK_RAMA" "$FORK_REPO" "$FORK_SRC" 2>/dev/null; then
+    if [[ -n "${QEMUCP_FORK_SRC:-}" ]]; then
+        CLON_OK="no"
+        mkdir -p "$FORK_SRC" && cp -a "$QEMUCP_FORK_SRC/." "$FORK_SRC/" && CLON_OK="si"
+    else
+        CLON_OK="no"
+        git clone -q --depth 1 -b "$FORK_RAMA" "$FORK_REPO" "$FORK_SRC" 2>/dev/null && CLON_OK="si"
+    fi
+    if [[ "$CLON_OK" == "si" ]]; then
         FORK_COMMIT=$(git -C "$FORK_SRC" rev-parse --short HEAD 2>/dev/null || echo "?")
         info "  fork clonado en el commit $FORK_COMMIT"
         # '~localsrc' = compilar desde la carpeta local, sin descargar nada mas
@@ -3546,7 +3576,11 @@ net.ipv4.conf.all.accept_source_route = 0
 fs.file-max = 2097152
 SYSCTLEOF
 
-sysctl -p /etc/sysctl.d/99-qemucp-performance.conf > /dev/null 2>&1
+# -e ignora claves que el kernel no tiene. Sin el, en un VPS con IPv6
+# desactivado (no existe net.ipv6.*) sysctl devolvia error y, con set -e,
+# la instalacion abortaba aqui en el PASO 10.
+sysctl -e -p /etc/sysctl.d/99-qemucp-performance.conf > /dev/null 2>&1 \
+    || warn "Algunos parametros de kernel no se aplicaron (normal en contenedores)"
 log "Parametros de kernel optimizados"
 
 # ---------------------------------------------

@@ -48,6 +48,22 @@ Si añades un parche a `bin/` o `func/`, **tiene que** ir acompañado de su
 script en `install/` y su paso en `install/qemucp_install.sh`. Si no, no
 sobrevive.
 
+## Prueba automática completa (CI)
+
+Cada push a `release` lanza `.github/workflows/qemucp-ci.yml`: instala
+QemuCP desde cero con `install/qemucp_install.sh` en un contenedor Ubuntu
+24.04 con systemd real (`.github/docker/qemucp-ci.Dockerfile`), pasa
+`test/qemucp.bats` (pruebas propias), relanza el instalador y repite las
+pruebas, simula una actualización con `dpkg -i` para comprobar el hook, y
+ejecuta la batería de HestiaCP (`test/test.bats`). El informe queda en la
+rama **`ci-resultados`** (`RESULTADO.md` y logs): léelo con
+`git fetch origin ci-resultados && git show origin/ci-resultados:RESULTADO.md`.
+La clave de producción no se usa: el workflow genera una aleatoria y pone su
+hash en una copia del instalador. `QEMUCP_FORK_SRC` hace que el instalador
+compile el commit que se está probando en lugar de clonar `release`.
+
+**Cada arreglo nuevo debería venir con su prueba en `test/qemucp.bats`.**
+
 ## Cómo probar sin romper producción
 
 No hace falta un servidor real. HestiaCP se puede ejecutar contra un árbol

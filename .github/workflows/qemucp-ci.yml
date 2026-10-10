@@ -1,0 +1,211 @@
+name: QemuCP - instalacion completa y pruebas
+
+# En cada cambio de la rama release se instala QemuCP desde cero en un Ubuntu
+# 24.04 limpio (contenedor con systemd de verdad) con install/qemucp_install.sh
+# y se comprueba todo. Sustituye a reinstalar un servidor a mano para probar.
+#
+# El informe se publica en la rama 'ci-resultados' (RESULTADO.md + logs), para
+# poder leerlo sin entrar en GitHub Actions.
+
+on:
+  push:
+    branches: [release]
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+concurrency:
+  group: qemucp-ci
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  instalar-y-probar:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Preparar carpeta de resultados
+        run: mkdir -p ci-out
+
+      - name: Construir el contenedor (Ubuntu 24.04 + systemd)
+        run: docker build -f .github/docker/qemucp-ci.Dockerfile -t qemucp-ci:${{ github.sha }} .
+
+      - name: Arrancar el contenedor
+        run: |
+          docker run -d --name qemucp-ci --hostname qemucp-ci.local.test \
+            --privileged --cgroupns=host \
+            --tmpfs /run --tmpfs /run/lock --tmpfs /tmp:exec,mode=1777 \
+            --dns 8.8.8.8 --dns 1.1.1.1 \
+            -e TZ=UTC -e LANG=en_US.UTF-8 -e LC_ALL=en_US.UTF-8 \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            -v "${GITHUB_WORKSPACE}:/hestiacp-git" \
+            -w /hestiacp-git \
+            qemucp-ci:${{ github.sha }}
+          for _ in $(seq 1 200); do
+            docker exec qemucp-ci bash -lc 'systemctl is-system-running 2>/dev/null | grep -Eq "running|degraded"' && break
+            sleep 0.2
+          done
+
+      # La clave de produccion no se usa aqui: se genera una aleatoria solo
+      # para esta prueba y se pone su hash en una copia del instalador.
+      - name: Instalar QemuCP con install/qemucp_install.sh
+        id: instalar
+        continue-on-error: true
+        run: |
+          docker exec qemucp-ci bash -lc '
+            set -o pipefail
+            K=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 24)
+            H=$(printf "%s" "$K" | sha256sum | cut -d" " -f1)
+            cp /hestiacp-git/install/qemucp_install.sh /root/qemucp_install.sh
+            sed -i "s/^QEMUCP_KEY_HASH=\"[0-9a-f]*\"/QEMUCP_KEY_HASH=\"$H\"/" /root/qemucp_install.sh
+            printf "%s" "$K" > /root/.ci-key; chmod 600 /root/.ci-key
+            QEMUCP_HOSTNAME=qemucp-ci.local.test QEMUCP_KEY="$K" QEMUCP_FORK_SRC=/hestiacp-git \
+              bash /root/qemucp_install.sh 2>&1 | tee /hestiacp-git/ci-out/01-instalacion.log
+          '
+
+      - name: Instalar bats
+        if: always()
+        run: docker exec qemucp-ci bash -lc 'command -v bats || /hestiacp-git/test/test_helper/bats-core/install.sh /usr/local'
+
+      - name: Pruebas QemuCP (1a pasada)
+        id: pruebas1
+        continue-on-error: true
+        run: docker exec qemucp-ci bash -lc 'set -o pipefail; cd /hestiacp-git && bats --tap test/qemucp.bats 2>&1 | tee ci-out/02-pruebas-qemucp.tap'
+
+      # Relanzar el instalador sobre el servidor ya instalado: debe detectar la
+      # instalacion y no romper ni duplicar nada (ahi nacia el session.save_path
+      # duplicado de produccion).
+      - name: Relanzar el instalador sobre lo ya instalado
+        id: relanzar
+        continue-on-error: true
+        run: |
+          docker exec qemucp-ci bash -lc '
+            set -o pipefail
+            K=$(cat /root/.ci-key); H=$(printf "%s" "$K" | sha256sum | cut -d" " -f1)
+            cp /hestiacp-git/install/qemucp_install.sh /root/qemucp_install.sh
+            sed -i "s/^QEMUCP_KEY_HASH=\"[0-9a-f]*\"/QEMUCP_KEY_HASH=\"$H\"/" /root/qemucp_install.sh
+            QEMUCP_HOSTNAME=qemucp-ci.local.test QEMUCP_KEY="$K" QEMUCP_FORK_SRC=/hestiacp-git \
+              bash /root/qemucp_install.sh 2>&1 | tee /hestiacp-git/ci-out/03-relanzar.log
+          '
+
+      - name: Pruebas QemuCP (2a pasada, tras relanzar)
+        id: pruebas2
+        continue-on-error: true
+        run: docker exec qemucp-ci bash -lc 'set -o pipefail; cd /hestiacp-git && bats --tap test/qemucp.bats 2>&1 | tee ci-out/04-pruebas-tras-relanzar.tap'
+
+      # Simula una actualizacion: se recompila el paquete desde el fork, se
+      # estropea una plantilla como hacian las actualizaciones y se instala con
+      # dpkg. El postinst real debe llamar al hook y dejarla bien.
+      - name: Actualizacion del paquete y hook post_install
+        id: hook
+        continue-on-error: true
+        run: |
+          docker exec qemucp-ci bash -lc '
+            set -euo pipefail
+            exec > >(tee /hestiacp-git/ci-out/05-hook.log) 2>&1
+            cd /hestiacp-git && bash src/hst_autocompile.sh --hestia --noinstall --keepbuild "~localsrc" > /tmp/build.log 2>&1
+            DEB=$(ls /tmp/hestiacp-src/deb/hestia_*.deb | head -1)
+            T=/usr/local/hestia/data/templates/web/php-fpm/default.tpl
+            sed -i "1a php_admin_value[session.save_path] = /home/%user%/tmp" "$T"
+            echo "antes: save_path=$(grep -c "^php_admin_value\[session.save_path\]" $T)"
+            : > /var/log/qemucp-post-install.log
+            dpkg -i --force-confold "$DEB"
+            cat /var/log/qemucp-post-install.log
+            n=$(grep -c "^php_admin_value\[session.save_path\]" $T)
+            echo "despues: save_path=$n"
+            grep -q "QemuCP post_install" /var/log/qemucp-post-install.log
+            [ "$n" -eq 1 ]
+            apt-mark showhold | grep -qx hestia
+            echo "HOOK_OK"
+          '
+
+      # La bateria de HestiaCP (255 pruebas: usuarios, dominios, DNS, correo,
+      # bases de datos, cron, copias...) sobre NUESTRO panel. Detecta si algun
+      # cambio del fork ha roto algo del nucleo.
+      - name: Bateria de pruebas de HestiaCP
+        id: upstream
+        continue-on-error: true
+        run: docker exec qemucp-ci bash -lc 'set -o pipefail; cd /hestiacp-git && bats --tap test/test.bats 2>&1 | tee ci-out/06-pruebas-hestiacp.tap'
+
+      - name: Recoger diagnostico
+        if: always()
+        run: |
+          docker exec qemucp-ci bash -lc '
+            cd /hestiacp-git/ci-out
+            systemctl --no-pager --failed > 07-servicios-fallidos.txt 2>&1 || true
+            journalctl --no-pager -p err -n 300 > 08-journal-errores.txt 2>&1 || true
+            nginx -t > 09-configs.txt 2>&1; apache2ctl -t >> 09-configs.txt 2>&1 || true
+            cat /usr/local/hestia/conf/qemucp-origen > 10-origen.txt 2>&1 || true
+            tail -n 300 /root/hst_install_backups/hst_install-*.log > 11-hst-install.log 2>/dev/null || true
+            cat /var/log/qemucp-build.log > 12-compilacion.log 2>/dev/null || true
+          ' || true
+          sudo chown -R "$(id -u):$(id -g)" ci-out || true
+
+      - name: Redactar informe
+        if: always()
+        run: |
+          cuenta() { [ -f "$1" ] && echo "$(grep -c '^ok ' "$1") correctas, $(grep -c '^not ok ' "$1") fallidas" || echo "no se ejecuto"; }
+          fallos() { [ -f "$1" ] && grep '^not ok ' "$1" | sed 's/^not ok [0-9]* /- /' || true; }
+          est() { case "$1" in success) echo "OK";; failure) echo "FALLO";; skipped) echo "no se ejecuto";; *) echo "$1";; esac; }
+          {
+            echo "# Resultado de la prueba completa de QemuCP"
+            echo ""
+            echo "- Commit: \`${GITHUB_SHA::9}\` — $(git log -1 --format=%s)"
+            echo "- Fecha: $(date -u '+%Y-%m-%d %H:%M UTC')"
+            echo "- Ejecucion: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo ""
+            echo "| Fase | Resultado |"
+            echo "|---|---|"
+            echo "| Instalacion desde cero | $(est '${{ steps.instalar.outcome }}') |"
+            echo "| Pruebas QemuCP | $(est '${{ steps.pruebas1.outcome }}') — $(cuenta ci-out/02-pruebas-qemucp.tap) |"
+            echo "| Relanzar el instalador | $(est '${{ steps.relanzar.outcome }}') |"
+            echo "| Pruebas tras relanzar | $(est '${{ steps.pruebas2.outcome }}') — $(cuenta ci-out/04-pruebas-tras-relanzar.tap) |"
+            echo "| Actualizacion + hook | $(est '${{ steps.hook.outcome }}') |"
+            echo "| Bateria de HestiaCP | $(est '${{ steps.upstream.outcome }}') — $(cuenta ci-out/06-pruebas-hestiacp.tap) |"
+            echo ""
+            for f in 02-pruebas-qemucp 04-pruebas-tras-relanzar 06-pruebas-hestiacp; do
+              if [ -f "ci-out/$f.tap" ] && grep -q '^not ok ' "ci-out/$f.tap"; then
+                echo "## Fallos en $f"; echo ""; fallos "ci-out/$f.tap"; echo ""
+              fi
+            done
+            if [ "${{ steps.instalar.outcome }}" != "success" ]; then
+              echo "## Ultimas lineas de la instalacion"; echo ""; echo '```'
+              tail -n 60 ci-out/01-instalacion.log 2>/dev/null || echo "(sin log)"
+              echo '```'
+            fi
+          } > ci-out/RESULTADO.md
+          cat ci-out/RESULTADO.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar informe en la rama ci-resultados
+        if: always()
+        run: |
+          cp -r ci-out /tmp/ci-out
+          cd /tmp/ci-out
+          git init -q
+          git config user.name "QemuCP CI"
+          git config user.email "ci@qemucp.invalid"
+          git checkout -q -b ci-resultados
+          git add -A
+          git commit -q -m "CI ${GITHUB_SHA::9}: $(grep -c '| FALLO' RESULTADO.md || true) fases con fallos"
+          git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci-resultados
+
+      - name: Marcar el resultado
+        if: always()
+        run: |
+          [ "${{ steps.instalar.outcome }}" = "success" ] &&
+          [ "${{ steps.pruebas1.outcome }}" = "success" ] &&
+          [ "${{ steps.relanzar.outcome }}" = "success" ] &&
+          [ "${{ steps.pruebas2.outcome }}" = "success" ] &&
+          [ "${{ steps.hook.outcome }}" = "success" ]
+
+      - name: Limpiar
+        if: always()
+        run: docker rm -f qemucp-ci || true
