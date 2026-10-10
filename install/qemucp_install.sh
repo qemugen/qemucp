@@ -1771,7 +1771,8 @@ if ! hostnamectl set-hostname "$HOSTNAME" 2>/dev/null; then
     hostname "$HOSTNAME" 2>/dev/null || true
     echo "$HOSTNAME" > /etc/hostname 2>/dev/null || true
 fi
-echo "127.0.0.1 $HOSTNAME" >> /etc/hosts
+grep -qE "^127\.0\.0\.1[[:space:]]+${HOSTNAME//./\\.}([[:space:]]|$)" /etc/hosts 2>/dev/null \
+    || echo "127.0.0.1 $HOSTNAME" >> /etc/hosts
 log "Hostname: $HOSTNAME"
 
 apt-get update -qq
@@ -3162,8 +3163,19 @@ if [ -f /etc/nginx/nginx.conf ]; then
     fi
 fi
 
-# Anadir configuracion Brotli en el bloque http{} SOLO si el modulo se cargo
-if [ "${BROTLI_MODULE:-no}" = "yes" ]; then
+# Anadir configuracion Brotli en el bloque http{} SOLO si el modulo se cargo.
+# Igual que con los load_module: antes se anadia en cada ejecucion y al
+# relanzar el instalador nginx fallaba con '"brotli" directive is duplicate'.
+# Si un relanzamiento anterior ya lo duplico, se quitan todas las copias y se
+# vuelve a poner una.
+if [ "${BROTLI_MODULE:-no}" = "yes" ] && [ "$(grep -c '^[[:space:]]*brotli on;' /etc/nginx/nginx.conf 2>/dev/null || true)" -gt 1 ]; then
+    cp /etc/nginx/nginx.conf "/etc/nginx/nginx.conf.bak-brotli-$(date +%s)"
+    sed -i '/# Brotli (mejor compresion que Gzip/,/font\/woff2;/d' /etc/nginx/nginx.conf
+    log "nginx.conf: bloques Brotli duplicados eliminados"
+fi
+if [ "${BROTLI_MODULE:-no}" = "yes" ] && grep -q '^[[:space:]]*brotli on;' /etc/nginx/nginx.conf 2>/dev/null; then
+    log "Brotli ya activado en Nginx"
+elif [ "${BROTLI_MODULE:-no}" = "yes" ]; then
     sed -i '/gzip_types/a\
 \
     # Brotli (mejor compresion que Gzip, ~15-20% mas)\

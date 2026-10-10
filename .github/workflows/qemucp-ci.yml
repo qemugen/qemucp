@@ -80,6 +80,14 @@ jobs:
         continue-on-error: true
         run: docker exec qemucp-ci bash -lc 'set -o pipefail; cd /hestiacp-git && bats --tap test/qemucp.bats 2>&1 | tee ci-out/02-pruebas-qemucp.tap'
 
+      # La bateria de HestiaCP (255 pruebas: usuarios, dominios, DNS, correo,
+      # bases de datos, cron, copias...) sobre NUESTRO panel. Detecta si algun
+      # cambio del fork ha roto algo del nucleo.
+      - name: Bateria de pruebas de HestiaCP
+        id: upstream
+        continue-on-error: true
+        run: docker exec qemucp-ci bash -lc 'set -o pipefail; cd /hestiacp-git && bats --tap test/test.bats 2>&1 | tee ci-out/06-pruebas-hestiacp.tap'
+
       # Relanzar el instalador sobre el servidor ya instalado: debe detectar la
       # instalacion y no romper ni duplicar nada (ahi nacia el session.save_path
       # duplicado de produccion).
@@ -130,14 +138,6 @@ jobs:
             apt-mark showhold | grep -qx hestia
             echo "HOOK_OK"
           '
-
-      # La bateria de HestiaCP (255 pruebas: usuarios, dominios, DNS, correo,
-      # bases de datos, cron, copias...) sobre NUESTRO panel. Detecta si algun
-      # cambio del fork ha roto algo del nucleo.
-      - name: Bateria de pruebas de HestiaCP
-        id: upstream
-        continue-on-error: true
-        run: docker exec qemucp-ci bash -lc 'set -o pipefail; cd /hestiacp-git && bats --tap test/test.bats 2>&1 | tee ci-out/06-pruebas-hestiacp.tap'
 
       - name: Recoger diagnostico
         if: always()
