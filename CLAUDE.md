@@ -330,7 +330,9 @@ Dónde está cada cosa:
 - Pruebas: bloque "tema" al final de `test/qemucp.bats`.
 - Compilar en local (sin servidor): hay un Node en
   `~/Desarrollo/node-v24.21.0-darwin-arm64/bin`; `npm ci && node build.js`
-  deja `web/css/themes/*.min.css` (ignorados por git). Lo que el tema no
+  deja `web/css/themes/*.min.css` (ignorados por git). Ojo: `npm ci`
+  activa husky (`core.hooksPath=.husky/_`) y los commits fallan si `node`
+  no esta en el PATH; deshacerlo con `git config --unset core.hooksPath`. Lo que el tema no
   debe perder (revisado): foco de teclado del menu (`.main-menu-item.focus`)
   y de las filas (`.units-table-row.focus`, en la primera celda porque el
   borde de una fila de tabla no se pinta), `.button-danger` en rojo, y el
