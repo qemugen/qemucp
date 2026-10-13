@@ -3768,6 +3768,23 @@ sysctl -e -p /etc/sysctl.d/99-qemucp-performance.conf > /dev/null 2>&1 \
 log "Parametros de kernel optimizados"
 
 # ---------------------------------------------
+#  PASO 10A2: HTTP/3 SIN "reuseport" REPETIDO
+# ---------------------------------------------
+# Las plantillas SSL llevaban "listen IP:443 quic reuseport" en cada web y
+# nginx solo admite reuseport una vez por IP:puerto: con la segunda web con
+# SSL, "nginx -t" falla, nginx deja de recargar y no se pueden crear webs
+# ni dominios de correo. Se repara tambien en servidores ya instalados.
+QUIC_FIX=0
+for f in /usr/local/hestia/data/templates/web/nginx/*.stpl /usr/local/hestia/data/templates/web/nginx/php-fpm/*.stpl \
+         /etc/nginx/conf.d/domains/*.ssl.conf; do
+    [ -f "$f" ] || continue
+    if grep -q " quic reuseport;" "$f"; then
+        sed -i --follow-symlinks 's/ quic reuseport;/ quic;/' "$f"; QUIC_FIX=$((QUIC_FIX+1))
+    fi
+done
+[ "$QUIC_FIX" -gt 0 ] && log "reuseport repetido quitado de $QUIC_FIX plantillas/webs" || log "Plantillas HTTP/3 correctas"
+
+# ---------------------------------------------
 #  PASO 10B: CORRECCION FICHERO IP NGINX
 # ---------------------------------------------
 header "PASO 10B: Corrigiendo configuracion Nginx para IP directa"
@@ -3798,6 +3815,9 @@ server {
 server {
     include /etc/nginx/conf.d/server-includes/main-rules.conf;
         listen ${SERVER_IP}:443 default_server ssl;
+        # HTTP/3: reuseport solo puede ir UNA vez por IP:puerto; va aqui y no
+        # en las plantillas de cada web (con dos webs SSL, nginx -t fallaba).
+        listen ${SERVER_IP}:443 quic reuseport;
         server_name _;
         access_log off;
         error_log /dev/null;

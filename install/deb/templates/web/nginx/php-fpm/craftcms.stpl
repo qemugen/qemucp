@@ -6,7 +6,7 @@
 
 server {
 	listen      %ip%:%web_ssl_port% ssl;
-	listen      %ip%:%web_ssl_port% quic reuseport;
+	listen      %ip%:%web_ssl_port% quic;
 	http2 on;
 	http3 on;
 	add_header Alt-Svc 'h3=":443"; ma=86400';
