@@ -88,6 +88,28 @@ for U in "${USUARIOS[@]}"; do
         MAIL_DOM="no"; $BIN/v-list-mail-domain "$U" "$D" &>/dev/null && MAIL_DOM="si"
         MAIL_YA="no"
         [[ "$MAIL_DOM" == "si" ]] && [[ "$($BIN/v-list-mail-domain "$U" "$D" json 2>/dev/null | grep -oP '"LETSENCRYPT": "\K[^"]*')" == "yes" ]] && MAIL_YA="si"
+        # Ya tiene Let's Encrypt: solo se vuelve a pedir si algun alias que se
+        # quedo fuera (no apuntaba aqui) ya apunta. La renovacion automatica de
+        # QemuCP renueva los nombres del certificado actual, no anade nuevos.
+        if [[ "$WEB_YA" == "si" ]]; then
+            ALI=$(echo "$L" | grep -oP "ALIAS='\K[^']*" || true)
+            EN_CERT=$(openssl x509 -in "$HESTIA/data/users/$U/ssl/$D.crt" -noout -ext subjectAltName 2>/dev/null \
+                      | grep -oP 'DNS:\K[^,\s]+' | tr '\n' ' ')
+            NUEVOS=()
+            for a in ${ALI//,/ }; do
+                [[ " $EN_CERT " == *" $a "* ]] && continue
+                apunta_aqui "$a" && NUEVOS+=("$a")
+            done
+            if [[ ${#NUEVOS[@]} -gt 0 ]]; then
+                LISTA_A=$(for a in $EN_CERT "${NUEVOS[@]}"; do [[ "$a" != "$D" ]] && echo "$a"; done | sort -u | paste -sd, -)
+                if compartir_cuenta "$U" && $BIN/v-add-letsencrypt-domain "$U" "$D" "$LISTA_A" >> "$LOG" 2>&1; then
+                    N_OK=$((N_OK+1)); say "  OK      $D: anadidos al certificado ${NUEVOS[*]}"
+                else
+                    N_MAL=$((N_MAL+1)); FALLAN+=("$D ($U)"); say "  FALLO   $D al anadir ${NUEVOS[*]}"
+                fi
+                sleep 2
+            fi
+        fi
         if [[ "$WEB_YA" == "si" && ( "$MAIL_DOM" == "no" || "$MAIL_YA" == "si" ) ]]; then
             N_YA=$((N_YA+1)); continue
         fi
