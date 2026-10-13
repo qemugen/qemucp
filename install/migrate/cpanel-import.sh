@@ -853,9 +853,13 @@ if [[ -n "$MYSQL_DIR" ]]; then
         # DEFINER=`usuario_cpanel`@`localhost` en vistas, triggers y
         # procedimientos: ese usuario no existe aqui y fallan al usarse.
         # Sin DEFINER pasan a ser del usuario que importa.
+        # phpMyAdmin 5.2 exporta los DEFAULT binarios (tablas de Wordfence) como
+        # "DEFAULT x AS `0000...`", que ningun MySQL/MariaDB acepta (#1064):
+        # se reescriben como DEFAULT x'0000...'.
         ERRF="$WORK_DIR/mysql-$DB_CLEAN.err"
         if { if [[ "$SQL_FILE" == *.gz ]]; then gunzip -c "$SQL_FILE"; else cat "$SQL_FILE"; fi; } \
-            | sed -E 's/DEFINER=`[^`]+`@`[^`]+`//g; s/DEFINER=[^ *]+@[^ *]+//g' \
+            | sed -E 's/DEFINER=`[^`]+`@`[^`]+`//g; s/DEFINER=[^ *]+@[^ *]+//g;
+                     s/DEFAULT x AS `([0-9A-Fa-f]+)`/DEFAULT x'"'"'\1'"'"'/g' \
             | $MYSQL_CLI "$DB_FINAL" 2> "$ERRF"; then
             TABLAS=$($MYSQL_CLI -N -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='$DB_FINAL'" 2>/dev/null || echo "?")
             log "  Datos importados en $DB_FINAL ($TABLAS tablas)"

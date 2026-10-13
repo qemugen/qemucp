@@ -156,6 +156,8 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
     [ "$(mysql -N -e 'SELECT COUNT(*) FROM cpclient_wp.wp_options')" -eq 2 ]
     [ "$(mysql -N -e 'SELECT COUNT(*) FROM cpclient_wp.v_opciones')" -eq 2 ]
     [ "$(mysql -N -e 'SELECT COUNT(*) FROM cpclient_tienda.productos')" -eq 3 ]
+    # DEFAULT binario mal exportado por phpMyAdmin 5.2 (Wordfence)
+    [ "$(mysql -N -e 'SELECT COUNT(*) FROM cpclient_tienda.wp_wfBlockedIPLog')" -eq 1 ]
 }
 
 @test "migrador: wp-config apunta a la base de datos nueva y sus credenciales funcionan" {

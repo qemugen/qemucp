@@ -142,6 +142,11 @@ EOF
 cat << 'EOF' | gzip > "$B/mysql/cpclient_tienda.sql.gz"
 CREATE TABLE `productos` (`id` int NOT NULL, `nombre` varchar(64), PRIMARY KEY (`id`));
 INSERT INTO `productos` VALUES (1,'uno'),(2,'dos'),(3,'tres');
+CREATE TABLE `wp_wfBlockedIPLog` (
+  `IP` binary(16) NOT NULL DEFAULT x AS `00000000000000000000000000000000`,
+  `countryCode` varchar(2) NOT NULL
+) ENGINE=MyISAM;
+INSERT INTO `wp_wfBlockedIPLog` VALUES (0x00000000000000000000ffffb52b60d9,'CL');
 EOF
 echo "-- grants" > "$B/mysql.sql"
 
