@@ -286,12 +286,14 @@ commits terminan con las líneas de atribución que pida la sesión.
 
 ## Tema propio de QemuCP (`qemucp`)
 
-Hecho: `web/css/src/themes/qemucp.css`, tema plano y sencillo con el aspecto
-de Plesk (barra superior oscura, acento azul `#28aade`, sin degradados ni
-sombras). En las listas las acciones son botones con texto ("Editar
+Hecho: `web/css/src/themes/qemucp.css`, con la identidad del logo
+(`web/images/logo-header.svg`, blanco con nube cian): barra superior marino
+con degradado y filo cian, acentos cian `#00c8f5` / azul `#1f7ae0`, tarjetas
+redondeadas con sombra suave, login oscuro (el logo es blanco y no se veria
+sobre blanco). Distribucion clara al estilo de Plesk. En las listas las acciones son botones con texto ("Editar
 Dominio", "Suspender", "Borrar"...) en lugar de iconos, siempre visibles
 (no solo al pasar el raton). "Borrar" va en rojo y la accion principal
-(`shortcut-enter`) en azul.
+(`shortcut-enter`) con el degradado de la marca.
 
 Es **solo CSS**, sin tocar plantillas: muestra el
 `<span class="u-hide-desktop">` que cada `.units-table-row-action-link` de
@@ -301,6 +303,8 @@ acortarlo exigiria tocar las plantillas. Si upstream anade una lista nueva
 con acciones sin ese span, el boton saldria vacio: revisarlo al sincronizar.
 
 Dónde está cada cosa:
+- La barra superior mide 56px (no 40): el tema sobrescribe tambien
+  `.app-header` (padding-top) y el `top` sticky de `.toolbar`.
 - Temas: `web/css/src/themes/*.css` (default, dark, flat, vestia, qemucp).
   `default.min.css` se carga siempre y el tema elegido va encima. Se
   compilan a `web/css/themes/*.min.css` en el build del paquete
