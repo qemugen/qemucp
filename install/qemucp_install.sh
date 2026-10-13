@@ -55,7 +55,7 @@ ALLOW_LEGACY_PHP="${ALLOW_LEGACY_PHP:-no}"
 #
 # La clave se genero al azar (24 caracteres) y no esta en el repositorio:
 # solo su hash. La anterior estuvo en claro en el repo publico y ya no vale.
-QEMUCP_KEY_HASH="02db216724a954d26fdc08e7b304491a4529886180eb3c6b4ddcb82051e0e04f"
+QEMUCP_KEY_HASH="592fe3d91877beaad4dd7b2873e6ec66e583b965c6789313e340edda2da31e57"
 
 _qemucp_hash() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
 
