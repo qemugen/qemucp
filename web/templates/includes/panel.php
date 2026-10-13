@@ -298,7 +298,7 @@
 	<!-- QemuCP: aviso claro cuando un administrador entra en la cuenta de un
 	     usuario (antes solo lo indicaba un icono). Solo con el tema qemucp
 	     para no cambiar los demas temas. -->
-	<?php if (!empty($_SESSION["look"]) && qemucp_theme_active()) { ?>
+	<?php if (!empty($_SESSION["look"]) && function_exists("qemucp_theme_active") && qemucp_theme_active()) { ?>
 		<div class="qemucp-look-banner" role="status">
 			<div class="container qemucp-look-banner-inner">
 				<p>

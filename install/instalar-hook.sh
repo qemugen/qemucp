@@ -26,6 +26,21 @@
 #    bash instalar-hook.sh --estado   solo informa, no cambia nada
 # ============================================================================
 
+# Descarga RUTA (relativa al repo) en DEST: primero de la copia local del
+# fork (/opt/qemucp-src); si no, de GitHub con el token de solo lectura de
+# /root/.config/qemucp/github-token (repositorio privado). El token va por la
+# entrada estandar de curl (-K -), no como argumento: no sale en ps.
+qemucp_bajar() {
+    local ruta="$1" dest="$2" tok=""
+    if [ -f "/opt/qemucp-src/$ruta" ]; then
+        cp -f "/opt/qemucp-src/$ruta" "$dest"
+        return
+    fi
+    tok=$(tr -d '[:space:]' 2>/dev/null < /root/.config/qemucp/github-token || true)
+    { [ -n "$tok" ] && printf 'header = "Authorization: token %s"\n' "$tok"; true; } \
+        | curl -fsSL --max-time 60 -K - "https://raw.githubusercontent.com/qemugen/qemucp/release/$ruta?cb=$(date +%s)" -o "$dest"
+}
+
 set -u
 HESTIA="${HESTIA:-/usr/local/hestia}"
 HOOK_DIR="/etc/hestiacp/hooks"
@@ -123,14 +138,13 @@ if [ "$MODO" = "instalar" ]; then
     #    la rama release EN ESE MOMENTO, que puede ir por delante del paquete
     #    instalado, y mezclaria PHP de dos versiones (el bucle de login).
     ORIGEN=$(cut -d' ' -f1 "$H/conf/qemucp-origen" 2>/dev/null || true)
-    REBRAND_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/qemucp-rebrand.sh"
     if [ "$ORIGEN" = "fork" ]; then
         echo "  marca: el paquete ya es nuestro fork, no se injerta nada"
     elif [ -x "$H/data/qemucp/qemucp-rebrand.sh" ]; then
         bash "$H/data/qemucp/qemucp-rebrand.sh" >/dev/null 2>&1 \
             && echo "  marca QemuCP reaplicada (copia local)" \
             || echo "  AVISO: fallo el rebrand local"
-    elif wget -q --timeout=30 "${REBRAND_URL}?cb=$(date +%s)" -O /tmp/qemucp-rebrand.sh 2>/dev/null; then
+    elif qemucp_bajar install/qemucp-rebrand.sh /tmp/qemucp-rebrand.sh 2>/dev/null; then
         bash /tmp/qemucp-rebrand.sh >/dev/null 2>&1 \
             && echo "  marca QemuCP reaplicada (descargada)" \
             || echo "  AVISO: fallo el rebrand descargado"

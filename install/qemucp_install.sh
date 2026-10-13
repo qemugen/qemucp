@@ -27,9 +27,6 @@
 #  VARIABLES DE CONFIGURACION
 # ---------------------------------------------
 BRAND_NAME="QemuCP"
-# Logo desde el fork de GitHub (fiable). Fallback: zonasdnsprivadas.com
-BRAND_LOGO="https://raw.githubusercontent.com/qemugen/qemucp/release/web/images/logo.png"
-BRAND_LOGO_FALLBACK="https://zonasdnsprivadas.com/scripts/assets/img/logo.png"
 ADMIN_EMAIL="soporte@qemucp.com"
 ADMIN_PASS=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24 || true)
 TIMEZONE="Europe/Madrid"
@@ -197,6 +194,82 @@ header() {
     QEMUCP_PASO="$1" echo -e "\n${BLUE}======================================${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}======================================${NC}\n"; }
 
 # =============================================================================
+#  ACCESO AL REPOSITORIO DEL FORK (puede ser PRIVADO)
+# =============================================================================
+# Todo el codigo de QemuCP se obtiene UNA vez, con git, en una carpeta local
+# (qemucp_fuente); el resto del instalador copia de ahi. No hay descargas
+# sueltas de raw.githubusercontent.com: con el repositorio privado fallarian.
+#
+# Repositorio privado: hace falta un token de GitHub de SOLO LECTURA
+# (fine-grained, solo qemugen/qemucp, permiso "Contents: Read-only").
+#   - QEMUCP_GH_TOKEN='github_pat_...' bash qemucp_install.sh   (desatendido)
+#   - o lo pide al arrancar, sin mostrarlo (Intro vacio = repositorio publico)
+# Se guarda en $QEMUCP_TOKEN_FILE (solo root) para que --actualizar y los
+# scripts del servidor puedan volver a descargar. El token nunca va como
+# argumento de un comando (se veria en ps): git lo lee de una variable de
+# entorno con un credential helper, y curl de la entrada estandar (-K -).
+QEMUCP_REPO="qemugen/qemucp"
+QEMUCP_RAMA="release"
+QEMUCP_TOKEN_FILE="/root/.config/qemucp/github-token"
+
+if [[ -z "${QEMUCP_GH_TOKEN:-}" && -s "$QEMUCP_TOKEN_FILE" ]]; then
+    QEMUCP_GH_TOKEN=$(tr -d '[:space:]' < "$QEMUCP_TOKEN_FILE")
+fi
+if [[ -z "${QEMUCP_GH_TOKEN:-}" && -z "${QEMUCP_FORK_SRC:-}" && -t 0 ]]; then
+    echo ""
+    echo "  Token de GitHub para descargar QemuCP (solo lectura)."
+    echo "  Dejalo vacio si el repositorio es publico."
+    read -rsp "  Token: " QEMUCP_GH_TOKEN || QEMUCP_GH_TOKEN=""
+    echo ""
+fi
+QEMUCP_GH_TOKEN="${QEMUCP_GH_TOKEN:-}"
+if [[ -n "$QEMUCP_GH_TOKEN" ]]; then
+    ( umask 077 && mkdir -p "$(dirname "$QEMUCP_TOKEN_FILE")" \
+        && printf '%s\n' "$QEMUCP_GH_TOKEN" > "$QEMUCP_TOKEN_FILE" ) 2>/dev/null || true
+fi
+
+# Clona la rama release en $1 (con el token si lo hay)
+qemucp_clonar() {
+    local dest="$1"
+    command -v git >/dev/null 2>&1 || apt-get install -y -qq git >/dev/null 2>&1 || return 1
+    if [[ -n "$QEMUCP_GH_TOKEN" ]]; then
+        # El helper lee la variable al ejecutarse: el token no sale en ps
+        QEMUCP_GH_TOKEN="$QEMUCP_GH_TOKEN" GIT_TERMINAL_PROMPT=0 git \
+            -c credential.helper= \
+            -c 'credential.helper=!f() { echo username=x-access-token; echo "password=$QEMUCP_GH_TOKEN"; }; f' \
+            clone -q --depth 1 -b "$QEMUCP_RAMA" "https://github.com/$QEMUCP_REPO.git" "$dest"
+    else
+        GIT_TERMINAL_PROMPT=0 git clone -q --depth 1 -b "$QEMUCP_RAMA" \
+            "https://github.com/$QEMUCP_REPO.git" "$dest"
+    fi
+}
+
+# Deja el codigo de QemuCP en $1: copia de QEMUCP_FORK_SRC (la prueba
+# automatica, que instala el commit exacto que prueba) o clon del repo
+qemucp_fuente() {
+    local dest="$1"
+    rm -rf "$dest"
+    if [[ -n "${QEMUCP_FORK_SRC:-}" ]]; then
+        [[ -f "$QEMUCP_FORK_SRC/install/hst-install.sh" ]] || return 1
+        mkdir -p "$dest" && cp -a "$QEMUCP_FORK_SRC/." "$dest/"
+    else
+        qemucp_clonar "$dest"
+    fi
+}
+
+qemucp_sin_fuente() {
+    echo -e "\033[0;31m[!!]\033[0m No se pudo descargar el codigo de QemuCP ($QEMUCP_REPO, rama $QEMUCP_RAMA)."
+    if [[ -z "$QEMUCP_GH_TOKEN" ]]; then
+        echo "     Si el repositorio es privado hace falta un token de GitHub de solo lectura:"
+        echo "     QEMUCP_GH_TOKEN='github_pat_...' bash $0"
+    else
+        echo "     Revisa que el token no haya caducado y tenga permiso de lectura sobre $QEMUCP_REPO."
+        echo "     (Esta guardado en $QEMUCP_TOKEN_FILE)"
+    fi
+    exit 1
+}
+
+# =============================================================================
 #  MODO --actualizar
 # =============================================================================
 # Actualiza SOLO el panel (paquete hestia) a lo ultimo de la rama release del
@@ -220,16 +293,8 @@ if [[ "$QEMUCP_MODO" == "actualizar" ]]; then
     AC_DEBS="/tmp/hestiacp-src/deb"
     AC_LOG="/var/log/qemucp-actualizar.log"
     : > "$AC_LOG"
-    rm -rf "$AC_SRC" "$AC_DEBS"
-
-    if [[ -n "${QEMUCP_FORK_SRC:-}" ]]; then
-        mkdir -p "$AC_SRC" && cp -a "$QEMUCP_FORK_SRC/." "$AC_SRC/" || error "No se pudo copiar $QEMUCP_FORK_SRC"
-    else
-        command -v git >/dev/null 2>&1 || apt-get install -y -qq git >> "$AC_LOG" 2>&1 \
-            || error "No se pudo instalar git"
-        git clone -q --depth 1 -b release https://github.com/qemugen/qemucp.git "$AC_SRC" >> "$AC_LOG" 2>&1 \
-            || error "No se pudo descargar el fork (ver $AC_LOG)"
-    fi
+    rm -rf "$AC_DEBS"
+    qemucp_fuente "$AC_SRC" >> "$AC_LOG" 2>&1 || qemucp_sin_fuente
     AC_COMMIT=$(git -C "$AC_SRC" rev-parse --short HEAD 2>/dev/null || echo "?")
     AC_ANTES=$(dpkg-query -W -f='${Version}' hestia 2>/dev/null || echo "?")
     AC_ORIGEN_ANTES=$(cut -d' ' -f1-2 /usr/local/hestia/conf/qemucp-origen 2>/dev/null || echo "desconocido")
@@ -358,6 +423,15 @@ echo ""
 log "Hostname configurado: $HOSTNAME"
 
 # ---------------------------------------------
+#  CODIGO DE QEMUCP (una sola descarga; ver "ACCESO AL REPOSITORIO")
+# ---------------------------------------------
+FORK_SRC="/opt/qemucp-src"
+info "Descargando el codigo de QemuCP ($QEMUCP_REPO, rama $QEMUCP_RAMA)..."
+qemucp_fuente "$FORK_SRC" || qemucp_sin_fuente
+FORK_COMMIT=$(git -C "$FORK_SRC" rev-parse --short HEAD 2>/dev/null || echo "?")
+log "Codigo de QemuCP listo (commit $FORK_COMMIT)"
+
+# ---------------------------------------------
 #  PASO 0: DESPLEGAR SCRIPTS AUXILIARES
 # ---------------------------------------------
 header "PASO 0: Desplegando scripts auxiliares"
@@ -394,6 +468,21 @@ cat > "$AUX_DIR/instalar-hook.sh" << 'QEMUCP_EMBED_HOOK'
 #    bash instalar-hook.sh --probar   lo ejecuta ahora para ver que hace
 #    bash instalar-hook.sh --estado   solo informa, no cambia nada
 # ============================================================================
+
+# Descarga RUTA (relativa al repo) en DEST: primero de la copia local del
+# fork (/opt/qemucp-src); si no, de GitHub con el token de solo lectura de
+# /root/.config/qemucp/github-token (repositorio privado). El token va por la
+# entrada estandar de curl (-K -), no como argumento: no sale en ps.
+qemucp_bajar() {
+    local ruta="$1" dest="$2" tok=""
+    if [ -f "/opt/qemucp-src/$ruta" ]; then
+        cp -f "/opt/qemucp-src/$ruta" "$dest"
+        return
+    fi
+    tok=$(tr -d '[:space:]' 2>/dev/null < /root/.config/qemucp/github-token || true)
+    { [ -n "$tok" ] && printf 'header = "Authorization: token %s"\n' "$tok"; true; } \
+        | curl -fsSL --max-time 60 -K - "https://raw.githubusercontent.com/qemugen/qemucp/release/$ruta?cb=$(date +%s)" -o "$dest"
+}
 
 set -u
 HESTIA="${HESTIA:-/usr/local/hestia}"
@@ -492,14 +581,13 @@ if [ "$MODO" = "instalar" ]; then
     #    la rama release EN ESE MOMENTO, que puede ir por delante del paquete
     #    instalado, y mezclaria PHP de dos versiones (el bucle de login).
     ORIGEN=$(cut -d' ' -f1 "$H/conf/qemucp-origen" 2>/dev/null || true)
-    REBRAND_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/qemucp-rebrand.sh"
     if [ "$ORIGEN" = "fork" ]; then
         echo "  marca: el paquete ya es nuestro fork, no se injerta nada"
     elif [ -x "$H/data/qemucp/qemucp-rebrand.sh" ]; then
         bash "$H/data/qemucp/qemucp-rebrand.sh" >/dev/null 2>&1 \
             && echo "  marca QemuCP reaplicada (copia local)" \
             || echo "  AVISO: fallo el rebrand local"
-    elif wget -q --timeout=30 "${REBRAND_URL}?cb=$(date +%s)" -O /tmp/qemucp-rebrand.sh 2>/dev/null; then
+    elif qemucp_bajar install/qemucp-rebrand.sh /tmp/qemucp-rebrand.sh 2>/dev/null; then
         bash /tmp/qemucp-rebrand.sh >/dev/null 2>&1 \
             && echo "  marca QemuCP reaplicada (descargada)" \
             || echo "  AVISO: fallo el rebrand descargado"
@@ -1950,16 +2038,10 @@ fi
 if [ "$SKIP_BASE_INSTALL" = "no" ]; then
 
 cd /tmp || error "No se puede acceder a /tmp"
-# QEMUCP_FORK_SRC=/ruta: usar una copia local del fork en lugar de descargar
-# (la prueba automatica lo usa para instalar exactamente el commit probado).
-if [[ -n "${QEMUCP_FORK_SRC:-}" ]]; then
-    [[ -f "$QEMUCP_FORK_SRC/install/hst-install.sh" ]] || error "QEMUCP_FORK_SRC no contiene el fork: $QEMUCP_FORK_SRC"
-    cp "$QEMUCP_FORK_SRC/install/hst-install.sh" hst-install.sh
-    info "Usando el fork local: $QEMUCP_FORK_SRC"
-else
-    wget -q --timeout=30 "https://raw.githubusercontent.com/qemugen/qemucp/release/install/hst-install.sh" \
-        -O hst-install.sh || error "No se pudo descargar el instalador de QemuCP"
-fi
+# El instalador base sale de la copia local del fork ($FORK_SRC), no de
+# raw.githubusercontent.com (que con el repositorio privado no responde)
+cp "$FORK_SRC/install/hst-install.sh" hst-install.sh \
+    || error "No esta install/hst-install.sh en $FORK_SRC"
 
 # Modificar textos de marca en el instalador usando sed (mas fiable)
 sed -i \
@@ -1968,22 +2050,11 @@ sed -i \
     -e "s|1\.9\.[0-9][0-9]*|1.0|g" \
     hst-install.sh 2>/dev/null || true
 
-# Reemplazar URL de descarga dentro de hst-install.sh para que use el fork
-sed -i \
-    -e "s|raw.githubusercontent.com/hestiacp/hestiacp/release/install|raw.githubusercontent.com/qemugen/qemucp/release/install|g" \
-    hst-install.sh 2>/dev/null || true
-
 # DEFENSA: forzar que hst-install.sh use el ubuntu.sh LOCAL ya parcheado
 # en lugar de descargarlo (evita cache de GitHub Raw con version antigua).
 # Descargamos ubuntu.sh nosotros con cache-buster y neutralizamos el version check.
-CACHE_BUST=$(date +%s)
-if [[ -n "${QEMUCP_FORK_SRC:-}" ]]; then
-    cp "$QEMUCP_FORK_SRC/install/hst-install-${OS_TYPE}.sh" "hst-install-${OS_TYPE}.sh" \
-        || error "No esta hst-install-${OS_TYPE}.sh en $QEMUCP_FORK_SRC"
-else
-    wget -q --timeout=30 "https://raw.githubusercontent.com/qemugen/qemucp/release/install/hst-install-${OS_TYPE}.sh?cb=${CACHE_BUST}" \
-        -O "hst-install-${OS_TYPE}.sh" || error "No se pudo descargar hst-install-${OS_TYPE}.sh"
-fi
+cp "$FORK_SRC/install/hst-install-${OS_TYPE}.sh" "hst-install-${OS_TYPE}.sh" \
+    || error "No esta hst-install-${OS_TYPE}.sh en $FORK_SRC"
 
 # Neutralizar CUALQUIER version check que quede (defensa multi-capa)
 # 1. Desactivar el bloque if del release_branch_ver
@@ -1994,12 +2065,14 @@ sed -i 's|release_branch_ver=\$(curl.*|release_branch_ver="$HESTIA_INSTALL_VER"|
     "hst-install-${OS_TYPE}.sh" 2>/dev/null || true
 
 # Modificar hst-install.sh para que NO vuelva a descargar el ubuntu.sh (ya lo tenemos parcheado)
-sed -i "s|wget -q https://raw.githubusercontent.com/qemugen/qemucp/release/install/hst-install-\$type.sh -O hst-install-\$type.sh|echo 'QemuCP: usando hst-install-'\$type'.sh local ya parcheado'|g" \
+sed -i "s|wget -q https://raw.githubusercontent.com/hestiacp/hestiacp/release/install/hst-install-\$type.sh -O hst-install-\$type.sh|echo 'QemuCP: usando hst-install-'\$type'.sh local ya parcheado'|g" \
     hst-install.sh 2>/dev/null || true
-sed -i "s|curl -s -O https://raw.githubusercontent.com/qemugen/qemucp/release/install/hst-install-\$type.sh|echo 'QemuCP: usando local'|g" \
+sed -i "s|curl -s -O https://raw.githubusercontent.com/hestiacp/hestiacp/release/install/hst-install-\$type.sh|echo 'QemuCP: usando local'|g" \
     hst-install.sh 2>/dev/null || true
+grep -q "raw.githubusercontent.com/hestiacp/hestiacp/release/install/hst-install-" hst-install.sh \
+    && error "hst-install.sh sigue descargando hst-install-\$type.sh: revisa los sed de arriba"
 
-log "Instalador modificado: apunta al fork qemugen/qemucp (version check neutralizado)"
+log "Instalador base preparado desde el fork (sin descargas; version check neutralizado)"
 
 # ---------------------------------------------------------------------------
 # PAQUETE hestia COMPILADO DESDE NUESTRO FORK
@@ -2013,9 +2086,7 @@ log "Instalador modificado: apunta al fork qemugen/qemucp (version check neutral
 # apt: son el nginx y el php internos del panel, no llevan nada nuestro.
 #
 # Para forzar la instalacion clasica desde apt:  QEMUCP_DESDE_APT=yes
-FORK_REPO="https://github.com/qemugen/qemucp.git"
-FORK_RAMA="release"
-FORK_SRC="/opt/qemucp-src"
+FORK_RAMA="$QEMUCP_RAMA"
 FORK_DEBS="/tmp/hestiacp-src/deb"
 HST_ARGS_DEBS=()
 INSTALADO_DESDE="apt"
@@ -2025,17 +2096,10 @@ if [[ "${QEMUCP_DESDE_APT:-no}" == "yes" ]]; then
 else
     info "Compilando el paquete hestia desde el fork ($FORK_RAMA)..."
     info "  (tarda unos minutos: instala Node y compila los assets del panel)"
-    rm -rf "$FORK_SRC" "$FORK_DEBS"
-    if [[ -n "${QEMUCP_FORK_SRC:-}" ]]; then
-        CLON_OK="no"
-        mkdir -p "$FORK_SRC" && cp -a "$QEMUCP_FORK_SRC/." "$FORK_SRC/" && CLON_OK="si"
-    else
-        CLON_OK="no"
-        git clone -q --depth 1 -b "$FORK_RAMA" "$FORK_REPO" "$FORK_SRC" 2>/dev/null && CLON_OK="si"
-    fi
-    if [[ "$CLON_OK" == "si" ]]; then
-        FORK_COMMIT=$(git -C "$FORK_SRC" rev-parse --short HEAD 2>/dev/null || echo "?")
-        info "  fork clonado en el commit $FORK_COMMIT"
+    rm -rf "$FORK_DEBS"
+    # El codigo ya esta en $FORK_SRC (se descargo antes del PASO 0)
+    if [[ -f "$FORK_SRC/src/hst_autocompile.sh" ]]; then
+        info "  fork en el commit $FORK_COMMIT"
         # '~localsrc' = compilar desde la carpeta local, sin descargar nada mas
         ( cd "$FORK_SRC" && bash src/hst_autocompile.sh --hestia --noinstall --keepbuild '~localsrc' ) \
             > /var/log/qemucp-build.log 2>&1 || true
@@ -2052,7 +2116,7 @@ else
             warn "Se continua con el paquete de apt.hestiacp.com"
         fi
     else
-        warn "No se pudo clonar $FORK_REPO: se usa el paquete de apt"
+        warn "No esta el codigo del fork en $FORK_SRC: se usa el paquete de apt"
     fi
 fi
 
@@ -2222,13 +2286,9 @@ WEB_DIR="$HESTIA/web"
 cp "$THEME_DIR/custom-brand.css" "$THEME_DIR/custom-brand.css.qemucp" 2>/dev/null || true
 
 mkdir -p "$WEB_DIR/images/custom"
-if wget -q --timeout=30 "$BRAND_LOGO" -O "$WEB_DIR/images/custom/brand-logo.png" 2>/dev/null; then
-    log "Logo descargado desde el fork"
-elif wget -q --timeout=30 "$BRAND_LOGO_FALLBACK" -O "$WEB_DIR/images/custom/brand-logo.png" 2>/dev/null; then
-    log "Logo descargado desde zonasdnsprivadas.com (fallback)"
-else
-    warn "No se pudo descargar el logo - se usara el logo por defecto"
-fi
+cp -f "$FORK_SRC/web/images/logo.png" "$WEB_DIR/images/custom/brand-logo.png" 2>/dev/null \
+    && log "Logo de QemuCP copiado del fork" \
+    || warn "No esta web/images/logo.png en el fork: se usara el logo por defecto"
 
 # Iconos: del simbolo cuadrado de QemuCP (images/favicon.png, va en el
 # paquete), no del logo apaisado, que en 32x32 sale deformado
@@ -2297,21 +2357,13 @@ find "$WEB_DIR" \( -name "*.php" -o -name "*.html" -o -name "*.tpl" \) \
 done
 log "Referencias de marca reemplazadas"
 
-# Descargar logos QemuCP directamente desde el fork
-FORK_RAW="https://raw.githubusercontent.com/qemugen/qemucp/release/web/images"
+# Logos e iconos de QemuCP desde la copia local del fork (si el panel se
+# compilo del fork ya van en el paquete; esto cubre la instalacion desde apt)
 log "Instalando logos QemuCP..."
-
-# Logo del panel superior (barra de navegacion)
-wget -q --timeout=30 "$FORK_RAW/logo-header.svg"     -O "$WEB_DIR/images/logo-header.svg" 2>/dev/null &&     log "logo-header.svg instalado" || warn "No se pudo descargar logo-header.svg"
-
-# Logo de la pagina de login
-wget -q --timeout=30 "$FORK_RAW/logo.svg"     -O "$WEB_DIR/images/logo.svg" 2>/dev/null &&     log "logo.svg instalado" || warn "No se pudo descargar logo.svg"
-
-# Logo PNG de fallback
-wget -q --timeout=30 "$FORK_RAW/logo.png"     -O "$WEB_DIR/images/logo.png" 2>/dev/null || true
-
-# Favicon
-wget -q --timeout=30 "$FORK_RAW/favicon.png"     -O "$WEB_DIR/images/favicon.png" 2>/dev/null || true
+for f in logo-header.svg logo.svg logo.png logo-full.png favicon.png apple-touch-icon.png; do
+    cp -f "$FORK_SRC/web/images/$f" "$WEB_DIR/images/$f" 2>/dev/null || warn "No esta web/images/$f en el fork"
+done
+cp -f "$FORK_SRC/web/favicon.ico" "$WEB_DIR/favicon.ico" 2>/dev/null || true
 
 log "Logos QemuCP instalados correctamente"
 
@@ -2326,19 +2378,16 @@ else
 fi
 log "APP_NAME configurado como QemuCP Control Panel"
 
-# Instalar Quick Install optimizados de QemuCP
-FORK_RAW="https://raw.githubusercontent.com/qemugen/qemucp/release"
+# Instaladores optimizados de QemuCP (Aplicaciones), desde la copia local
 INSTALLERS_DIR="$HESTIA/web/src/app/WebApp/Installers"
-
-# WordPress Optimizado
-mkdir -p "$INSTALLERS_DIR/WordPressOptimized"
-wget -q --timeout=30     "$FORK_RAW/web/src/app/WebApp/Installers/WordPressOptimized/WordPressOptimizedSetup.php"     -O "$INSTALLERS_DIR/WordPressOptimized/WordPressOptimizedSetup.php" &&     log "WordPress Optimizado (QemuCP) instalado" ||     warn "No se pudo instalar WordPress Optimizado"
-wget -q --timeout=30     "$FORK_RAW/web/src/app/WebApp/Installers/WordPressOptimized/wp-qemucp-thumb.png"     -O "$INSTALLERS_DIR/WordPressOptimized/wp-qemucp-thumb.png" 2>/dev/null || true
-
-# PrestaShop Optimizado
-mkdir -p "$INSTALLERS_DIR/PrestaShopOptimized"
-wget -q --timeout=30     "$FORK_RAW/web/src/app/WebApp/Installers/PrestaShopOptimized/PrestaShopOptimizedSetup.php"     -O "$INSTALLERS_DIR/PrestaShopOptimized/PrestaShopOptimizedSetup.php" &&     log "PrestaShop Optimizado (QemuCP) instalado" ||     warn "No se pudo instalar PrestaShop Optimizado"
-wget -q --timeout=30     "$FORK_RAW/web/src/app/WebApp/Installers/PrestaShopOptimized/ps-qemucp-thumb.png"     -O "$INSTALLERS_DIR/PrestaShopOptimized/ps-qemucp-thumb.png" 2>/dev/null || true
+for APP in WordPressOptimized PrestaShopOptimized; do
+    if [ -d "$FORK_SRC/web/src/app/WebApp/Installers/$APP" ]; then
+        mkdir -p "$INSTALLERS_DIR/$APP"
+        cp -f "$FORK_SRC/web/src/app/WebApp/Installers/$APP/"* "$INSTALLERS_DIR/$APP/" \
+            && log "Instalador $APP (QemuCP) instalado" \
+            || warn "No se pudo instalar $APP"
+    fi
+done
 
 
 
@@ -3829,6 +3878,11 @@ fi
 HOOKFIX="$HESTIA/data/qemucp/instalar-hook.sh"
 mkdir -p "$HESTIA/data/qemucp"
 cp -a "$AUX_DIR/instalar-hook.sh" "$HOOKFIX"
+# Copia local del rebrand para el hook (instalaciones desde apt): sin ella
+# tendria que descargarlo, y con el repositorio privado necesita el token
+if cp -f "$FORK_SRC/install/qemucp-rebrand.sh" "$HESTIA/data/qemucp/qemucp-rebrand.sh" 2>/dev/null; then
+    chmod +x "$HESTIA/data/qemucp/qemucp-rebrand.sh"
+fi
 
 if [[ -s "$HOOKFIX" ]] && head -1 "$HOOKFIX" | grep -q '^#!/bin/bash'; then
     chmod +x "$HOOKFIX"

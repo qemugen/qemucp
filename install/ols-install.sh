@@ -9,6 +9,21 @@
 # NO hay conflicto con la configuracion existente de QemuCP
 # ============================================================
 
+# Descarga RUTA (relativa al repo) en DEST: primero de la copia local del
+# fork (/opt/qemucp-src); si no, de GitHub con el token de solo lectura de
+# /root/.config/qemucp/github-token (repositorio privado). El token va por la
+# entrada estandar de curl (-K -), no como argumento: no sale en ps.
+qemucp_bajar() {
+    local ruta="$1" dest="$2" tok=""
+    if [ -f "/opt/qemucp-src/$ruta" ]; then
+        cp -f "/opt/qemucp-src/$ruta" "$dest"
+        return
+    fi
+    tok=$(tr -d '[:space:]' 2>/dev/null < /root/.config/qemucp/github-token || true)
+    { [ -n "$tok" ] && printf 'header = "Authorization: token %s"\n' "$tok"; true; } \
+        | curl -fsSL --max-time 60 -K - "https://raw.githubusercontent.com/qemugen/qemucp/release/$ruta?cb=$(date +%s)" -o "$dest"
+}
+
 HESTIA=/usr/local/hestia
 
 log()   { echo "[OK] $1"; }
@@ -131,14 +146,11 @@ else
     else
         warn "Templates OLS no encontrados - descargando desde GitHub..."
         mkdir -p "$OLS_TPL_DST/php-fpm"
-        BASE="https://raw.githubusercontent.com/qemugen/qemucp/release"
         for f in default.tpl default.stpl php-fpm/default.tpl php-fpm/default.stpl \
                  php-fpm/default.sh php-fpm/wordpress.tpl php-fpm/wordpress.stpl \
                  php-fpm/wordpress.sh php-fpm/prestashop.tpl php-fpm/prestashop.stpl \
                  php-fpm/prestashop.sh; do
-            wget -q --timeout=30 \
-                "$BASE/install/deb/templates/web/openlitespeed/$f" \
-                -O "$OLS_TPL_DST/$f" 2>/dev/null || true
+            qemucp_bajar "install/deb/templates/web/openlitespeed/$f" "$OLS_TPL_DST/$f" 2>/dev/null || true
         done
         log "Templates OLS descargados"
     fi

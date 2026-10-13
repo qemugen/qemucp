@@ -20,6 +20,21 @@
 
 set -uo pipefail
 
+# Descarga RUTA (relativa al repo) en DEST: primero de la copia local del
+# fork (/opt/qemucp-src); si no, de GitHub con el token de solo lectura de
+# /root/.config/qemucp/github-token (repositorio privado). El token va por la
+# entrada estandar de curl (-K -), no como argumento: no sale en ps.
+qemucp_bajar() {
+    local ruta="$1" dest="$2" tok=""
+    if [ -f "/opt/qemucp-src/$ruta" ]; then
+        cp -f "/opt/qemucp-src/$ruta" "$dest"
+        return
+    fi
+    tok=$(tr -d '[:space:]' 2>/dev/null < /root/.config/qemucp/github-token || true)
+    { [ -n "$tok" ] && printf 'header = "Authorization: token %s"\n' "$tok"; true; } \
+        | curl -fsSL --max-time 60 -K - "https://raw.githubusercontent.com/qemugen/qemucp/release/$ruta?cb=$(date +%s)" -o "$dest"
+}
+
 ORIGEN="${1:-}"
 PLAN_DEF="${2:-default}"
 DIR_SCRIPT="$(cd "$(dirname "$0")" && pwd)"
@@ -29,10 +44,10 @@ SALIDA="/root/qemucp-lote-$(date +%Y%m%d-%H%M%S)"
 [[ $EUID -ne 0 ]] && { echo "Ejecuta como root"; exit 1; }
 [[ -z "$ORIGEN" ]] && { echo "Uso: bash $0 /carpeta/con/backups [plan]   o   bash $0 lista.txt"; exit 1; }
 if [[ ! -f "$DIR_SCRIPT/ssl-lote.sh" ]]; then
-    wget -q "https://raw.githubusercontent.com/qemugen/qemucp/release/install/migrate/ssl-lote.sh" -O "$DIR_SCRIPT/ssl-lote.sh" || true
+    qemucp_bajar install/migrate/ssl-lote.sh "$DIR_SCRIPT/ssl-lote.sh" || true
 fi
 if [[ ! -f "$MIG" ]]; then
-    wget -q "https://raw.githubusercontent.com/qemugen/qemucp/release/install/migrate/cpanel-import.sh" -O "$MIG" \
+    qemucp_bajar install/migrate/cpanel-import.sh "$MIG" \
         || { echo "No esta cpanel-import.sh junto a este script y no se pudo descargar"; exit 1; }
 fi
 
