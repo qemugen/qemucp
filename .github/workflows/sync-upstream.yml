@@ -33,6 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      HAY_CORREO: ${{ secrets.MAIL_USERNAME != '' && secrets.NOTIFY_EMAIL != '' }}
 
     steps:
       - name: Checkout de release
@@ -202,10 +203,8 @@ jobs:
           gh issue create --title "$TITULO" --body "$(printf '%s\n' "$CUERPO" | sed 's/^          //')"
 
       - name: Aviso por email (si estan configurados los secretos)
-        if: steps.ver.outputs.accion == 'fusionar' && env.MAIL_USERNAME != ''
+        if: steps.ver.outputs.accion == 'fusionar' && env.HAY_CORREO == 'true'
         continue-on-error: true
-        env:
-          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com

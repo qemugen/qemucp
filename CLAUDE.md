@@ -278,9 +278,14 @@ el de upstream. Una versión nueva de HestiaCP **nunca va directa a release**:
 2. La prueba de `sync/*` publica su informe en `ci-resultados-sync-X.Y.Z`
    (la de release sigue en `ci-resultados`); una rama no cancela la prueba
    de otra.
-3. Si sale en verde: Actions -> **Pasar a release una version probada**
-   (`promote-sync.yml`). Solo fusiona si la última prueba de la rama es de
-   su último commit y salió `success`; después prueba release.
+3. Si sale en verde, **se pasa sola a release**: la prueba de la rama
+   `sync/*` lanza `promote-sync.yml` (automatico=true), que espera a que esa
+   prueba termine, vuelve a comprobar que la última prueba de la rama es de
+   su último commit y salió `success`, fusiona, prueba release y avisa por
+   email. Si la prueba falla, email de aviso y release no se toca. También
+   se puede lanzar a mano: Actions -> **Pasar a release una version probada**.
+   Emails: secretos `MAIL_USERNAME` (Gmail), `MAIL_PASSWORD` (contraseña de
+   aplicación) y `NOTIFY_EMAIL`; sin ellos todo funciona igual, sin correo.
 4. En cada servidor: `bash qemucp_install.sh --actualizar` (pide la clave),
    primero en uno. Compila el fork, `dpkg -i` (el postinst migra y llama al
    hook), vuelve a poner el hold, comprueba el panel. Copia de `conf/` y

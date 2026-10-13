@@ -29,11 +29,16 @@ concurrency:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   instalar-y-probar:
     runs-on: ubuntu-24.04
     timeout-minutes: 150
+    env:
+      # 'true' si estan los secretos del correo (los secretos no se pueden
+      # usar en un if)
+      HAY_CORREO: ${{ secrets.MAIL_USERNAME != '' && secrets.NOTIFY_EMAIL != '' }}
 
     steps:
       - name: Checkout
@@ -277,6 +282,37 @@ jobs:
           [ "${{ steps.pruebas3.outcome }}" = "success" ] &&
           [ "${{ steps.upstream.outcome }}" = "success" ] &&
           [ "${{ steps.migrador.outcome }}" = "success" ]
+
+      # Version nueva de HestiaCP (rama sync/X.Y.Z) que ha salido en verde:
+      # se pasa sola a release con promote-sync.yml, que espera a que termine
+      # esta ejecucion y vuelve a comprobar que es verde antes de fusionar.
+      - name: Pasar a release (version nueva de HestiaCP en verde)
+        if: success() && startsWith(github.ref_name, 'sync/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run promote-sync.yml --ref release -f version="${GITHUB_REF_NAME#sync/}" -f automatico=true
+
+      - name: Aviso por email (version nueva de HestiaCP en rojo)
+        if: failure() && startsWith(github.ref_name, 'sync/') && env.HAY_CORREO == 'true'
+        continue-on-error: true
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: QemuCP Bot <${{ secrets.MAIL_USERNAME }}>
+          subject: "[QemuCP] HestiaCP ${{ github.ref_name }}: la prueba ha FALLADO (release no se ha tocado)"
+          body: |
+            La prueba completa de ${{ github.ref_name }} ha fallado.
+            No se ha pasado a release: los servidores y las instalaciones nuevas siguen igual.
+
+            Informe: rama ci-resultados-${{ github.ref_name }} (RESULTADO.md)
+            Ejecucion: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            -- QemuCP Bot
 
       - name: Limpiar
         if: always()
