@@ -316,4 +316,11 @@ Dónde está cada cosa:
   que `v-add-user` crea con `THEME=''`) y el del admin. Si `qemucp` no
   existe (instalacion desde apt) cae a `flat`.
 - Pruebas: bloque "tema" al final de `test/qemucp.bats`.
+- Gestor de archivos (FileGator, `/fm`): es otra aplicacion y **los temas
+  del panel no le llegan**. Lleva su propio CSS,
+  `install/deb/filemanager/filegator/dist/css/qemucp-fm.css`, enlazado en
+  `configuration.php` (add_to_head) tras `hst-custom.css`. Barra marino
+  porque el logo es blanco y sobre la barra gris de HestiaCP no se veia.
+  Solo llega al instalar el gestor (`v-add-sys-filemanager`) o al
+  actualizarlo: los servidores ya instalados necesitan reinstalarlo.
 - Traducciones: `web/locale/es/LC_MESSAGES/hestiacp.mo` (solo el `.mo`).

@@ -258,3 +258,9 @@ crear() {
     echo "HTTP $output"
     [ "$output" = "200" ]
 }
+
+@test "el gestor de archivos carga el CSS de QemuCP (logo blanco visible)" {
+    [ -d "$H/web/fm" ] || skip "gestor de archivos no instalado"
+    [ -s "$H/web/fm/dist/css/qemucp-fm.css" ] || [ -s "$H/web/fm/css/qemucp-fm.css" ]
+    grep -q '/fm/css/qemucp-fm.css' "$H/web/fm/configuration.php"
+}

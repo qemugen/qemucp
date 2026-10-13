@@ -519,6 +519,24 @@ h1 {
 /* Panel / box collapse / tabs / cards
    ========================================================================== */
 
+.card {
+	background-color: #fff;
+	overflow: hidden;
+	transition:
+		box-shadow 0.2s,
+		transform 0.2s;
+
+	&:hover {
+		box-shadow: 0 8px 24px rgb(11 26 46 / 12%);
+		transform: translateY(-2px);
+	}
+}
+
+.card-title {
+	color: var(--qemucp-navy);
+	font-weight: 700;
+}
+
 .panel,
 .card {
 	border: 1px solid var(--qemucp-border);
@@ -550,15 +568,167 @@ h1 {
 	box-shadow: var(--qemucp-shadow);
 }
 
+.tabs {
+	border-color: var(--qemucp-border);
+	background-color: #fff;
+}
+
+.tabs-items {
+	border-bottom: 1px solid var(--qemucp-border);
+}
+
 .tabs-item {
-	&:hover,
-	&[aria-selected="true"] {
+	color: #6b7c93;
+	border-bottom: 3px solid transparent;
+	letter-spacing: 0.03em;
+
+	&:hover {
 		color: var(--qemucp-blue);
 	}
+
+	&[aria-selected="true"] {
+		color: var(--qemucp-blue-dark);
+		border-bottom-color: var(--qemucp-cyan);
+	}
+}
+
+/* Avisos dentro de las paginas ("Cambios guardados", errores...) */
+.inline-alert {
+	align-items: flex-start;
+	padding: 12px 16px;
+	border-radius: var(--border-radius-base);
+	border: 1px solid transparent;
+
+	& p {
+		margin: 0;
+	}
+}
+
+.inline-alert-success {
+	color: #17724c;
+	background-color: #e8f7ef;
+	border-color: #bfe8d3;
+}
+
+.inline-alert-danger {
+	color: #b4282d;
+	background-color: #fdeced;
+	border-color: #f7c9cb;
+}
+
+.inline-alert-warning {
+	color: #8a6100;
+	background-color: #fff6dd;
+	border-color: #f5e0a3;
 }
 
 /* Forms
    ========================================================================== */
+
+/* Pantallas de edicion (planes, dominios, PHP...): el formulario va en una
+   tarjeta blanca sobre el fondo gris, como el resto del tema */
+.form-container {
+	@media (--viewport-small) {
+		margin-top: 24px;
+		margin-bottom: 24px;
+		padding: 28px 32px 32px;
+		background-color: #fff;
+		border: 1px solid var(--qemucp-border);
+		border-radius: 12px;
+		box-shadow: var(--qemucp-shadow);
+	}
+
+	& h1 {
+		padding-bottom: 14px;
+		border-bottom: 1px solid #edf1f6;
+	}
+}
+
+.form-label {
+	color: var(--qemucp-navy);
+	font-weight: 600;
+}
+
+.optional,
+.hint {
+	color: #7a8aa0;
+}
+
+/* Secciones plegables (WEB, DNS, CORREO... al editar un plan) */
+.collapse {
+	margin-top: 14px;
+	border: 1px solid var(--qemucp-border);
+	border-radius: 10px;
+	background-color: #fff;
+	overflow: hidden;
+}
+
+.collapse-header {
+	padding: 14px 18px;
+	font-size: 0.95rem;
+	letter-spacing: 0.02em;
+	color: var(--qemucp-navy);
+	border-bottom: 0;
+	background-color: #f7fafd;
+	transition: background-color 0.15s;
+
+	&::marker {
+		content: "";
+	}
+
+	&::-webkit-details-marker {
+		display: none;
+	}
+
+	&::after {
+		color: var(--qemucp-cyan);
+	}
+
+	&:hover {
+		background-color: var(--qemucp-cyan-soft);
+
+		&::after {
+			color: var(--qemucp-blue);
+		}
+	}
+}
+
+.collapse[open] {
+	box-shadow: inset 3px 0 0 var(--qemucp-cyan);
+
+	& .collapse-header {
+		color: var(--qemucp-blue-dark);
+		border-bottom: 1px solid var(--qemucp-border);
+	}
+}
+
+.collapse-content {
+	padding: 18px;
+}
+
+/* Boton de "ilimitado" dentro de los campos de cupo */
+.unlimited-toggle {
+	&.active .fas,
+	&:hover .fas {
+		color: var(--qemucp-blue);
+	}
+}
+
+.form-check-input {
+	accent-color: var(--qemucp-blue);
+}
+
+.form-link {
+	color: var(--qemucp-blue);
+}
+
+.form-link-danger {
+	color: var(--qemucp-danger);
+}
+
+.values-list-label {
+	color: var(--qemucp-navy);
+}
 
 .form-control,
 .form-select {

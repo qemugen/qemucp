@@ -1,0 +1,101 @@
+/* ------------------------------------------------------------------
+   QemuCP - gestor de archivos (FileGator) con los colores del tema qemucp
+
+   FileGator es una aplicacion aparte: los temas del panel no le llegan.
+   Se carga despues de hst-custom.css (configuration.php, add_to_head) y
+   gana a sus !important por orden y especificidad.
+
+   El logo de QemuCP es blanco: sobre la barra gris de hst-custom.css no
+   se veia. La barra va en azul marino, como la del panel.
+   ------------------------------------------------------------------ */
+
+:root {
+	--qemucp-cyan: #00c8f5;
+	--qemucp-cyan-soft: #e3f8fe;
+	--qemucp-blue: #1f7ae0;
+	--qemucp-blue-dark: #155fb3;
+	--qemucp-navy: #0b1a2e;
+	--qemucp-gradient: linear-gradient(135deg, #00c8f5 0%, #1f7ae0 100%);
+}
+
+/* Barra superior */
+html body .navbar,
+html body nav.navbar {
+	background: linear-gradient(90deg, #0b1a2e 0%, #10294a 60%, #12345c 100%) !important;
+	box-shadow: inset 0 -2px 0 var(--qemucp-cyan) !important;
+}
+
+html body .navbar .navbar-item,
+html body .navbar .navbar-link {
+	color: #dbe7f5 !important;
+	background: transparent !important;
+}
+
+html body .navbar a.navbar-item:hover,
+html body .navbar .navbar-link:hover {
+	color: #fff !important;
+	background: rgb(255 255 255 / 10%) !important;
+}
+
+html body .navbar .navbar-burger {
+	color: #fff !important;
+}
+
+html body .navbar .logo,
+html body .navbar .logo img {
+	width: auto !important;
+	max-height: 32px !important;
+}
+
+/* El menu desplegado en movil tambien en marino */
+html body .navbar .navbar-menu.is-active {
+	background: #0b1a2e !important;
+}
+
+/* Botones y enlaces */
+html body .button.is-primary,
+html body #multi-actions .upload a:not([data-v]) {
+	color: #fff !important;
+	border: 0 !important;
+	background: var(--qemucp-gradient) !important;
+}
+
+html body .button.is-primary:hover,
+html body #multi-actions .upload a:not([data-v]):hover {
+	filter: brightness(1.06);
+}
+
+html body #multi-actions a:not([data-v]):hover {
+	color: var(--qemucp-blue-dark) !important;
+	background: var(--qemucp-cyan-soft) !important;
+	border-color: #9fe3f7 !important;
+}
+
+html body .breadcrumb a:not([data-v]) {
+	color: var(--qemucp-blue) !important;
+}
+
+/* Filas seleccionadas y casillas */
+html body .table tbody tr.is-selected {
+	color: var(--qemucp-navy) !important;
+	background-color: var(--qemucp-cyan-soft) !important;
+}
+
+html body .checkbox input[type="checkbox"] + .check {
+	border-color: #9fb3c8 !important;
+}
+
+html body .checkbox input[type="checkbox"]:checked + .check {
+	border-color: var(--qemucp-blue) !important;
+	background-color: var(--qemucp-blue) !important;
+}
+
+/* Editor de texto: cabecera de la ventana con la marca */
+html body .modal-card-head {
+	background: #f7fafd !important;
+	border-bottom: 2px solid var(--qemucp-cyan) !important;
+}
+
+html body .modal-card-foot .button.is-primary {
+	background: var(--qemucp-gradient) !important;
+}
