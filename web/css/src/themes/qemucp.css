@@ -605,13 +605,18 @@ h1 {
 	background-color: #fff6dd;
 }
 
-/* Icono SVG de WordPress en el menu (Font Awesome brands no se carga) */
-.main-menu-item-label .qemucp-wp-icon {
-	fill: var(--qemucp-cyan) !important;
+/* Aplicaciones: selector "Instalar en la web" sobre el catalogo */
+.qemucp-app-domain .form-select {
+	max-width: 380px;
 }
 
-.main-menu-item-link.active .qemucp-wp-icon {
-	fill: var(--qemucp-blue-dark) !important;
+/* Cifras grandes del Performance Dashboard */
+.qemucp-perf-value {
+	margin: 6px 0 4px;
+	font-size: 1.9rem;
+	font-weight: 700;
+	line-height: 1.1;
+	color: var(--qemucp-blue-dark);
 }
 
 .units-table-footer {

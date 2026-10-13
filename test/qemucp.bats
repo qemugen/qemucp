@@ -299,7 +299,7 @@ crear() {
 }
 
 # ------------------------------------------------------------------ WP-TOOL
-@test "WP-TOOL: la pestana WORDPRESS esta en el menu (se perdio en la sync 1.10.3)" {
+@test "WP-TOOL: la pestana APLICACIONES esta en el menu (se perdio en la sync 1.10.3)" {
     grep -q 'href="/list/wp/"' "$H/web/templates/includes/panel.php"
     [ -x "$B/v-qemucp-wp" ]
     for f in list/wp/index.php edit/wp/index.php templates/pages/list_wp.php; do
@@ -330,4 +330,36 @@ crear() {
     run "$B/v-qemucp-wp" "$W" borrar-todo "$D";  [ "$status" -ne 0 ]
     run "$B/v-qemucp-wp" "$W" update "noexiste.test"; [ "$status" -ne 0 ]
     "$B/v-delete-user" "$W" >/dev/null 2>&1 || true
+}
+
+# ------------------------------------------------------- APLICACIONES
+@test "instalador de aplicaciones: todos los instaladores cargan (uno roto tumba la lista entera)" {
+    [ -f "$H/web/src/vendor/autoload.php" ] || skip "dependencias del instalador no instaladas"
+    run "$H/php/bin/php" -r '
+        require "/usr/local/hestia/web/src/init.php";
+        $mal = 0;
+        foreach (glob("/usr/local/hestia/web/src/app/WebApp/Installers/*/*Setup.php") as $f) {
+            $d = basename(dirname($f));
+            $c = "\\Hestia\\WebApp\\Installers\\$d\\{$d}Setup";
+            try { if (!class_exists($c)) { echo "FALTA $d\n"; $mal++; } }
+            catch (Throwable $e) { echo "ROTO $d: " . $e->getMessage() . "\n"; $mal++; }
+        }
+        exit($mal ? 1 : 0);'
+    echo "$output"
+    [ "$status" -eq 0 ]
+    # Las de QemuCP heredan los instaladores oficiales de HestiaCP 1.10
+    grep -q 'extends WordPressSetup' "$H/web/src/app/WebApp/Installers/WordPressOptimized/WordPressOptimizedSetup.php"
+    grep -q 'extends PrestaShopSetup' "$H/web/src/app/WebApp/Installers/PrestaShopOptimized/PrestaShopOptimizedSetup.php"
+    # La lista usa la carpeta (no el nombre visible) para logo e ?app=
+    grep -q '"app" => $app_dir' "$H/web/templates/pages/list_webapps.php"
+}
+
+@test "Performance Dashboard: enlace en la barra y sin la comprobacion de \$_SESSION['role']" {
+    grep -q 'href="/list/performance/"' "$H/web/templates/includes/panel.php"
+    ! grep -q "_SESSION\['role'\]" "$H/web/api/performance-stats/index.php"
+    grep -q 'userContext' "$H/web/api/performance-stats/index.php"
+    # El controlador carga la sesion antes de mirarla
+    a=$(grep -n 'inc/main.php' "$H/web/list/performance/index.php" | head -1 | cut -d: -f1)
+    b=$(grep -n 'userContext' "$H/web/list/performance/index.php" | head -1 | cut -d: -f1)
+    [ "$a" -lt "$b" ]
 }

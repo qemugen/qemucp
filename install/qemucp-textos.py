@@ -22,7 +22,18 @@ TEXTOS = {
     "Server default": "Por defecto del servidor",
     # WP-TOOL (gestor de WordPress: web/list/wp, web/edit/wp)
     "WordPress Manager": "Gestor de WordPress",
-    "Manage your WordPress": "Gestiona tus WordPress",
+    "APPLICATIONS": "APLICACIONES",
+    "Applications": "Aplicaciones",
+    "WordPress and more": "Instalar y gestionar",
+    "Install an application": "Instalar una aplicación",
+    "Install": "Instalar",
+    "Install in the website": "Instalar en la web",
+    "To install an application you first need a website.":
+        "Para instalar una aplicación primero necesitas una web.",
+    "Needs a PHP version that is not installed.": "Necesita una versión de PHP que no está instalada.",
+    "Your installed applications": "Tus aplicaciones instaladas",
+    "You have no WordPress installed yet. Install it from the list above.":
+        "Todavía no tienes ningún WordPress. Puedes instalarlo desde la lista de arriba.",
     "Website": "Web",
     "Active": "Activa",
     "In maintenance": "En mantenimiento",
@@ -50,6 +61,19 @@ TEXTOS = {
     "Cache cleared.": "Caché vaciada.",
     "Backup created in %s": "Copia de seguridad creada en %s",
     "The action could not be completed.": "No se ha podido completar la acción.",
+    # Performance Dashboard (web/list/performance)
+    "Performance": "Rendimiento",
+    "Server Performance": "Rendimiento del servidor",
+    "Updated every 10 seconds.": "Se actualiza cada 10 segundos.",
+    "The data could not be loaded.": "No se han podido cargar los datos.",
+    "Processor": "Procesador",
+    "cores": "núcleos",
+    "Load average": "Carga media",
+    "Cache (Redis)": "Caché (Redis)",
+    "Hit rate": "Aciertos",
+    "Connections": "Conexiones",
+    "Running": "Funcionando",
+    "Stopped": "Parado",
 }
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

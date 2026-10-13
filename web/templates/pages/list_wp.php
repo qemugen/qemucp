@@ -1,4 +1,4 @@
-<!-- QemuCP WP-TOOL: $wp_sites y $domains_without_wp vienen de web/list/wp/index.php -->
+<!-- QemuCP APLICACIONES: $apps (catalogo), $install_domains y $wp_sites vienen de web/list/wp/index.php -->
 
 <!-- Begin toolbar -->
 <div class="toolbar">
@@ -14,8 +14,55 @@
 
 <div class="container">
 
-	<h1 class="u-mt20 u-mb20"><?= tohtml(_("WordPress")) ?></h1>
+	<h1 class="u-mt20 u-mb20"><?= tohtml(_("Applications")) ?></h1>
 	<?php show_alert_message($_SESSION); ?>
+
+	<!-- Instalar: catalogo del instalador de aplicaciones de HestiaCP -->
+	<h2 class="u-mb10"><?= tohtml(_("Install an application")) ?></h2>
+	<?php if ($read_only === true) { ?>
+	<?php } elseif (empty($install_domains)) { ?>
+		<div class="inline-alert inline-alert-warning u-mb20" role="status">
+			<i class="fas fa-circle-info"></i>
+			<p>
+				<?= tohtml(_("To install an application you first need a website.")) ?>
+				<a href="/add/web/"><?= tohtml(_("Add Web Domain")) ?></a>
+			</p>
+		</div>
+	<?php } else { ?>
+		<form method="get" action="/add/webapp/" class="u-mb20">
+			<div class="u-mb20 qemucp-app-domain">
+				<label for="qemucp-app-domain" class="form-label"><?= tohtml(_("Install in the website")) ?></label>
+				<select class="form-select" name="domain" id="qemucp-app-domain">
+					<?php foreach ($install_domains as $domain) { ?>
+						<option value="<?= tohtml($domain) ?>"><?= tohtml($domain) ?></option>
+					<?php } ?>
+				</select>
+			</div>
+			<div class="cards">
+				<?php foreach ($apps as $app_dir => $app) { ?>
+					<div class="card <?= $app->isInstallable() ? "" : "disabled" ?>">
+						<div class="card-thumb">
+							<img src="/src/app/WebApp/Installers/<?= tohtml($app_dir) ?>/<?= tohtml($app->thumbnail) ?>" alt="<?= tohtml($app->name) ?>" loading="lazy">
+						</div>
+						<div class="card-content">
+							<p class="card-title"><?= tohtml($app->name) ?></p>
+							<p class="u-mb10 hint"><?= tohtml(_("Version")) ?>: <?= tohtml($app->version) ?></p>
+							<?php if ($app->isInstallable()) { ?>
+								<button type="submit" class="button" name="app" value="<?= tohtml($app_dir) ?>">
+									<i class="fas fa-download"></i><?= tohtml(_("Install")) ?>
+								</button>
+							<?php } else { ?>
+								<p class="hint"><?= tohtml(_("Needs a PHP version that is not installed.")) ?></p>
+							<?php } ?>
+						</div>
+					</div>
+				<?php } ?>
+			</div>
+		</form>
+	<?php } ?>
+
+	<!-- Gestionar: WordPress instalados -->
+	<h2 class="u-mt20 u-mb10"><?= tohtml(_("Your installed applications")) ?></h2>
 
 	<?php if (!empty($wp_sites)) { ?>
 		<div class="units-table js-units-container">
@@ -39,6 +86,7 @@
 				<div class="units-table-row <?= $suspended ? "disabled" : "" ?> js-unit">
 					<div class="units-table-cell units-table-heading-cell u-text-bold">
 						<span class="u-hide-desktop"><?= tohtml(_("Website")) ?>:</span>
+						<span class="units-table-badge u-mr5">WordPress</span>
 						<a href="<?= tohtml($site_url) ?>" target="_blank" rel="noopener"><?= tohtml($domain) ?></a>
 					</div>
 					<div class="units-table-cell">
@@ -126,20 +174,9 @@
 	<?php } else { ?>
 		<div class="inline-alert inline-alert-warning u-mb20" role="status">
 			<i class="fas fa-circle-info"></i>
-			<p><?= tohtml(_("No WordPress has been found in your websites yet.")) ?></p>
+			<p><?= tohtml(_("You have no WordPress installed yet. Install it from the list above.")) ?></p>
 		</div>
 	<?php } ?>
 
-	<?php if ($read_only !== true && !empty($domains_without_wp)) { ?>
-		<h2 class="u-mt20 u-mb10"><?= tohtml(_("Install WordPress")) ?></h2>
-		<p class="u-mb10"><?= tohtml(_("Choose the website where you want to install it:")) ?></p>
-		<div class="toolbar-buttons u-mb20">
-			<?php foreach ($domains_without_wp as $domain) { ?>
-				<a class="button button-secondary u-mb10" href="/add/webapp/?<?= tohtml(http_build_query(["domain" => $domain])) ?>">
-					<i class="fas fa-plus icon-green"></i><?= tohtml(sprintf(_("Install WordPress in %s"), $domain)) ?>
-				</a>
-			<?php } ?>
-		</div>
-	<?php } ?>
 
 </div>

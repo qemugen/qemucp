@@ -380,24 +380,38 @@ Lo que **no** se cambia: las URLs `github.com/qemugen/qemucp` y
 repositorio; cambiarlas rompe instalar y actualizar) y el nombre del
 servidor de produccion qemugen.com.
 
-## WP-TOOL (gestor de WordPress)
+## APLICACIONES (instalador + gestor de WordPress, antes "WP-TOOL")
 
-Pestana **WORDPRESS** del menu principal (`web/templates/includes/panel.php`,
-bloque "QemuCP WP-TOOL") -> `web/list/wp/` (lista) y `web/edit/wp/`
-(acciones, con `verify_csrf`). Plantilla `web/templates/pages/list_wp.php`
-con la estructura de las demas listas (botones con texto del tema qemucp).
+Pestana **APLICACIONES** del menu principal (`web/templates/includes/panel.php`,
+bloque "QemuCP WP-TOOL") -> `web/list/wp/`. Arriba, el catalogo del
+instalador de aplicaciones (mismo descubrimiento que `web/add/webapp`: un
+`*Setup.php` por carpeta en `web/src/app/WebApp/Installers/`) con un selector
+de web; "Instalar" lleva a `/add/webapp/?app=CARPETA&domain=...`. Abajo, "Tus
+aplicaciones instaladas": WordPress detectados con acciones (`web/edit/wp/`,
+con `verify_csrf`).
 
 **El panel corre como `hestiaweb` y solo puede `sudo` a `bin/v-*`**: nada
-de `exec("sudo -u usuario wp ...")`, `mkdir` o `tar` desde PHP (asi estaba
-antes y ninguna accion funcionaba). Todo pasa por `bin/v-qemucp-wp USER
-ACTION [DOMAIN]` (list, update, maintenance-on/off, flush-cache, backup),
-que ejecuta WP-CLI como el usuario con `user_exec` y usa el WP-CLI por
-usuario de HestiaCP (`~/.wp-cli/wp`, lo instala `v-add-user-wp-cli` la
-primera vez). Copias en `~/wp-backups`.
+de `exec("sudo -u usuario wp ...")`, `mkdir`, `tar` o `file_put_contents`
+en /home desde PHP. Las acciones van por `bin/v-qemucp-wp USER ACTION
+[DOMAIN]` (list, update, maintenance-on/off, flush-cache, backup), que usa
+`user_exec` y el WP-CLI por usuario (`~/.wp-cli/wp`). Los instaladores usan
+`$this->appcontext` (runWp, runPHP, createFile...), que hace lo mismo.
 
-**Se perdio al sincronizar HestiaCP 1.10.3** (la fusion se quedo con el
-`panel.php` de upstream). Al fusionar una version nueva, conservar el bloque
-WP-TOOL de `panel.php`; lo comprueba `test/qemucp.bats`. En la misma sync se
-perdio el enlace al Performance Dashboard (`/list/performance/`), que ademas
-no funciona (su API mira `$_SESSION['role']`, que el panel no define).
+**Instaladores propios** (`WordPressOptimized`, `PrestaShopOptimized`):
+heredan los oficiales (`extends WordPressSetup` / `PrestaShopSetup`) y solo
+anaden ajustes. Antes extendian `Hestia\WebApp\Installers\BaseSetup`, que
+no existe desde 1.10, y como la lista instancia todos los instaladores, la
+pagina entera daba error. **Un instalador roto tumba la lista**: lo
+comprueba `test/qemucp.bats`. La lista usa la carpeta (no el nombre visible)
+para el logo y `?app=`.
+
+**Performance Dashboard** (`/list/performance/`, solo admin, enlace en la
+barra superior junto a Configuracion del servidor). La API
+(`web/api/performance-stats/`) incluye `inc/main.php` y mira `userContext`
+(antes `$_SESSION['role']`, que no existe); los servicios salen de
+`v-list-sys-services`.
+
+**Se perdieron al sincronizar HestiaCP 1.10.3** (la fusion se quedo con el
+`panel.php` de upstream). Al fusionar una version nueva, conservar los
+bloques QemuCP de `panel.php`; lo comprueba `test/qemucp.bats`.
 

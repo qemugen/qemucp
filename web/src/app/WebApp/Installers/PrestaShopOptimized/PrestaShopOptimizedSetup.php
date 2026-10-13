@@ -1,165 +1,72 @@
 <?php
+
+declare(strict_types=1);
+
 /**
  * QemuCP - PrestaShop Optimizado
- * Instalador PrestaShop con configuracion optimizada para rendimiento
+ *
+ * Hereda el instalador oficial de PrestaShop de HestiaCP y lo deja listo para
+ * una tienda en Espana: idioma, pais y zona horaria espanoles, prefijo de
+ * tablas aleatorio y sin suscripcion al boletin de PrestaShop.
+ *
+ * (La version anterior extendia Hestia\WebApp\Installers\BaseSetup, que no
+ * existe desde HestiaCP 1.10, y rompia la lista del instalador entera.
+ * Ademas renombraba la carpeta admin a un nombre aleatorio sin decirselo a
+ * nadie: el cliente no encontraba su panel de la tienda. Ya no se hace.)
  */
 
 namespace Hestia\WebApp\Installers\PrestaShopOptimized;
 
-use Hestia\WebApp\Installers\BaseSetup as BaseSetup;
-use function Hestiacp\quoteshellarg\quoteshellarg;
+use Hestia\System\Util;
+use Hestia\WebApp\InstallationTarget\InstallationTarget;
+use Hestia\WebApp\Installers\PrestaShop\PrestaShopSetup;
 
-class PrestaShopOptimizedSetup extends BaseSetup {
+class PrestaShopOptimizedSetup extends PrestaShopSetup {
+	protected array $info = [
+		"name" => "PrestaShop Optimizado (QemuCP)",
+		"group" => "ecommerce",
+		// Misma version que el instalador oficial (se descarga su zip)
+		"version" => "9.1.5",
+		"thumbnail" => "ps-qemucp-thumb.png",
+	];
 
-    protected $appInfo = [
-        "name"      => "PrestaShop Optimizado (QemuCP)",
-        "group"     => "ecommerce",
-        "enabled"   => true,
-        "version"   => "8.1.7",
-        "thumbnail" => "ps-qemucp-thumb.png",
-    ];
+	public function __construct(\Hestia\System\HestiaApp $appcontext) {
+		parent::__construct($appcontext);
+		$this->config["form"]["language"]["value"] = "es";
+		$this->config["form"]["shop_name"]["value"] = "Mi tienda";
+	}
 
-    protected $appname = "prestashopoptimized";
-    protected $extractsubdir = "/tmp-ps-qemucp";
+	protected function setupApplication(InstallationTarget $target, array $options): void {
+		// Quitar el instalador web del zip y descomprimir PrestaShop
+		$this->appcontext->deleteFile($target->getDocRoot("/index.php"));
+		$this->appcontext->deleteFile($target->getDocRoot("/Install_PrestaShop.html"));
+		$this->appcontext->archiveExtract(
+			$target->getDocRoot("/prestashop.zip"),
+			$target->getDocRoot("/"),
+		);
 
-    protected $config = [
-        "form" => [
-            "ps_firstname" => [
-                "type"        => "text",
-                "value"       => "Admin",
-                "placeholder" => "Nombre administrador",
-            ],
-            "ps_lastname" => [
-                "type"        => "text",
-                "value"       => "QemuCP",
-                "placeholder" => "Apellido administrador",
-            ],
-            "ps_email" => [
-                "type"        => "text",
-                "value"       => "",
-                "placeholder" => "Email administrador",
-            ],
-            "ps_password" => [
-                "type"        => "password",
-                "value"       => "",
-                "placeholder" => "Contrasena administrador",
-            ],
-            "ps_shop_name" => [
-                "type"        => "text",
-                "value"       => "Mi Tienda",
-                "placeholder" => "Nombre de la tienda",
-            ],
-        ],
-        "database" => true,
-        "resources" => [
-            "archive" => [
-                "src" => "https://github.com/PrestaShop/PrestaShop/releases/download/8.1.7/prestashop_8.1.7.zip",
-            ],
-        ],
-        "server" => [
-            "nginx" => [
-                "template" => "prestashop",
-            ],
-            "php" => [
-                "supported" => ["8.1", "8.2", "8.3"],
-            ],
-        ],
-    ];
+		$this->appcontext->runPHP($options["php_version"], $target->getDocRoot("/install/index_cli.php"), [
+			"--db_server=" . $target->database->host,
+			"--db_user=" . $target->database->user,
+			"--db_password=" . $target->database->password,
+			"--db_name=" . $target->database->name,
+			"--prefix=ps_" . Util::generateString(4, false) . "_",
+			"--name=" . $options["shop_name"],
+			"--firstname=" . $options["first_name"],
+			"--lastname=" . $options["last_name"],
+			"--language=" . $options["language"],
+			"--country=es",
+			"--timezone=Europe/Madrid",
+			"--newsletter=0",
+			"--password=" . $options["password"],
+			"--email=" . $options["email"],
+			"--domain=" . $target->domain->domainName,
+			"--ssl=" . ($target->domain->isSslEnabled ? "1" : "0"),
+		]);
 
-    public function install(array $options = null): bool {
-        $docroot = $this->getDocRoot();
-        $domain  = $this->domain;
-
-        $firstname  = $options["ps_firstname"] ?? "Admin";
-        $lastname   = $options["ps_lastname"] ?? "QemuCP";
-        $email      = $options["ps_email"] ?? "admin@" . $domain;
-        $password   = $options["ps_password"] ?? bin2hex(random_bytes(8));
-        $shop_name  = $options["ps_shop_name"] ?? "Mi Tienda";
-        $db_name    = $this->appcontext->user() . "_" . ($options["database_name"] ?? "prestashop");
-        $db_user    = $this->appcontext->user() . "_" . ($options["database_user"] ?? "prestashop");
-        $db_pass    = $options["database_password"] ?? bin2hex(random_bytes(8));
-        $db_host    = $options["database_host"] ?? "localhost";
-        $db_prefix  = "ps_" . substr(md5(uniqid()), 0, 4) . "_";
-
-        // Crear base de datos y descargar archivos
-        parent::install($options);
-        parent::setup($options);
-
-        // Extraer el zip de PrestaShop
-        $this->appcontext->archiveExtract(
-            $this->getDocRoot($this->extractsubdir . "/prestashop.zip"),
-            $this->getDocRoot()
-        );
-
-        // Verificar SSL
-        $this->appcontext->runUser("v-list-web-domain", [$this->domain, "json"], $status);
-        $ssl_enabled = ($status->code === 0 && $status->json[$this->domain]["SSL"] !== "no") ? 1 : 0;
-        $protocol = $ssl_enabled ? "https" : "http";
-
-        // PHP version
-        $php_version = $options["php_version"] ?? "8.1";
-
-        // Ejecutar instalador CLI de PrestaShop
-        $this->appcontext->runUser(
-            "v-run-cli-cmd",
-            [
-                "/usr/bin/php" . $php_version,
-                quoteshellarg($this->getDocRoot("/install/index_cli.php")),
-                "--db_server=" . quoteshellarg($db_host),
-                "--db_user=" . quoteshellarg($db_user),
-                "--db_password=" . quoteshellarg($db_pass),
-                "--db_name=" . quoteshellarg($db_name),
-                "--db_prefix=" . quoteshellarg($db_prefix),
-                "--db_clear=1",
-                "--domain=" . quoteshellarg($domain),
-                "--base_uri=/",
-                "--name=" . quoteshellarg($shop_name),
-                "--country=es",
-                "--timezone=Europe/Madrid",
-                "--language=es",
-                "--firstname=" . quoteshellarg($firstname),
-                "--lastname=" . quoteshellarg($lastname),
-                "--password=" . quoteshellarg($password),
-                "--email=" . quoteshellarg($email),
-                "--ssl=" . $ssl_enabled,
-                "--rewrite=1",
-                "--newsletter=0",
-            ],
-            $status
-        );
-
-        if ($status->code === 0) {
-            $this->postInstall($docroot, $php_version);
-        }
-
-        return $status->code === 0;
-    }
-
-    private function postInstall(string $docroot, string $php_version): void {
-        // Eliminar carpeta de instalacion (obligatorio por seguridad)
-        exec("rm -rf " . quoteshellarg($docroot . "/install") . " 2>/dev/null");
-
-        // Renombrar admin para mayor seguridad
-        $new_admin = "admin_" . substr(md5(uniqid()), 0, 6);
-        exec("mv " . quoteshellarg($docroot . "/admin") . " " . quoteshellarg($docroot . "/" . $new_admin) . " 2>/dev/null");
-
-        // Crear fichero .htaccess para OPcache
-        $htaccess = $docroot . "/.htaccess";
-        if (!file_exists($htaccess)) {
-            file_put_contents($htaccess, "# PrestaShop .htaccess - QemuCP\n");
-        }
-
-        // Configurar permisos correctos
-        exec("find " . quoteshellarg($docroot) . " -type d -exec chmod 755 {} \\; 2>/dev/null");
-        exec("find " . quoteshellarg($docroot) . " -type f -exec chmod 644 {} \\; 2>/dev/null");
-
-        // Proteger ficheros sensibles
-        exec("chmod 600 " . quoteshellarg($docroot . "/app/config/parameters.php") . " 2>/dev/null");
-    }
-
-    public function getDocRoot($append_relative_path = null): string {
-        $homedir = $this->appcontext->user_home ?? "/home";
-        $docroot = "/home/" . $this->appcontext->user() . "/web/" . $this->domain . "/public_html";
-        return empty($append_relative_path) ? $docroot : $docroot . "/" . ltrim($append_relative_path, "/");
-    }
+		// La carpeta install debe desaparecer (PrestaShop no deja entrar al
+		// panel de la tienda mientras exista)
+		$this->appcontext->deleteDirectory($target->getDocRoot("/install"));
+		$this->appcontext->deleteFile($target->getDocRoot("/prestashop.zip"));
+	}
 }

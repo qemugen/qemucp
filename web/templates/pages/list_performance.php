@@ -1,198 +1,131 @@
-<!-- QemuCP Performance Dashboard -->
+<!-- QemuCP Performance Dashboard: datos de /api/performance-stats/ (JSON),
+     con los componentes del panel (cards, units-table), no Bootstrap -->
+
+<!-- Begin toolbar -->
 <div class="toolbar">
-    <div class="toolbar-inner">
-        <div class="toolbar-buttons">
-            <span class="toolbar-title"><?= _("Server Performance") ?></span>
-        </div>
-        <div class="toolbar-buttons">
-            <button onclick="refreshStats()" class="button button-secondary">
-                <i class="fas fa-sync icon-blue"></i><?= _("Refresh") ?>
-            </button>
-        </div>
-    </div>
+	<div class="toolbar-inner">
+		<div class="toolbar-buttons">
+			<a class="button button-secondary button-back js-button-back" href="/list/server/">
+				<i class="fas fa-arrow-left icon-blue"></i><?= tohtml(_("Back")) ?>
+			</a>
+		</div>
+		<div class="toolbar-buttons">
+			<button type="button" class="button button-secondary js-perf-refresh">
+				<i class="fas fa-arrows-rotate icon-blue"></i><?= tohtml(_("Refresh")) ?>
+			</button>
+		</div>
+	</div>
 </div>
+<!-- End toolbar -->
 
 <div class="container">
-    <div class="form-container">
-        <h1 class="u-mb20"><?= _("Performance Dashboard") ?> <span class="badge bg-info">QemuCP</span></h1>
+	<h1 class="u-mt20 u-mb10"><?= tohtml(_("Server Performance")) ?></h1>
+	<p class="u-mb20 js-perf-status"><?= tohtml(_("Updated every 10 seconds.")) ?></p>
 
-        <!-- CPU & RAM -->
-        <div class="row u-mb20" id="stats-container">
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h5 class="card-title"><?= _("CPU Usage") ?></h5>
-                        <div class="display-4" id="cpu-usage">--</div>
-                        <small class="text-muted"><?= _("Load average") ?>: <span id="load-avg">--</span></small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h5 class="card-title"><?= _("RAM Usage") ?></h5>
-                        <div class="display-4" id="ram-usage">--</div>
-                        <small class="text-muted"><span id="ram-used">--</span> / <span id="ram-total">--</span></small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h5 class="card-title"><?= _("Disk Usage") ?></h5>
-                        <div class="display-4" id="disk-usage">--</div>
-                        <small class="text-muted"><span id="disk-used">--</span> / <span id="disk-total">--</span></small>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h5 class="card-title"><?= _("Uptime") ?></h5>
-                        <div class="display-4" style="font-size:1.5rem" id="uptime">--</div>
-                        <small class="text-muted"><?= _("Server running") ?></small>
-                    </div>
-                </div>
-            </div>
-        </div>
+	<div class="cards u-mb20">
+		<div class="card">
+			<div class="card-content">
+				<p class="card-title"><?= tohtml(_("Processor")) ?></p>
+				<p class="qemucp-perf-value js-perf" data-key="cpu" data-suffix="%">—</p>
+				<p class="hint"><?= tohtml(_("Load average")) ?>: <span class="js-perf" data-key="load">—</span></p>
+			</div>
+		</div>
+		<div class="card">
+			<div class="card-content">
+				<p class="card-title"><?= tohtml(_("Memory")) ?></p>
+				<p class="qemucp-perf-value js-perf" data-key="ram_pct" data-suffix="%">—</p>
+				<p class="hint"><span class="js-perf" data-key="ram_used">—</span> / <span class="js-perf" data-key="ram_total">—</span></p>
+			</div>
+		</div>
+		<div class="card">
+			<div class="card-content">
+				<p class="card-title"><?= tohtml(_("Disk")) ?></p>
+				<p class="qemucp-perf-value js-perf" data-key="disk_pct" data-suffix="%">—</p>
+				<p class="hint"><span class="js-perf" data-key="disk_used">—</span> / <span class="js-perf" data-key="disk_total">—</span></p>
+			</div>
+		</div>
+		<div class="card">
+			<div class="card-content">
+				<p class="card-title"><?= tohtml(_("Uptime")) ?></p>
+				<p class="qemucp-perf-value js-perf" data-key="uptime">—</p>
+				<p class="hint"><span class="js-perf" data-key="cores">—</span> <?= tohtml(_("cores")) ?></p>
+			</div>
+		</div>
+	</div>
 
-        <!-- Services Status -->
-        <h3 class="u-mb10"><?= _("Services") ?></h3>
-        <div class="table-responsive u-mb20">
-            <table class="table" id="services-table">
-                <thead>
-                    <tr>
-                        <th><?= _("Service") ?></th>
-                        <th><?= _("Status") ?></th>
-                        <th><?= _("Memory") ?></th>
-                        <th><?= _("CPU") ?></th>
-                    </tr>
-                </thead>
-                <tbody id="services-body">
-                    <tr><td colspan="4" class="text-center"><?= _("Loading...") ?></td></tr>
-                </tbody>
-            </table>
-        </div>
+	<h2 class="u-mb10"><?= tohtml(_("Services")) ?></h2>
+	<div class="units-table u-mb20">
+		<div class="units-table-header">
+			<div class="units-table-cell"><?= tohtml(_("Service")) ?></div>
+			<div class="units-table-cell"><?= tohtml(_("Description")) ?></div>
+			<div class="units-table-cell u-text-center"><?= tohtml(_("Status")) ?></div>
+			<div class="units-table-cell u-text-center"><?= tohtml(_("CPU")) ?></div>
+			<div class="units-table-cell u-text-center"><?= tohtml(_("Memory")) ?></div>
+		</div>
+		<div class="js-perf-services"></div>
+	</div>
 
-        <!-- Nginx connections -->
-        <h3 class="u-mb10"><?= _("Nginx Active Connections") ?></h3>
-        <div class="row u-mb20">
-            <div class="col-md-4">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h6><?= _("Active") ?></h6>
-                        <div class="h3" id="nginx-active">--</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h6><?= _("Waiting") ?></h6>
-                        <div class="h3" id="nginx-waiting">--</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h6><?= _("Requests/s") ?></h6>
-                        <div class="h3" id="nginx-requests">--</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Redis stats -->
-        <h3 class="u-mb10"><?= _("Redis Cache") ?></h3>
-        <div class="row u-mb20">
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h6><?= _("Memory Used") ?></h6>
-                        <div class="h3" id="redis-mem">--</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h6><?= _("Hit Rate") ?></h6>
-                        <div class="h3" id="redis-hits">--</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h6><?= _("Connected Clients") ?></h6>
-                        <div class="h3" id="redis-clients">--</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <div class="card">
-                    <div class="card-body text-center">
-                        <h6><?= _("Keys") ?></h6>
-                        <div class="h3" id="redis-keys">--</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+	<div class="js-perf-redis u-hidden">
+		<h2 class="u-mb10"><?= tohtml(_("Cache (Redis)")) ?></h2>
+		<div class="cards u-mb20">
+			<div class="card"><div class="card-content"><p class="card-title"><?= tohtml(_("Memory")) ?></p><p class="qemucp-perf-value js-perf" data-key="redis.memory">—</p></div></div>
+			<div class="card"><div class="card-content"><p class="card-title"><?= tohtml(_("Hit rate")) ?></p><p class="qemucp-perf-value js-perf" data-key="redis.hit_rate" data-suffix="%">—</p></div></div>
+			<div class="card"><div class="card-content"><p class="card-title"><?= tohtml(_("Connections")) ?></p><p class="qemucp-perf-value js-perf" data-key="redis.clients">—</p></div></div>
+		</div>
+	</div>
 </div>
 
 <script>
-function refreshStats() {
-    fetch('/api/performance-stats/')
-        .then(r => r.json())
-        .then(data => {
-            // CPU
-            document.getElementById('cpu-usage').textContent = data.cpu + '%';
-            document.getElementById('load-avg').textContent = data.load;
+(() => {
+	const t = {
+		running: <?= json_encode(_("Running")) ?>,
+		stopped: <?= json_encode(_("Stopped")) ?>,
+		error: <?= json_encode(_("The data could not be loaded.")) ?>,
+		updated: <?= json_encode(_("Updated every 10 seconds.")) ?>,
+	};
+	const get = (obj, path) => path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
+	const cell = (text, cls = '') => {
+		const div = document.createElement('div');
+		div.className = 'units-table-cell ' + cls;
+		div.textContent = text;
+		return div;
+	};
 
-            // RAM
-            document.getElementById('ram-usage').textContent = data.ram_pct + '%';
-            document.getElementById('ram-used').textContent = data.ram_used;
-            document.getElementById('ram-total').textContent = data.ram_total;
+	function render(data) {
+		document.querySelectorAll('.js-perf').forEach((el) => {
+			const value = get(data, el.dataset.key);
+			el.textContent = value == null ? '—' : value + (el.dataset.suffix || '');
+		});
+		const list = document.querySelector('.js-perf-services');
+		list.replaceChildren(
+			...(data.services || []).map((s) => {
+				const row = document.createElement('div');
+				row.className = 'units-table-row' + (s.active ? '' : ' disabled');
+				row.append(cell(s.name, 'u-text-bold'), cell(s.system));
+				const state = cell('', 'u-text-center-desktop');
+				const badge = document.createElement('span');
+				badge.className = 'units-table-badge ' + (s.active ? 'qemucp-badge-ok' : 'qemucp-badge-warning');
+				badge.textContent = s.active ? t.running : t.stopped;
+				state.append(badge);
+				row.append(state, cell(s.cpu, 'u-text-center-desktop'), cell(s.mem, 'u-text-center-desktop'));
+				return row;
+			}),
+		);
+		document.querySelector('.js-perf-redis').classList.toggle('u-hidden', !data.redis);
+		document.querySelector('.js-perf-status').textContent = t.updated;
+	}
 
-            // Disk
-            document.getElementById('disk-usage').textContent = data.disk_pct + '%';
-            document.getElementById('disk-used').textContent = data.disk_used;
-            document.getElementById('disk-total').textContent = data.disk_total;
+	function refresh() {
+		fetch('/api/performance-stats/', { credentials: 'same-origin' })
+			.then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+			.then(render)
+			.catch(() => {
+				document.querySelector('.js-perf-status').textContent = t.error;
+			});
+	}
 
-            // Uptime
-            document.getElementById('uptime').textContent = data.uptime;
-
-            // Services
-            let tbody = '';
-            (data.services || []).forEach(s => {
-                const badge = s.active
-                    ? '<span class="badge bg-success">Active</span>'
-                    : '<span class="badge bg-danger">Inactive</span>';
-                tbody += `<tr><td>${s.name}</td><td>${badge}</td><td>${s.mem}</td><td>${s.cpu}</td></tr>`;
-            });
-            document.getElementById('services-body').innerHTML = tbody || '<tr><td colspan="4">No data</td></tr>';
-
-            // Nginx
-            if (data.nginx) {
-                document.getElementById('nginx-active').textContent = data.nginx.active;
-                document.getElementById('nginx-waiting').textContent = data.nginx.waiting;
-                document.getElementById('nginx-requests').textContent = data.nginx.rps;
-            }
-
-            // Redis
-            if (data.redis) {
-                document.getElementById('redis-mem').textContent = data.redis.memory;
-                document.getElementById('redis-hits').textContent = data.redis.hit_rate + '%';
-                document.getElementById('redis-clients').textContent = data.redis.clients;
-                document.getElementById('redis-keys').textContent = data.redis.keys;
-            }
-        })
-        .catch(e => console.error('Stats error:', e));
-}
-
-// Auto-refresh cada 10 segundos
-refreshStats();
-setInterval(refreshStats, 10000);
+	document.querySelector('.js-perf-refresh').addEventListener('click', refresh);
+	refresh();
+	setInterval(refresh, 10000);
+})();
 </script>
