@@ -122,7 +122,7 @@
 					<?php if (!empty($_SESSION['WEB_BACKEND'])) { echo ""; ?>
 						<div class="u-mb10">
 								<label for="v_backend_template" class="form-label">
-									<?= tohtml( _("Backend Template")) ?> <span class="optional"><?= tohtml(strtoupper($_SESSION["WEB_BACKEND"])) ?></span>
+									<?= tohtml( _("PHP Version")) ?>
 								</label>
 							<select class="form-select" name="v_backend_template" id="v_backend_template">
 									<?php
@@ -131,7 +131,7 @@
 											if ((!empty($v_backend_template)) && ( $value == trim($v_backend_template, "'"))){
 												echo ' selected' ;
 											}
-											echo ">" . tohtml($value) . "</option>\n";
+											echo ">" . tohtml(qemucp_backend_label($value)) . "</option>\n";
 										}
 									?>
 							</select>

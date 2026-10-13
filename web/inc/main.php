@@ -618,3 +618,22 @@ function unset_alerts() {
 	}
 }
 register_shutdown_function("unset_alerts");
+
+/**
+ * QemuCP: nombre legible de una plantilla backend (PHP-FPM) para mostrarla
+ * en los desplegables de "Version de PHP". Solo cambia el texto: el value
+ * del <option> sigue siendo el nombre real de la plantilla.
+ *   PHP-8_3  -> PHP 8.3
+ *   default  -> Por defecto del servidor
+ *   otras    -> sin cambios (plantillas propias)
+ */
+function qemucp_backend_label($template) {
+	$template = trim((string) $template, "'");
+	if (preg_match('/^PHP-(\d+)_(\d+)$/', $template, $m)) {
+		return "PHP " . $m[1] . "." . $m[2];
+	}
+	if ($template === "default") {
+		return _("Server default");
+	}
+	return $template;
+}

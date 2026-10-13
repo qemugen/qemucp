@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+# =============================================================================
+#  QemuCP - textos propios en espanol para usuarios no tecnicos
+#
+#  Anade o corrige entradas en web/locale/es/LC_MESSAGES/hestiacp.mo (el
+#  repo solo trae el .mo compilado, no el .po). Idempotente.
+#
+#  Hay que relanzarlo despues de sincronizar las traducciones de upstream
+#  (git merge de una version nueva de HestiaCP): el .mo de upstream no trae
+#  estos textos. test/qemucp.bats comprueba que estan.
+#
+#  Uso:  python3 install/qemucp-textos.py [ruta/al/hestiacp.mo]
+# =============================================================================
+
+import os
+import struct
+import sys
+
+TEXTOS = {
+    # Selector de version de PHP (antes "Plantilla Backend")
+    "PHP Version": "Versión de PHP",
+    "Server default": "Por defecto del servidor",
+}
+
+RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MO = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
+    RAIZ, "web", "locale", "es", "LC_MESSAGES", "hestiacp.mo")
+
+
+def leer(ruta):
+    datos = open(ruta, "rb").read()
+    magia = struct.unpack("<I", datos[:4])[0]
+    fmt = "<" if magia == 0x950412DE else ">"
+    _, n, o_orig, o_trad = struct.unpack(fmt + "4I", datos[4:20])
+    entradas = []
+    for i in range(n):
+        lo, po = struct.unpack(fmt + "2I", datos[o_orig + i * 8:o_orig + i * 8 + 8])
+        lt, pt = struct.unpack(fmt + "2I", datos[o_trad + i * 8:o_trad + i * 8 + 8])
+        entradas.append((datos[po:po + lo], datos[pt:pt + lt]))
+    return entradas
+
+
+def escribir(ruta, entradas):
+    # Ordenadas por msgid (gettext busca por biseccion) y sin tabla hash
+    entradas = sorted(entradas, key=lambda e: e[0])
+    n = len(entradas)
+    o_orig = 28
+    o_trad = o_orig + n * 8
+    pos = o_trad + n * 8
+    tabla_o, tabla_t, cuerpo = b"", b"", b""
+    for orig, _ in entradas:
+        tabla_o += struct.pack("<2I", len(orig), pos + len(cuerpo))
+        cuerpo += orig + b"\0"
+    for _, trad in entradas:
+        tabla_t += struct.pack("<2I", len(trad), pos + len(cuerpo))
+        cuerpo += trad + b"\0"
+    cab = struct.pack("<7I", 0x950412DE, 0, n, o_orig, o_trad, 0, pos)
+    tmp = ruta + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(cab + tabla_o + tabla_t + cuerpo)
+    os.replace(tmp, ruta)
+
+
+def main():
+    entradas = dict(leer(MO))
+    cambios = 0
+    for orig, trad in TEXTOS.items():
+        o, t = orig.encode("utf-8"), trad.encode("utf-8")
+        if entradas.get(o) != t:
+            entradas[o] = t
+            cambios += 1
+            print("  + %s -> %s" % (orig, trad))
+    if not cambios:
+        print("Textos de QemuCP ya presentes en %s" % MO)
+        return
+    escribir(MO, list(entradas.items()))
+    # Comprobacion: gettext tiene que poder leerlo
+    import gettext
+    with open(MO, "rb") as f:
+        t = gettext.GNUTranslations(f)
+    for orig, trad in TEXTOS.items():
+        assert t.gettext(orig) == trad, orig
+    print("%d textos actualizados en %s" % (cambios, MO))
+
+
+if __name__ == "__main__":
+    main()

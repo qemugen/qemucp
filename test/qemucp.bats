@@ -264,3 +264,19 @@ crear() {
     [ -s "$H/web/fm/dist/css/qemucp-fm.css" ] || [ -s "$H/web/fm/css/qemucp-fm.css" ]
     grep -q '/fm/css/qemucp-fm.css' "$H/web/fm/configuration.php"
 }
+
+# ------------------------------------------------------- textos sencillos
+@test "el selector de PHP se llama 'Version de PHP' y muestra PHP 8.3 en vez de PHP-8_3" {
+    for f in edit_web add_package edit_package; do
+        echo "plantilla $f"
+        grep -q '_("PHP Version")' "$H/web/templates/pages/$f.php"
+        ! grep -q '_("Backend Template")' "$H/web/templates/pages/$f.php"
+        grep -q 'qemucp_backend_label(' "$H/web/templates/pages/$f.php"
+    done
+    python3 -c 'import gettext,sys; t=gettext.GNUTranslations(open(sys.argv[1],"rb")); assert t.gettext("PHP Version")=="Versión de PHP"; assert t.gettext("Server default")=="Por defecto del servidor"' \
+        "$H/web/locale/es/LC_MESSAGES/hestiacp.mo"
+    fn=$(sed -n '/^function qemucp_backend_label/,/^}/p' "$H/web/inc/main.php")
+    out=$("$H/php/bin/php" -r "$fn echo qemucp_backend_label('PHP-8_3'), '|', qemucp_backend_label(\"'PHP-7_4'\"), '|', qemucp_backend_label('mi-plantilla');")
+    echo "$out"
+    [ "$out" = "PHP 8.3|PHP 7.4|mi-plantilla" ]
+}

@@ -324,3 +324,22 @@ Dónde está cada cosa:
   Solo llega al instalar el gestor (`v-add-sys-filemanager`) o al
   actualizarlo: los servidores ya instalados necesitan reinstalarlo.
 - Traducciones: `web/locale/es/LC_MESSAGES/hestiacp.mo` (solo el `.mo`).
+
+## Textos para usuarios no tecnicos
+
+Objetivo: que el panel hable el idioma de un usuario normal, no el de un
+sysadmin. Hecho hasta ahora:
+- "Plantilla Backend" -> **"Version de PHP"** en editar dominio web, crear
+  plan y editar plan (y en sus mensajes de error). Las opciones se ven
+  como "PHP 8.3" / "Por defecto del servidor" con `qemucp_backend_label()`
+  (`web/inc/main.php`); el `value` sigue siendo `PHP-8_3`/`default`, asi
+  que no cambia nada en los datos. Se quito la etiqueta "PHP-FPM".
+
+Como hacerlo con otros textos:
+- En la plantilla, usar un msgid en ingles claro (`_("PHP Version")`) en
+  lugar de cambiar la traduccion de uno existente que se use en mas sitios.
+- Las traducciones van en `install/qemucp-textos.py` (diccionario
+  `TEXTOS`), que reescribe `web/locale/es/LC_MESSAGES/hestiacp.mo` (el
+  repo no trae `.po`). **Relanzarlo tras sincronizar locales de upstream**:
+  el `.mo` de upstream no trae estos textos. Lo comprueba `test/qemucp.bats`.
+

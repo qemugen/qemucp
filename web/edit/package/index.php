@@ -150,7 +150,7 @@ if (!empty($_POST["save"])) {
 	}
 	if (!empty($_SESSION["WEB_BACKEND"])) {
 		if (empty($_POST["v_backend_template"])) {
-			$errors[] = _("Backend Template");
+			$errors[] = _("PHP Version");
 		}
 	}
 	if (!empty($_SESSION["PROXY_SYSTEM"])) {

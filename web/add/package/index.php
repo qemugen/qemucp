@@ -27,7 +27,7 @@ if (!empty($_POST["ok"])) {
 	}
 	if (!empty($_SESSION["WEB_BACKEND"])) {
 		if (!isset($_POST["v_backend_template"])) {
-			$errors[] = _("Backend Template");
+			$errors[] = _("PHP Version");
 		}
 	} else {
 		# When modphp is enabled
