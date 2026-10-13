@@ -224,8 +224,9 @@
 							<span class="u-ml5">
 								<?= tohtml($_SESSION["PROXY_SYSTEM"]) ?>
 							</span>
-							<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["PROXY_SYSTEM"])) ?>/" class="u-ml5">
+							<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["PROXY_SYSTEM"])) ?>/" class="u-ml5 qemucp-edit-link">
 								<i class="fas fa-pencil icon-orange"></i>
+								<span class="u-hidden"><?= tohtml( _("Edit")) ?></span>
 							</a>
 						</p>
 					<?php } ?>
@@ -235,8 +236,9 @@
 							<span class="u-ml5">
 								<?= tohtml($_SESSION["WEB_SYSTEM"]) ?>
 							</span>
-							<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["WEB_SYSTEM"])) ?>/" class="u-ml5">
+							<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["WEB_SYSTEM"])) ?>/" class="u-ml5 qemucp-edit-link">
 								<i class="fas fa-pencil icon-orange"></i>
+								<span class="u-hidden"><?= tohtml( _("Edit")) ?></span>
 							</a>
 						</p>
 					<?php } ?>
@@ -246,8 +248,9 @@
 							<span class="u-ml5">
 								<?= tohtml($_SESSION["WEB_BACKEND"]) ?>
 							</span>
-							<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["WEB_BACKEND"])) ?>/" class="u-ml5">
+							<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["WEB_BACKEND"])) ?>/" class="u-ml5 qemucp-edit-link">
 								<i class="fas fa-pencil icon-orange"></i>
+								<span class="u-hidden"><?= tohtml( _("Edit")) ?></span>
 							</a>
 						</p>
 					<?php } ?>
@@ -330,8 +333,9 @@
 							<span class="u-ml5">
 								<?= tohtml($_SESSION["DNS_SYSTEM"]) ?>
 							</span>
-							<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["DNS_SYSTEM"])) ?>/" class="u-ml5">
+							<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["DNS_SYSTEM"])) ?>/" class="u-ml5 qemucp-edit-link">
 								<i class="fas fa-pencil icon-orange"></i>
+								<span class="u-hidden"><?= tohtml( _("Edit")) ?></span>
 							</a>
 						</p>
 						<p>
@@ -375,8 +379,9 @@
 							<span class="u-ml5">
 								<?= tohtml($_SESSION["MAIL_SYSTEM"]) ?>
 							</span>
-							<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["MAIL_SYSTEM"])) ?>/" class="u-ml5">
+							<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["MAIL_SYSTEM"])) ?>/" class="u-ml5 qemucp-edit-link">
 								<i class="fas fa-pencil icon-orange"></i>
+								<span class="u-hidden"><?= tohtml( _("Edit")) ?></span>
 							</a>
 						</p>
 						<?php if (!empty($_SESSION["ANTIVIRUS_SYSTEM"])) { ?>
@@ -385,8 +390,9 @@
 								<span class="u-ml5">
 									<?= tohtml($_SESSION["ANTIVIRUS_SYSTEM"]) ?>
 								</span>
-								<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["ANTIVIRUS_SYSTEM"])) ?>/" class="u-ml5">
+								<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["ANTIVIRUS_SYSTEM"])) ?>/" class="u-ml5 qemucp-edit-link">
 									<i class="fas fa-pencil icon-orange"></i>
+									<span class="u-hidden"><?= tohtml( _("Edit")) ?></span>
 								</a>
 							</p>
 						<?php } ?>
@@ -396,8 +402,9 @@
 								<span class="u-ml5">
 									<?= tohtml($_SESSION["ANTISPAM_SYSTEM"]) ?>
 								</span>
-								<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["ANTISPAM_SYSTEM"])) ?>/" class="u-ml5">
+								<a href="/edit/server/<?= tohtml(rawurlencode($_SESSION["ANTISPAM_SYSTEM"])) ?>/" class="u-ml5 qemucp-edit-link">
 									<i class="fas fa-pencil icon-orange"></i>
+									<span class="u-hidden"><?= tohtml( _("Edit")) ?></span>
 								</a>
 							</p>
 						<?php } ?>
@@ -500,8 +507,9 @@
 								<span class="u-ml5">
 									<?= tohtml($v_mysql == "yes" ? _("Yes") : _("No")) ?>
 								</span>
-								<a href="/edit/server/mysql/" class="u-ml5">
+								<a href="/edit/server/mysql/" class="u-ml5 qemucp-edit-link">
 									<i class="fas fa-pencil icon-orange"></i>
+									<span class="u-hidden"><?= tohtml( _("Edit")) ?></span>
 								</a>
 							</p>
 						</div>
@@ -634,8 +642,9 @@
 									<span class="u-ml5">
 										<?= tohtml($v_pgsql == "yes" ? _("Yes") : _("No")) ?>
 									</span>
-									<a href="/edit/server/postgresql/" class="u-ml5">
+									<a href="/edit/server/postgresql/" class="u-ml5 qemucp-edit-link">
 										<i class="fas fa-pencil icon-orange"></i>
+										<span class="u-hidden"><?= tohtml( _("Edit")) ?></span>
 									</a>
 								</p>
 							</div>

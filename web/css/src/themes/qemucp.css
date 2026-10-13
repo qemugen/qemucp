@@ -123,8 +123,13 @@ h1 {
 	}
 }
 
+/* Menu desplegable en movil/tablet; en escritorio va en la barra y sin fondo */
 .top-bar-menu-panel {
 	background-color: var(--qemucp-navy);
+
+	@media (--viewport-medium) {
+		background-color: transparent;
+	}
 }
 
 .top-bar-menu-link {
@@ -161,6 +166,59 @@ h1 {
 
 .top-bar-menu-link-logout {
 	color: #ff9ea1;
+}
+
+/* Texto bajo cada icono de la barra (Gestor de archivos, Salir...). Las
+   plantillas ya traen la etiqueta traducida, oculta en escritorio: aqui se
+   muestra. La campana de notificaciones la lleva en un .u-hidden. */
+@media (--viewport-large) {
+	/* La barra ocupa todo el ancho para que quepan los textos */
+	.top-bar-inner {
+		max-width: none;
+		padding-left: 24px;
+		padding-right: 16px;
+	}
+
+	.top-bar-menu-list .top-bar-menu-link,
+	.top-bar-notifications > .top-bar-menu-link {
+		flex-direction: column;
+		justify-content: center;
+		gap: 3px;
+		min-width: 64px;
+		max-width: 132px;
+		height: 48px;
+		margin: 4px 1px;
+		padding: 4px 6px;
+
+		& .fas {
+			font-size: 1rem;
+		}
+	}
+
+	.top-bar-menu-list .top-bar-menu-link > .top-bar-menu-link-label,
+	.top-bar-notifications > .top-bar-menu-link > .u-hidden {
+		display: block !important;
+		margin-left: 0;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.62rem;
+		font-weight: 600;
+		line-height: 1.2;
+	}
+
+	/* Con los textos la barra ocupa mas: el uso de disco/ancho de banda
+	   cede su sitio hasta pantallas anchas */
+	.top-bar-usage {
+		display: none;
+	}
+}
+
+@media (min-width: 1280px) {
+	.top-bar-usage {
+		display: flex;
+	}
 }
 
 /* Main menu
@@ -706,11 +764,94 @@ h1 {
 	padding: 18px;
 }
 
-/* Boton de "ilimitado" dentro de los campos de cupo */
+/* Botones que solo tenian icono: se muestra su texto (el title ya viene
+   traducido: "Ilimitado", "Generar") */
 .unlimited-toggle {
-	&.active .fas,
-	&:hover .fas {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	opacity: 1;
+	padding: 0 10px;
+	color: #6b7c93;
+	font-size: 0.72rem;
+	font-weight: 600;
+
+	&::after {
+		content: attr(title);
+	}
+
+	&:hover {
+		opacity: 1;
 		color: var(--qemucp-blue);
+	}
+
+	&.active {
+		color: var(--qemucp-blue-dark);
+
+		&::after {
+			padding: 2px 8px;
+			border-radius: 999px;
+			background-color: var(--qemucp-cyan-soft);
+		}
+	}
+
+	& .fas {
+		color: inherit;
+	}
+}
+
+.js-generate-password,
+.js-ftp-password-generate {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	padding: 1px 9px;
+	font-size: 0.72rem;
+	font-weight: 600;
+	color: #17724c;
+	background-color: #e8f7ef;
+	border: 1px solid #bfe8d3;
+	border-radius: 999px;
+
+	&::after {
+		content: attr(title);
+	}
+
+	&:hover {
+		background-color: #d3f0e1;
+	}
+
+	& .fas {
+		color: inherit;
+		font-size: 0.7rem;
+	}
+}
+
+/* Lapices de Configuracion del servidor: boton "Editar" (la plantilla
+   edit_server.php lleva el texto en un .u-hidden para no cambiar los
+   demas temas) */
+.qemucp-edit-link {
+	display: inline-flex;
+	align-items: center;
+	padding: 2px 10px;
+	font-size: 0.74rem;
+	font-weight: 600;
+	color: #fff !important;
+	background: var(--qemucp-gradient);
+	border-radius: 999px;
+	vertical-align: middle;
+
+	&:hover {
+		filter: brightness(1.06);
+		box-shadow: 0 3px 10px rgb(31 122 224 / 30%);
+	}
+
+	& > .fas {
+		display: none;
+	}
+
+	& > .u-hidden {
+		display: inline !important;
 	}
 }
 
@@ -866,10 +1007,29 @@ h1 {
 
 .login {
 	color: #c9d8ea;
+	text-align: center;
+
+	/* Una sola columna: logo, titulo, campo y boton a todo el ancho */
+	@media (--viewport-medium) {
+		display: block;
+		max-width: 400px;
+	}
+
+	& form {
+		text-align: left;
+	}
+
+	& .button {
+		width: 100%;
+		padding-top: 10px;
+		padding-bottom: 10px;
+		font-size: 0.95rem;
+	}
 
 	& img[src*="logo"] {
-		width: 180px;
+		width: 220px;
 		height: auto;
+		margin: 0 auto;
 	}
 
 	& .form-label {
@@ -905,6 +1065,9 @@ h1 {
 
 .login-title {
 	color: #fff;
+	text-align: center;
+	font-size: 1.15rem;
+	line-height: 1.4;
 
 	@media (--viewport-small) {
 		color: #fff;

@@ -303,6 +303,14 @@ acortarlo exigiria tocar las plantillas. Si upstream anade una lista nueva
 con acciones sin ese span, el boton saldria vacio: revisarlo al sincronizar.
 
 Dónde está cada cosa:
+- Nada de iconos sueltos para el usuario final. Ademas de las listas:
+  barra superior con el texto bajo cada icono (las etiquetas
+  `.top-bar-menu-link-label` ya vienen traducidas; la barra pasa a todo el
+  ancho y el uso de disco se oculta por debajo de 1280px para hacer
+  sitio); "Ilimitado"/"Generar" se muestran con `content: attr(title)`;
+  los 9 lapices de `edit_server.php` llevan la clase `qemucp-edit-link` y
+  un `<span class="u-hidden">` con "Edit" (los demas temas no cambian).
+  Login en una sola columna con boton a todo el ancho.
 - La barra superior mide 56px (no 40): el tema sobrescribe tambien
   `.app-header` (padding-top) y el `top` sticky de `.toolbar`.
 - Temas: `web/css/src/themes/*.css` (default, dark, flat, vestia, qemucp).

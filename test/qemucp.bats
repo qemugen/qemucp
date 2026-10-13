@@ -280,3 +280,10 @@ crear() {
     echo "$out"
     [ "$out" = "PHP 8.3|PHP 7.4|mi-plantilla" ]
 }
+
+@test "Configuracion del servidor: los lapices llevan el texto 'Editar' para el tema qemucp" {
+    n=$(grep -c 'qemucp-edit-link' "$H/web/templates/pages/edit_server.php")
+    echo "enlaces: $n"
+    [ "$n" -ge 9 ]
+    grep -q 'qemucp-edit-link' "$H/web/css/themes/qemucp.min.css"
+}
