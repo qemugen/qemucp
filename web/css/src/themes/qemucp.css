@@ -878,6 +878,20 @@ h1 {
 		box-shadow 0.15s;
 }
 
+/* El tema base aplica a ".units-table-row-action .fas" un margen (movil:
+   0 5px 0 10px), relleno y color plata: aqui se anula para que el icono quede
+   blanco y centrado en su cuadrado. Ancho fijo para que todos los glifos
+   (mas anchos o mas estrechos) queden en el centro. */
+.qemucp-tile .qemucp-tile-icon > .fas,
+.qemucp-site-summary .qemucp-site-icon > .fas {
+	margin: 0;
+	padding: 0;
+	width: 1.25em;
+	line-height: 1;
+	text-align: center;
+	color: inherit;
+}
+
 .qemucp-c-brand {
 	--c1: #00c8f5;
 	--c2: #1f7ae0;
