@@ -18,7 +18,9 @@
 #   - correo local en QemuCP: MX al hostname de este servidor -> mail.dominio,
 #     mail.dominio -> QemuCP, SPF con la IP nueva y DKIM de QemuCP
 #     (selector "mail"; sin el, el correo enviado desde QemuCP falla DKIM)
-#   - correo externo (Google, Microsoft...): MX, SPF y mail.* no se tocan
+#   - SPF (cualquier dominio): ip4 del servidor viejo -> ip4 nuevo (las webs
+#     envian correo -formularios- desde este servidor); no se anade nada mas
+#   - correo externo (Google, Microsoft...): MX, mail.* y DKIM no se tocan
 #   - TTL de lo cambiado a 300 s, numero de serie +1, comprobacion con
 #     named-checkzone y recarga. Si la zona no valida, se deja como estaba.
 # Copia de cada zona en /root/dns-antes-de-qemucp-FECHA/.
@@ -157,7 +159,7 @@ while IFS='|' read -r D NUEVA LOCAL DKIM; do
                 if (viejo) { cambio(name " MX " val " " host " -> " val " mail." dom "."); print name "\t300\tIN\tMX\t" val "\tmail." dom "."; next }
             }
         }
-        if (local == "si" && type == "TXT" && name == dom "." && line ~ /v=spf1/) {
+        if (type == "TXT" && name == dom "." && line ~ /v=spf1/) {
             nl = line; c = 0
             for (k in V) delete V[k]
             split(v4, V, " ")
@@ -180,7 +182,7 @@ while IFS='|' read -r D NUEVA LOCAL DKIM; do
     }' "$Z" > "$T" 2> >(sed "s/^/   /" >&2) 3> "$T.n"
     sleep 0.2
     NC=$(cat "$T.n" 2>/dev/null || echo 0)
-    echo "== $D (correo $([[ $LOCAL == si ]] && echo 'en QemuCP' || echo 'externo, no se toca')): $NC cambios"
+    echo "== $D (correo $([[ $LOCAL == si ]] && echo 'en QemuCP' || echo 'externo: MX y mail.* sin tocar')): $NC cambios"
     if [[ "$APLICAR" == "si" && "${NC:-0}" -gt 0 ]]; then
         cp -p "$Z" "$BK/"
         # numero de serie +1

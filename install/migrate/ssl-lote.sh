@@ -85,9 +85,6 @@ for U in "${USUARIOS[@]}"; do
         D=$(echo "$L" | grep -oP "^DOMAIN='\K[^']+") || continue
         [[ "$(echo "$L" | grep -oP "SUSPENDED='\K[^']*")" == "yes" ]] && continue
         WEB_YA="no"; [[ "$(echo "$L" | grep -oP "LETSENCRYPT='\K[^']*")" == "yes" ]] && WEB_YA="si"
-        MAIL_DOM="no"; $BIN/v-list-mail-domain "$U" "$D" &>/dev/null && MAIL_DOM="si"
-        MAIL_YA="no"
-        [[ "$MAIL_DOM" == "si" ]] && [[ "$($BIN/v-list-mail-domain "$U" "$D" json 2>/dev/null | grep -oP '"LETSENCRYPT": "\K[^"]*')" == "yes" ]] && MAIL_YA="si"
         # Ya tiene Let's Encrypt: solo se vuelve a pedir si algun alias que se
         # quedo fuera (no apuntaba aqui) ya apunta. La renovacion automatica de
         # QemuCP renueva los nombres del certificado actual, no anade nuevos.
@@ -110,7 +107,7 @@ for U in "${USUARIOS[@]}"; do
                 sleep 2
             fi
         fi
-        if [[ "$WEB_YA" == "si" && ( "$MAIL_DOM" == "no" || "$MAIL_YA" == "si" ) ]]; then
+        if [[ "$WEB_YA" == "si" ]]; then
             N_YA=$((N_YA+1)); continue
         fi
 
@@ -137,22 +134,36 @@ for U in "${USUARIOS[@]}"; do
             fi
         fi
 
-        # ---- Correo (mail.dominio) ----
-        if [[ "$MAIL_DOM" == "si" && "$MAIL_YA" == "no" ]]; then
-            if apunta_aqui "mail.$D"; then
-                if compartir_cuenta "$U" && $BIN/v-add-letsencrypt-domain "$U" "$D" "" yes >> "$LOG" 2>&1; then
-                    N_OK=$((N_OK+1)); say "  OK      mail.$D"
-                else
-                    N_MAL=$((N_MAL+1)); FALLAN+=("mail.$D ($U)")
-                    say "  FALLO   mail.$D (ver /var/log/hestia/LE-$U-mail.$D.log)"
-                fi
-                sleep 2
-            else
-                N_ESPERA=$((N_ESPERA+1)); ESPERAN+=("mail.$D ($U)")
-                say "  ESPERA  mail.$D: el DNS publico aun no apunta aqui"
-            fi
-        fi
     done < "$WC"
+
+    # ---- Correo (mail.dominio) de TODOS los dominios de correo del usuario,
+    # tambien los que no tienen web (solo correo). El certificado del correo
+    # incluye webmail.dominio: si ese nombre no apunta aqui, Let's Encrypt
+    # rechaza el certificado entero, asi que se comprueban los dos.
+    MC="$HESTIA/data/users/$U/mail.conf"
+    [[ -f "$MC" ]] || continue
+    WMA=$( { grep -m1 "^WEBMAIL_ALIAS=" "$HESTIA/conf/hestia.conf" || true; } | cut -d"'" -f2); WMA=${WMA:-webmail}
+    while IFS= read -r L; do
+        D=$(echo "$L" | grep -oP "^DOMAIN='\K[^']+") || continue
+        [[ "$(echo "$L" | grep -oP "SUSPENDED='\K[^']*")" == "yes" ]] && continue
+        if [[ "$(echo "$L" | grep -oP "LETSENCRYPT='\K[^']*")" == "yes" ]]; then N_YA=$((N_YA+1)); continue; fi
+        NOMBRES=("mail.$D")
+        [[ -n "$(echo "$L" | grep -oP "WEBMAIL='\K[^']+")" ]] && NOMBRES+=("$WMA.$D")
+        FALTAN=()
+        for n in "${NOMBRES[@]}"; do apunta_aqui "$n" || FALTAN+=("$n"); done
+        if [[ ${#FALTAN[@]} -gt 0 ]]; then
+            N_ESPERA=$((N_ESPERA+1)); ESPERAN+=("mail.$D ($U)")
+            say "  ESPERA  mail.$D: aun no apunta aqui ${FALTAN[*]}"
+            continue
+        fi
+        if compartir_cuenta "$U" && $BIN/v-add-letsencrypt-domain "$U" "$D" "" yes >> "$LOG" 2>&1; then
+            N_OK=$((N_OK+1)); say "  OK      mail.$D${NOMBRES[1]:+ + ${NOMBRES[1]}}"
+        else
+            N_MAL=$((N_MAL+1)); FALLAN+=("mail.$D ($U)")
+            say "  FALLO   mail.$D (ver /var/log/hestia/LE-$U-mail.$D.log)"
+        fi
+        sleep 2
+    done < "$MC"
 done
 
 say ""
