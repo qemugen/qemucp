@@ -141,6 +141,9 @@ switch ($lang) {
 		break;
 }
 
+// QemuCP: texto del enlace para volver al panel, en el idioma del usuario
+$qemucp_exit = $lang === "es" ? "« Volver al panel" : "« Back to the panel";
+
 $dist_config["services"]["Filegator\Services\Storage\Filesystem"]["config"][
 	"adapter"
 ] = function () {
@@ -245,21 +248,53 @@ $dist_config["services"]["Filegator\Services\View\ViewInterface"]["config"] = [
         }
     </style>
     ',
-	"add_to_body" => '
+	// QemuCP: el enlace de salida en el idioma del usuario y, para los iconos
+	// de color por tipo (qemucp-fm.css), data-qemucp-ext en cada archivo.
+	// Sin comillas simples dentro: es una cadena PHP entre comillas simples.
+	"add_to_body" =>
+		'
 <script>
+    var qemucpExit = ' .
+		json_encode($qemucp_exit) .
+		';
+    var qemucpTipos = {
+        img: ["png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif"],
+        zip: ["zip", "gz", "tgz", "tar", "rar", "7z", "bz2", "xz"],
+        code: ["php", "js", "ts", "css", "scss", "html", "htm", "vue", "py", "sh", "rb", "go", "java", "c", "cpp", "twig", "tpl"],
+        txt: ["txt", "md", "log", "csv", "rtf"],
+        pdf: ["pdf"],
+        conf: ["htaccess", "conf", "ini", "env", "json", "yml", "yaml", "xml", "toml", "lock", "config"],
+        media: ["mp4", "mov", "webm", "mp3", "wav", "ogg", "avi", "mkv"],
+        sql: ["sql", "sqlite", "db"]
+    };
+    function qemucpMarcarTipos() {
+        document.querySelectorAll("tr.type-file a.name").forEach(function (a) {
+            var n = a.textContent.trim().toLowerCase();
+            var ext = n.lastIndexOf(".") >= 0 ? n.slice(n.lastIndexOf(".") + 1) : "";
+            var tipo = "";
+            for (var t in qemucpTipos) { if (qemucpTipos[t].indexOf(ext) >= 0) { tipo = t; break; } }
+            if (a.getAttribute("data-qemucp-ext") !== tipo) { a.setAttribute("data-qemucp-ext", tipo); }
+        });
+    }
+    function qemucpSalida() {
+        var out = document.getElementsByClassName("navbar-item logout")[0];
+        if (out && out.text != qemucpExit) { out.text = qemucpExit; }
+    }
     var checkVueLoaded = setInterval(function() {
         if (document.getElementsByClassName("container").length) {
             clearInterval(checkVueLoaded);
             var navProfile = document.getElementsByClassName("navbar-item profile")[0]; navProfile.replaceWith(navProfile.cloneNode(true))
-            document.getElementsByClassName("navbar-item logout")[0].text="Exit to Control Panel \u00BB";
+            qemucpSalida();
+            qemucpMarcarTipos();
             div = document.getElementsByClassName("container")[0];
             callback = function(){
                 if (document.getElementsByClassName("navbar-item logout")[0]){
-                    if ( document.getElementsByClassName("navbar-item logout")[0].text != "Exit to Control Panel \u00BB" ){
+                    if ( document.getElementsByClassName("navbar-item logout")[0].text != qemucpExit ){
                         var navProfile = document.getElementsByClassName("navbar-item profile")[0]; navProfile.replaceWith(navProfile.cloneNode(true))
-                        document.getElementsByClassName("navbar-item logout")[0].text="Exit to Control Panel \u00BB";
+                        qemucpSalida();
                     }
                 }
+                qemucpMarcarTipos();
             }
             config = {
                 childList:true,

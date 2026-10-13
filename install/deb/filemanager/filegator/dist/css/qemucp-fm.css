@@ -1,12 +1,16 @@
 /* ------------------------------------------------------------------
-   QemuCP - gestor de archivos (FileGator) con los colores del tema qemucp
+   QemuCP - gestor de archivos (FileGator) con el aspecto del panel
 
-   FileGator es una aplicacion aparte: los temas del panel no le llegan.
-   Se carga despues de hst-custom.css (configuration.php, add_to_head) y
-   gana a sus !important por orden y especificidad.
+   FileGator es otra aplicacion (Vue + Bulma): los temas del panel no le
+   llegan. Este CSS se carga desde configuration.php (add_to_head), ANTES
+   del CSS de FileGator y despues de hst-custom.css de HestiaCP: por eso
+   los selectores llevan "html body" y !important.
 
-   El logo de QemuCP es blanco: sobre la barra gris de hst-custom.css no
-   se veia. La barra va en azul marino, como la del panel.
+   Estructura de FileGator 7.x:
+     #wrapper > #inner > #dropzone.container > .container >
+       nav.navbar  +  #browser > (ruta + iconos) #multi-actions .b-table #bottom-info
+   Los iconos de color por tipo de archivo usan data-qemucp-ext, que pone el
+   script de add_to_body en cada a.name.
    ------------------------------------------------------------------ */
 
 :root {
@@ -15,14 +19,101 @@
 	--qemucp-blue: #1f7ae0;
 	--qemucp-blue-dark: #155fb3;
 	--qemucp-navy: #0b1a2e;
+	--qemucp-border: #dfe6ee;
+	--qemucp-text: #44546a;
 	--qemucp-gradient: linear-gradient(135deg, #00c8f5 0%, #1f7ae0 100%);
+	--qemucp-shadow: 0 1px 2px rgb(11 26 46 / 6%), 0 4px 14px rgb(11 26 46 / 6%);
+	color-scheme: light;
 }
 
-/* Barra superior */
-html body .navbar,
+/* Fondo y ancho (tambien en modo oscuro del sistema: el panel es claro) */
+html,
+html body {
+	color: var(--qemucp-text) !important;
+	background-color: #f2f6fa !important;
+	font-family:
+		"Segoe UI",
+		system-ui,
+		-apple-system,
+		"Helvetica Neue",
+		Arial,
+		sans-serif !important;
+}
+
+@media screen and (width >= 1024px) {
+	html body #dropzone > .container {
+		max-width: 1240px !important;
+	}
+}
+
+html body #dropzone > .container {
+	padding: 0 16px 32px !important;
+}
+
+/* ---------------------------------------------------------- Barra superior */
+/* La barra vive dentro del .container: el fondo a todo el ancho lo pinta
+   #wrapper::before (mismo alto), y la barra va transparente encima */
+html body #wrapper {
+	position: relative;
+}
+
+html body #wrapper::before {
+	content: "";
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: 64px;
+	background: linear-gradient(90deg, #0b1a2e 0%, #10294a 60%, #12345c 100%);
+	box-shadow: inset 0 -2px 0 var(--qemucp-cyan);
+}
+
 html body nav.navbar {
-	background: linear-gradient(90deg, #0b1a2e 0%, #10294a 60%, #12345c 100%) !important;
-	box-shadow: inset 0 -2px 0 var(--qemucp-cyan) !important;
+	position: relative;
+	z-index: 1;
+	min-height: 64px;
+	color: #fff !important;
+	background: transparent !important;
+	box-shadow: none !important;
+}
+
+/* Misma altura que la franja de #wrapper::before, todo centrado */
+html body nav.navbar,
+html body .navbar-brand,
+html body .navbar-brand .navbar-item {
+	height: 64px;
+	min-height: 64px !important;
+	padding-top: 0 !important;
+	padding-bottom: 0 !important;
+}
+
+html body .navbar-brand {
+	align-items: center;
+}
+
+@media screen and (width >= 1024px) {
+	html body .navbar-menu,
+	html body .navbar-end {
+		height: 64px;
+	}
+}
+
+html body .navbar .logo,
+html body .navbar a.navbar-item.logo {
+	width: auto !important;
+	padding-left: 0 !important;
+	background: transparent !important;
+}
+
+html body .navbar .logo img {
+	max-height: 34px !important;
+	width: auto !important;
+}
+
+html body .navbar .navbar-menu,
+html body .navbar .navbar-end {
+	align-items: center;
+	background: transparent !important;
 }
 
 html body .navbar .navbar-item,
@@ -31,38 +122,146 @@ html body .navbar .navbar-link {
 	background: transparent !important;
 }
 
-html body .navbar a.navbar-item:hover,
-html body .navbar .navbar-link:hover {
+html body .navbar a.navbar-item.profile::before {
+	content: "\f007";
+	margin-right: 7px;
+	color: var(--qemucp-cyan);
+	font-family: "Font Awesome 5 Free";
+	font-weight: 900;
+}
+
+/* "Volver al panel" como boton */
+html body .navbar a.navbar-item.logout {
+	margin-left: 10px;
+	padding: 7px 14px !important;
 	color: #fff !important;
-	background: rgb(255 255 255 / 10%) !important;
+	font-weight: 600;
+	border: 1px solid rgb(255 255 255 / 35%);
+	border-radius: 8px;
+}
+
+html body .navbar a.navbar-item:hover,
+html body .navbar a.navbar-item.logout:hover {
+	color: #fff !important;
+	background: rgb(255 255 255 / 12%) !important;
 }
 
 html body .navbar .navbar-burger {
 	color: #fff !important;
 }
 
-html body .navbar .logo,
-html body .navbar .logo img {
-	width: auto !important;
-	max-height: 32px !important;
-}
-
-/* El menu desplegado en movil tambien en marino */
 html body .navbar .navbar-menu.is-active {
 	background: #0b1a2e !important;
+	box-shadow: 0 10px 24px rgb(0 0 0 / 30%);
 }
 
-/* Botones y enlaces */
-html body .button.is-primary,
+/* ------------------------------------------- Navegador: tarjeta blanca */
+html body #browser {
+	margin-top: 24px;
+	padding: 18px 20px 14px;
+	background: #fff;
+	border: 1px solid var(--qemucp-border);
+	border-radius: 12px;
+	box-shadow: var(--qemucp-shadow);
+}
+
+/* Ruta: "migas" en pastilla */
+html body .breadcrumb {
+	margin-bottom: 0 !important;
+}
+
+html body .breadcrumb ul {
+	align-items: center;
+}
+
+html body .breadcrumb a:not([data-v]) {
+	padding: 4px 11px !important;
+	color: var(--qemucp-navy) !important;
+	font-weight: 600;
+	background: #f3f6fa !important;
+	border: 1px solid #e1e7ef !important;
+	border-radius: 999px !important;
+}
+
+html body .breadcrumb li:first-child a:not([data-v])::before {
+	content: "\f015";
+	margin-right: 6px;
+	color: var(--qemucp-blue);
+	font-family: "Font Awesome 5 Free";
+	font-weight: 900;
+}
+
+html body .breadcrumb li:last-child a:not([data-v]) {
+	color: var(--qemucp-blue-dark) !important;
+	background: var(--qemucp-cyan-soft) !important;
+	border-color: #9fe3f7 !important;
+}
+
+html body .breadcrumb a:not([data-v]):hover {
+	color: var(--qemucp-blue-dark) !important;
+	border-color: #9fe3f7 !important;
+}
+
+html body .breadcrumb li + li::before {
+	content: "\f054" !important;
+	padding: 0 6px !important;
+	color: #a9b8ca !important;
+	font-family: "Font Awesome 5 Free" !important;
+	font-size: 0.65rem !important;
+	font-weight: 900 !important;
+}
+
+/* Buscar / arbol: botones cuadrados con la marca (no el verde de FileGator) */
+html body #browser .has-text-primary,
+html body #browser a.is-paddingless,
+html body #browser .search-btn {
+	color: var(--qemucp-blue) !important;
+}
+
+html body #browser > div:first-child a:has(> .icon),
+html body #browser > div:first-child > div:last-child > a {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 34px;
+	height: 34px;
+	margin-left: 6px;
+	color: var(--qemucp-blue) !important;
+	background: var(--qemucp-cyan-soft);
+	border-radius: 9px;
+}
+
+html body #browser > div:first-child > div:last-child > a:hover {
+	color: #fff !important;
+	background: var(--qemucp-gradient);
+}
+
+/* Acciones: subir (principal) y nuevo */
+html body #multi-actions {
+	align-items: center;
+	margin: 16px 0 12px !important;
+	padding-bottom: 14px;
+	border-bottom: 1px solid #edf1f6;
+}
+
+html body #multi-actions a:not([data-v]),
+html body #multi-actions .upload a:not([data-v]) {
+	display: inline-flex !important;
+	align-items: center;
+	gap: 4px;
+	padding: 7px 14px !important;
+	color: var(--qemucp-navy) !important;
+	font-weight: 600;
+	background: #fff !important;
+	border: 1px solid #cfd8e3 !important;
+	border-radius: 8px !important;
+}
+
 html body #multi-actions .upload a:not([data-v]) {
 	color: #fff !important;
-	border: 0 !important;
 	background: var(--qemucp-gradient) !important;
-}
-
-html body .button.is-primary:hover,
-html body #multi-actions .upload a:not([data-v]):hover {
-	filter: brightness(1.06);
+	border-color: transparent !important;
+	box-shadow: 0 2px 8px rgb(31 122 224 / 25%);
 }
 
 html body #multi-actions a:not([data-v]):hover {
@@ -71,31 +270,258 @@ html body #multi-actions a:not([data-v]):hover {
 	border-color: #9fe3f7 !important;
 }
 
-html body .breadcrumb a:not([data-v]) {
-	color: var(--qemucp-blue) !important;
+html body #multi-actions .upload a:not([data-v]):hover {
+	color: #fff !important;
+	background: var(--qemucp-gradient) !important;
+	filter: brightness(1.06);
 }
 
-/* Filas seleccionadas y casillas */
+html body #multi-actions a:not([data-v]) .dropdown-item {
+	padding: 7px 16px !important;
+	color: var(--qemucp-navy) !important;
+	border: 0 !important;
+	border-radius: 0 !important;
+}
+
+html body #multi-actions a:not([data-v]) .dropdown-item:hover {
+	color: var(--qemucp-blue-dark) !important;
+	background: var(--qemucp-cyan-soft) !important;
+}
+
+html body .select select,
+html body select {
+	color: var(--qemucp-navy) !important;
+	border-color: #cfd8e3 !important;
+	border-radius: 8px !important;
+}
+
+html body .select:not(.is-multiple):not(.is-loading)::after {
+	border-color: var(--qemucp-blue) !important;
+}
+
+/* ------------------------------------------------------------- Tabla */
+html body .table,
+html body .b-table .table {
+	color: var(--qemucp-text) !important;
+	background: transparent !important;
+	border: 0 !important;
+}
+
+html body .table thead th {
+	padding: 8px 6px !important;
+	color: #6b7c93 !important;
+	font-size: 0.72rem;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	border-bottom: 1px solid var(--qemucp-border) !important;
+}
+
+html body .table td {
+	padding: 9px 6px !important;
+	vertical-align: middle !important;
+	border-bottom: 1px solid #f0f3f7 !important;
+}
+
+/* Sin el rayado gris de hst-custom.css; resalte al pasar el raton */
+html body .table.is-hoverable tbody tr:nth-child(odd),
+html body .table.is-hoverable tbody tr {
+	background-color: transparent !important;
+}
+
+html body .table.is-hoverable tbody tr:not(.is-selected):hover {
+	background-color: #f4fafe !important;
+}
+
 html body .table tbody tr.is-selected {
 	color: var(--qemucp-navy) !important;
 	background-color: var(--qemucp-cyan-soft) !important;
 }
 
-html body .checkbox input[type="checkbox"] + .check {
-	border-color: #9fb3c8 !important;
+html body .table a.name {
+	color: var(--qemucp-navy) !important;
+	font-weight: 500;
 }
 
-html body .checkbox input[type="checkbox"]:checked + .check {
-	border-color: var(--qemucp-blue) !important;
+html body .file-row.type-dir a.name {
+	font-weight: 700;
+}
+
+html body .table a.name:hover {
+	color: var(--qemucp-blue) !important;
+}
+
+/* Iconos por tipo: carpeta y archivos (codigo Font Awesome 5 de FileGator) */
+html body .file-row.type-dir a.name:not([data-v])::before,
+html body .file-row.type-file a.name:not([data-v])::before {
+	display: inline-block;
+	width: 1.4em;
+	margin-right: 8px;
+	font-family: "Font Awesome 5 Free" !important;
+	font-size: 1.05rem;
+	font-weight: 900;
+	text-align: center;
+}
+
+html body .file-row.type-dir a.name:not([data-v])::before {
+	content: "\f07b" !important;
+	color: #f59e0b !important;
+}
+
+html body .file-row.type-file a.name:not([data-v])::before {
+	content: "\f15b" !important;
+	color: #8a99ad !important;
+}
+
+html body .file-row.type-file a.name[data-qemucp-ext="img"]::before {
+	content: "\f1c5" !important;
+	color: #8b5cf6 !important;
+}
+
+html body .file-row.type-file a.name[data-qemucp-ext="zip"]::before {
+	content: "\f1c6" !important;
+	color: #ea580c !important;
+}
+
+html body .file-row.type-file a.name[data-qemucp-ext="code"]::before {
+	content: "\f1c9" !important;
+	color: var(--qemucp-blue) !important;
+}
+
+html body .file-row.type-file a.name[data-qemucp-ext="txt"]::before {
+	content: "\f15c" !important;
+	color: #64748b !important;
+}
+
+html body .file-row.type-file a.name[data-qemucp-ext="pdf"]::before {
+	content: "\f1c1" !important;
+	color: #dc2626 !important;
+}
+
+html body .file-row.type-file a.name[data-qemucp-ext="conf"]::before {
+	content: "\f013" !important;
+	color: #0d9488 !important;
+}
+
+html body .file-row.type-file a.name[data-qemucp-ext="media"]::before {
+	content: "\f1c8" !important;
+	color: #db2777 !important;
+}
+
+html body .file-row.type-file a.name[data-qemucp-ext="sql"]::before {
+	content: "\f1c0" !important;
+	color: #0891b2 !important;
+}
+
+/* Boton "..." de cada fila */
+html body #single-actions .button,
+html body .dropdown-trigger .button {
+	color: #6b7c93 !important;
+	background: transparent !important;
+	border: 0 !important;
+	border-radius: 8px !important;
+}
+
+html body #single-actions .button:hover,
+html body .dropdown-trigger .button:hover {
+	color: var(--qemucp-blue-dark) !important;
+	background: var(--qemucp-cyan-soft) !important;
+}
+
+html body .dropdown-content {
+	padding: 6px 0 !important;
+	border-radius: 10px !important;
+	box-shadow: 0 12px 30px rgb(11 26 46 / 16%) !important;
+}
+
+html body .dropdown-item {
+	color: var(--qemucp-navy) !important;
+}
+
+html body a.dropdown-item:hover {
+	color: var(--qemucp-blue-dark) !important;
+	background: var(--qemucp-cyan-soft) !important;
+}
+
+/* Casillas en azul (no el verde de FileGator) */
+html body .b-checkbox.checkbox input[type="checkbox"] + .check {
+	border-color: #a9b8ca !important;
+	border-radius: 5px !important;
+}
+
+html body .b-checkbox.checkbox input[type="checkbox"]:checked + .check {
 	background-color: var(--qemucp-blue) !important;
+	border-color: var(--qemucp-blue) !important;
 }
 
-/* Editor de texto: cabecera de la ventana con la marca */
+/* Paginacion y pie */
+html body .pagination-link,
+html body .pagination-previous,
+html body .pagination-next {
+	border-radius: 8px !important;
+}
+
+html body .pagination-link.is-current {
+	color: #fff !important;
+	background: var(--qemucp-gradient) !important;
+	border-color: transparent !important;
+}
+
+html body #bottom-info {
+	margin-top: 10px;
+	color: #7a8aa0 !important;
+	font-size: 0.85rem;
+}
+
+/* ------------------------------------------- Botones y ventanas (editor) */
+html body .button.is-primary,
+html body .modal-card-foot .button.is-primary {
+	color: #fff !important;
+	background: var(--qemucp-gradient) !important;
+	border: 0 !important;
+	border-radius: 8px !important;
+}
+
+html body .button.is-primary:hover {
+	filter: brightness(1.06);
+}
+
+html body .modal-card {
+	border-radius: 12px !important;
+	box-shadow: 0 20px 50px rgb(11 26 46 / 30%);
+}
+
 html body .modal-card-head {
 	background: #f7fafd !important;
 	border-bottom: 2px solid var(--qemucp-cyan) !important;
 }
 
-html body .modal-card-foot .button.is-primary {
+html body .modal-card-title {
+	color: var(--qemucp-navy) !important;
+	font-weight: 700;
+}
+
+html body .modal-card-foot {
+	background: #fff !important;
+	border-top: 1px solid var(--qemucp-border) !important;
+}
+
+html body .input:focus,
+html body .textarea:focus,
+html body select:focus {
+	border-color: var(--qemucp-cyan) !important;
+	box-shadow: 0 0 0 3px rgb(0 200 245 / 20%) !important;
+}
+
+/* Arbol de carpetas (ventana "mover/copiar") */
+html body .tree-list .button.is-primary {
 	background: var(--qemucp-gradient) !important;
+}
+
+html body .tree-list a:not([data-v]) {
+	color: var(--qemucp-navy) !important;
+}
+
+html body .tree-list a:not([data-v])::before {
+	color: #f59e0b !important;
 }
