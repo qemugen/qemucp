@@ -10,15 +10,21 @@ name: QemuCP - instalacion completa y pruebas
 # Un commit con '[rapido]' en el mensaje solo instala, pasa las pruebas
 # QemuCP y el migrador (para iterar deprisa); el resultado final sale en rojo
 # a proposito porque se han saltado fases.
+# Tambien en las ramas sync/* (version nueva de HestiaCP fusionada por
+# sync-upstream.yml): se prueban ANTES de pasar a release. Como esas ramas las
+# sube el robot con GITHUB_TOKEN (que no dispara "push"), sync-upstream.yml
+# lanza esta prueba con workflow_dispatch.
 on:
   push:
-    branches: [release]
+    branches: [release, 'sync/**']
     paths-ignore:
       - '**.md'
   workflow_dispatch:
 
+# Una ejecucion por rama: una subida nueva cancela la anterior de SU rama,
+# pero la prueba de sync/* no cancela la de release ni al reves
 concurrency:
-  group: qemucp-ci
+  group: qemucp-ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -213,6 +219,7 @@ jobs:
           {
             echo "# Resultado de la prueba completa de QemuCP"
             echo ""
+            echo "- Rama: \`${GITHUB_REF_NAME}\`"
             echo "- Commit: \`${GITHUB_SHA::9}\` — $(git log -1 --format=%s)"
             echo "- Fecha: $(date -u '+%Y-%m-%d %H:%M UTC')"
             echo "- Ejecucion: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -242,18 +249,21 @@ jobs:
           } > ci-out/RESULTADO.md
           cat ci-out/RESULTADO.md >> "$GITHUB_STEP_SUMMARY"
 
+      # release -> rama ci-resultados; sync/1.10.6 -> ci-resultados-sync-1.10.6
       - name: Publicar informe en la rama ci-resultados
         if: always()
         run: |
+          DESTINO="ci-resultados"
+          [ "$GITHUB_REF_NAME" != "release" ] && DESTINO="ci-resultados-${GITHUB_REF_NAME//\//-}"
           cp -r ci-out /tmp/ci-out
           cd /tmp/ci-out
           git init -q
           git config user.name "QemuCP CI"
           git config user.email "ci@qemucp.invalid"
-          git checkout -q -b ci-resultados
+          git checkout -q -b "$DESTINO"
           git add -A
           git commit -q -m "CI ${GITHUB_SHA::9}: $(grep -c '| FALLO' RESULTADO.md || true) fases con fallos"
-          git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ci-resultados
+          git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" "$DESTINO"
 
       - name: Marcar el resultado
         if: always()

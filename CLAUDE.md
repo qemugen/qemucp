@@ -264,18 +264,33 @@ antigua (`QemuCP2024#Cloud`) estuvo en claro en el repo y ya no sirve.
 ## Actualizar (versión nueva de HestiaCP o corrección nuestra)
 
 Los servidores tienen `hestia` en `apt-mark hold`: apt nunca lo cambia por
-el de upstream. Flujo:
+el de upstream. Una versión nueva de HestiaCP **nunca va directa a release**:
 
-1. Incorporar la versión de upstream al fork: `git fetch upstream --tags`,
-   `git merge <tag>` (p.ej. `1.10.6`) en `release`, resolver conflictos
-   conservando nuestros parches (subdominios, marca, cola de cron…).
-2. `git push` → la CI instala desde cero, relanza, prueba `--actualizar` y
-   pasa la batería de HestiaCP. Solo seguir si `RESULTADO.md` sale en verde.
-3. En cada servidor: `bash qemucp_install.sh --actualizar` (pide la clave).
-   Compila el fork, `dpkg -i` (el postinst migra y llama al hook), vuelve a
-   poner el hold, comprueba el panel. Copia de `conf/` y `templates/` en
-   `/root/qemucp-backups/actualizar-*`. Log: `/var/log/qemucp-actualizar.log`.
-   También pasa al fork un servidor instalado desde apt.
+1. `.github/workflows/sync-upstream.yml` (cada lunes o a mano desde Actions):
+   busca la última versión publicada (etiqueta X.Y.Z) de hestiacp/hestiacp;
+   si es más nueva que la nuestra (`src/deb/hestia/control`), la fusiona en
+   la rama **`sync/X.Y.Z`** (desde release), comprueba que siguen las piezas
+   de QemuCP (bloques de `panel.php`, tema, lista de webs, instaladores...;
+   una fusión "sin conflictos" puede quedarse con el fichero de upstream,
+   así se perdió la pestaña de WordPress en la 1.10.3), sube la rama, lanza
+   la prueba completa sobre ella y abre un issue. Con conflictos o piezas
+   perdidas no sube nada y el issue explica cómo fusionar a mano.
+2. La prueba de `sync/*` publica su informe en `ci-resultados-sync-X.Y.Z`
+   (la de release sigue en `ci-resultados`); una rama no cancela la prueba
+   de otra.
+3. Si sale en verde: Actions -> **Pasar a release una version probada**
+   (`promote-sync.yml`). Solo fusiona si la última prueba de la rama es de
+   su último commit y salió `success`; después prueba release.
+4. En cada servidor: `bash qemucp_install.sh --actualizar` (pide la clave),
+   primero en uno. Compila el fork, `dpkg -i` (el postinst migra y llama al
+   hook), vuelve a poner el hold, comprueba el panel. Copia de `conf/` y
+   `templates/` en `/root/qemucp-backups/actualizar-*`. Log:
+   `/var/log/qemucp-actualizar.log`. También pasa al fork un servidor
+   instalado desde apt.
+
+Lo subido por un workflow con `GITHUB_TOKEN` no dispara `push`: por eso
+`sync-upstream.yml` y `promote-sync.yml` lanzan la prueba con
+`gh workflow run`.
 
 Relanzar el instalador sin `--actualizar` NO actualiza el panel: solo
 reaplica optimizaciones.

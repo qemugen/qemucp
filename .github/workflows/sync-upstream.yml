@@ -1,227 +1,224 @@
-name: Sync with HestiaCP upstream
+name: Sincronizar con HestiaCP (rama de prueba)
+
+# Trae una version NUEVA de HestiaCP a una rama de prueba sync/<version>,
+# NUNCA directamente a release:
+#   1. busca la ultima version publicada (etiqueta X.Y.Z) de hestiacp/hestiacp
+#   2. si es mas nueva que la nuestra, la fusiona en sync/X.Y.Z (desde release)
+#   3. comprueba que siguen las piezas de QemuCP (tema, APLICACIONES...)
+#   4. sube la rama y lanza la prueba completa (qemucp-ci.yml) sobre ella
+#   5. abre un issue con el resultado y los pasos siguientes
+# Pasar a release lo hace una persona, con promote-sync.yml, y solo si la
+# prueba de la rama salio en verde.
+#
+# Manual (Actions -> "Sincronizar con HestiaCP" -> Run workflow) o cada lunes.
 
 on:
   workflow_dispatch:
-    # Sincronizacion MANUAL solamente - ejecutar desde GitHub Actions
     inputs:
-      dry_run:
-        description: 'Dry run (no push, solo ver cambios)'
+      version:
+        description: 'Version de HestiaCP (p.ej. 1.10.6). Vacio = la ultima publicada'
         required: false
-        default: 'false'
-        type: boolean
+        default: ''
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: write
+  issues: write
+  actions: write
 
 jobs:
   sync:
-    name: Sync upstream HestiaCP -> QemuCP
+    name: HestiaCP -> rama sync/<version>
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
-      - name: Checkout QemuCP fork
+      - name: Checkout de release
         uses: actions/checkout@v4
         with:
           ref: release
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure Git
+      - name: Configurar git
         run: |
           git config user.name "QemuCP Sync Bot"
           git config user.email "soporte@qemucp.com"
 
-      - name: Add HestiaCP upstream remote
+      - name: Buscar la version nueva de HestiaCP
+        id: ver
+        env:
+          PEDIDA: ${{ github.event.inputs.version }}
         run: |
-          git remote add upstream https://github.com/hestiacp/hestiacp.git || true
-
-      - name: Fetch upstream
-        run: git fetch upstream release --no-tags
-
-      - name: Check for new commits
-        id: check
-        run: |
-          UPSTREAM_HASH=$(git rev-parse upstream/release)
-          OUR_HASH=$(git rev-parse HEAD)
-          echo "upstream=$UPSTREAM_HASH" >> $GITHUB_OUTPUT
-          echo "ours=$OUR_HASH" >> $GITHUB_OUTPUT
-
-          if [ "$UPSTREAM_HASH" = "$OUR_HASH" ]; then
-            echo "has_changes=false" >> $GITHUB_OUTPUT
-            echo "changes_count=0" >> $GITHUB_OUTPUT
-            echo "No new changes in upstream"
+          git remote add upstream https://github.com/hestiacp/hestiacp.git
+          # Etiquetas de upstream en su propio espacio (no se mezclan con las nuestras)
+          git fetch -q upstream --no-tags '+refs/tags/*:refs/upstream-tags/*'
+          NUESTRA=$(awk '/^Version:/ {print $2}' src/deb/hestia/control)
+          if [ -n "$PEDIDA" ]; then
+            OBJETIVO="$PEDIDA"
           else
-            CHANGES=$(git log HEAD..upstream/release --oneline | wc -l)
-            COMMITS=$(git log HEAD..upstream/release --oneline)
-            echo "has_changes=true" >> $GITHUB_OUTPUT
-            echo "changes_count=$CHANGES" >> $GITHUB_OUTPUT
-            # Guardar lista de commits en fichero para el email
-            echo "$COMMITS" > /tmp/upstream_commits.txt
-            echo "Found $CHANGES new commits in upstream"
-            cat /tmp/upstream_commits.txt
+            # Solo versiones publicadas X.Y.Z (sin beta ni rc)
+            OBJETIVO=$(git for-each-ref --format='%(refname:lstrip=2)' refs/upstream-tags \
+              | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          fi
+          git rev-parse -q --verify "refs/upstream-tags/$OBJETIVO^{commit}" >/dev/null \
+            || { echo "::error::HestiaCP no tiene la version '$OBJETIVO'"; exit 1; }
+          RAMA="sync/$OBJETIVO"
+          echo "nuestra=$NUESTRA" >> "$GITHUB_OUTPUT"
+          echo "objetivo=$OBJETIVO" >> "$GITHUB_OUTPUT"
+          echo "rama=$RAMA" >> "$GITHUB_OUTPUT"
+
+          MAYOR=$(printf '%s\n%s\n' "$NUESTRA" "$OBJETIVO" | sort -V | tail -1)
+          if [ "$OBJETIVO" = "$NUESTRA" ] || [ "$MAYOR" = "$NUESTRA" ]; then
+            echo "QemuCP ya esta en $NUESTRA (HestiaCP: $OBJETIVO). Nada que hacer."
+            echo "accion=nada" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --heads origin "$RAMA" >/dev/null 2>&1; then
+            echo "La rama $RAMA ya existe: esa version ya esta en prueba."
+            echo "accion=nada" >> "$GITHUB_OUTPUT"
+          else
+            echo "HestiaCP $OBJETIVO es mas nueva que la nuestra ($NUESTRA)."
+            echo "accion=fusionar" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Notify new upstream version available
-        if: steps.check.outputs.has_changes == 'true'
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          to: ${{ secrets.NOTIFY_EMAIL }}
-          from: QemuCP Bot <${{ secrets.MAIL_USERNAME }}>
-          subject: "[QemuCP] Nueva actualizacion de HestiaCP disponible - ${{ steps.check.outputs.changes_count }} commits"
-          body: |
-            Hola,
-
-            HestiaCP ha publicado ${{ steps.check.outputs.changes_count }} nuevos commits
-            que aun no estan en tu fork QemuCP.
-
-            El workflow de sincronizacion automatica los esta aplicando ahora mismo.
-
-            Detalles:
-            - Repositorio: https://github.com/qemugen/qemucp
-            - Rama: release
-            - Commits upstream: ${{ steps.check.outputs.upstream }}
-
-            Te enviare otro email cuando la sincronizacion termine.
-
-            -- QemuCP Sync Bot
-
-      - name: Merge upstream changes
-        if: steps.check.outputs.has_changes == 'true'
-        id: merge
+      - name: Fusionar en la rama de prueba
+        id: fusion
+        if: steps.ver.outputs.accion == 'fusionar'
+        env:
+          OBJETIVO: ${{ steps.ver.outputs.objetivo }}
+          RAMA: ${{ steps.ver.outputs.rama }}
         run: |
-          # Guardar ficheros personalizados antes del merge
-          git stash push -m "QemuCP customizations" \
-            install/hst-install-ubuntu.sh \
-            install/hst-install.sh \
-            install/deb/nginx/nginx.conf \
-            install/deb/apache2/apache2.conf \
-            install/deb/mysql/my-large.cnf \
-            install/deb/php-fpm/multiphp.tpl \
-            install/deb/fail2ban/jail.local \
-            2>/dev/null || true
-
-          # Merge
-          if git merge upstream/release --no-edit \
-            -m "sync: Merge HestiaCP upstream $(date +%Y-%m-%d)"; then
-            echo "merge_status=success" >> $GITHUB_ENV
+          git checkout -q -b "$RAMA"
+          if git merge --no-edit -m "sync: HestiaCP $OBJETIVO" "refs/upstream-tags/$OBJETIVO"; then
+            echo "estado=ok" >> "$GITHUB_OUTPUT"
           else
-            echo "merge_status=conflict" >> $GITHUB_ENV
+            {
+              echo "conflictos<<FIN"
+              git diff --name-only --diff-filter=U
+              echo "FIN"
+            } >> "$GITHUB_OUTPUT"
             git merge --abort
+            echo "estado=conflicto" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Restore QemuCP customizations
-        if: |
-          steps.check.outputs.has_changes == 'true' &&
-          env.merge_status == 'success'
+      # Una fusion "sin conflictos" puede quedarse igualmente con la version de
+      # upstream de un fichero nuestro: asi se perdio la pestana de WordPress en
+      # la 1.10.3. Se comprueban las piezas propias antes de seguir.
+      - name: Comprobar que siguen las piezas de QemuCP
+        id: piezas
+        if: steps.fusion.outputs.estado == 'ok'
         run: |
-          git stash pop 2>/dev/null || true
-          git checkout HEAD -- \
-            install/deb/redis/redis.conf \
-            install/deb/sysctl/99-qemucp.conf \
-            install/deb/templates/web/openlitespeed/ \
-            install/ols-install.sh \
-            web/images/logo.svg \
-            web/images/logo-header.svg \
-            web/images/logo.png \
-            web/images/favicon.png \
-            2>/dev/null || true
-          git add -A
-          git diff --cached --quiet || \
-            git commit -m "restore: QemuCP customizations after upstream sync $(date +%Y-%m-%d)"
-
-      - name: Push changes
-        if: |
-          steps.check.outputs.has_changes == 'true' &&
-          env.merge_status == 'success' &&
-          github.event.inputs.dry_run != 'true'
-        run: git push origin release
-
-      - name: Notify sync SUCCESS
-        if: |
-          steps.check.outputs.has_changes == 'true' &&
-          env.merge_status == 'success'
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          to: ${{ secrets.NOTIFY_EMAIL }}
-          from: QemuCP Bot <${{ secrets.MAIL_USERNAME }}>
-          subject: "[QemuCP] Sincronizacion con HestiaCP completada correctamente"
-          body: |
-            Hola,
-
-            La sincronizacion con HestiaCP se ha completado correctamente.
-
-            Resumen:
-            - Commits aplicados: ${{ steps.check.outputs.changes_count }}
-            - Personalizaciones QemuCP: preservadas
-            - Logo, optimizaciones, OLS: sin cambios
-            - Fork actualizado: https://github.com/qemugen/qemucp
-
-            No necesitas hacer nada.
-
-            -- QemuCP Sync Bot
-
-      - name: Create issue on conflict
-        if: |
-          steps.check.outputs.has_changes == 'true' &&
-          env.merge_status == 'conflict'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `[SYNC] Conflicto con HestiaCP upstream - ${new Date().toISOString().split('T')[0]}`,
-              body: `## Sincronizacion fallida - Intervencion manual necesaria\n\nEl merge automatico con HestiaCP ha fallado por conflictos.\n\n**Upstream commit:** \`${{ steps.check.outputs.upstream }}\`\n\n### Como resolver\n\`\`\`bash\ngit remote add upstream https://github.com/hestiacp/hestiacp.git\ngit fetch upstream release\ngit merge upstream/release\n# Resolver conflictos\ngit push origin release\n\`\`\``,
-              labels: ['sync-conflict', 'needs-manual-review']
-            });
-
-      - name: Notify sync CONFLICT
-        if: |
-          steps.check.outputs.has_changes == 'true' &&
-          env.merge_status == 'conflict'
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          to: ${{ secrets.NOTIFY_EMAIL }}
-          from: QemuCP Bot <${{ secrets.MAIL_USERNAME }}>
-          subject: "[QemuCP] ACCION REQUERIDA - Conflicto en sincronizacion con HestiaCP"
-          body: |
-            Hola,
-
-            La sincronizacion automatica con HestiaCP ha fallado por conflictos
-            que requieren resolucion manual.
-
-            Se ha creado un issue en GitHub con instrucciones:
-            https://github.com/qemugen/qemucp/issues
-
-            Upstream commit: ${{ steps.check.outputs.upstream }}
-
-            Mientras tanto, tu fork QemuCP sigue funcionando con la
-            version anterior sin interrupciones.
-
-            -- QemuCP Sync Bot
-
-      - name: Summary
-        run: |
-          if [ "${{ steps.check.outputs.has_changes }}" = "false" ]; then
-            echo "### Fork actualizado - sin cambios upstream" >> $GITHUB_STEP_SUMMARY
-          elif [ "$merge_status" = "conflict" ]; then
-            echo "### CONFLICTO - Intervencion manual requerida" >> $GITHUB_STEP_SUMMARY
+          FALTA=""
+          comprobar() { grep -qF -- "$2" "$1" 2>/dev/null || FALTA="$FALTA
+          - $1 (falta: $2)"; }
+          existe() { [ -e "$1" ] || FALTA="$FALTA
+          - $1 (no existe)"; }
+          existe install/qemucp_install.sh
+          existe web/css/src/themes/qemucp.css
+          existe web/templates/pages/list_web_qemucp.php
+          existe bin/v-qemucp-wp
+          comprobar web/templates/includes/panel.php "QemuCP WP-TOOL"
+          comprobar web/templates/includes/panel.php "/list/performance/"
+          comprobar web/templates/includes/panel.php "qemucp-look-banner"
+          comprobar web/list/web/index.php "list_web_qemucp"
+          comprobar web/inc/main.php "function qemucp_theme_active"
+          comprobar web/inc/main.php "function qemucp_backend_label"
+          comprobar web/templates/pages/edit_server.php "qemucp-edit-link"
+          comprobar web/templates/pages/list_webapps.php '"app" => $app_dir'
+          comprobar install/deb/filemanager/filegator/configuration.php "qemucp-fm.css"
+          comprobar func/main.sh "WEB_SUBDOMAINS"
+          if [ -n "$FALTA" ]; then
+            {
+              echo "falta<<FIN"
+              echo "$FALTA"
+              echo "FIN"
+            } >> "$GITHUB_OUTPUT"
+            echo "estado=perdido" >> "$GITHUB_OUTPUT"
+            echo "::error::La fusion ha perdido piezas de QemuCP:$FALTA"
           else
-            echo "### Sincronizacion completada" >> $GITHUB_STEP_SUMMARY
-            echo "${{ steps.check.outputs.changes_count }} commits aplicados" >> $GITHUB_STEP_SUMMARY
+            echo "estado=ok" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Subir la rama y lanzar la prueba completa
+        if: steps.piezas.outputs.estado == 'ok'
+        env:
+          RAMA: ${{ steps.ver.outputs.rama }}
+        run: |
+          git push -q origin "$RAMA"
+          # Lo subido con GITHUB_TOKEN no dispara "push": se lanza a mano
+          gh workflow run qemucp-ci.yml --ref "$RAMA"
+
+      - name: Abrir issue con el resultado
+        if: steps.ver.outputs.accion == 'fusionar'
+        env:
+          OBJETIVO: ${{ steps.ver.outputs.objetivo }}
+          NUESTRA: ${{ steps.ver.outputs.nuestra }}
+          RAMA: ${{ steps.ver.outputs.rama }}
+          FUSION: ${{ steps.fusion.outputs.estado }}
+          PIEZAS: ${{ steps.piezas.outputs.estado }}
+          CONFLICTOS: ${{ steps.fusion.outputs.conflictos }}
+          FALTA: ${{ steps.piezas.outputs.falta }}
+        run: |
+          INFORME="ci-resultados-${RAMA//\//-}"
+          if [ "$FUSION" = "ok" ] && [ "$PIEZAS" = "ok" ]; then
+            TITULO="HestiaCP $OBJETIVO en prueba (rama $RAMA)"
+            CUERPO="La version $OBJETIVO de HestiaCP se ha fusionado sin conflictos en la rama \`$RAMA\` (QemuCP estaba en $NUESTRA) y siguen todas las piezas de QemuCP.
+
+          Se esta ejecutando la prueba completa sobre esa rama. **release no se ha tocado.**
+
+          ### Siguientes pasos
+          1. Esperar el resultado: rama \`$INFORME\`, fichero \`RESULTADO.md\` (o Actions -> QemuCP - instalacion completa).
+          2. Si sale **todo OK**: Actions -> **Pasar a release una version probada** -> version \`$OBJETIVO\`.
+          3. Actualizar primero UN servidor con \`bash qemucp_install.sh --actualizar\` y despues el resto.
+
+          Si algo falla, se arregla en la rama \`$RAMA\` (cada subida vuelve a lanzar la prueba)."
+          elif [ "$FUSION" = "conflicto" ]; then
+            TITULO="HestiaCP $OBJETIVO: conflictos al fusionar"
+            CUERPO="La version $OBJETIVO de HestiaCP choca con cambios de QemuCP en estos ficheros:
+
+          \`\`\`
+          $CONFLICTOS
+          \`\`\`
+
+          **No se ha subido nada; release no se ha tocado.** Hay que fusionarla a mano conservando lo de QemuCP:
+
+          \`\`\`bash
+          git fetch origin release && git checkout -b $RAMA origin/release
+          git remote add upstream https://github.com/hestiacp/hestiacp.git
+          git fetch upstream --no-tags '+refs/tags/$OBJETIVO:refs/upstream-tags/$OBJETIVO'
+          git merge refs/upstream-tags/$OBJETIVO
+          # resolver los conflictos conservando los bloques de QemuCP
+          git push origin $RAMA
+          \`\`\`
+
+          La subida de la rama lanza la prueba completa. Despues: Actions -> Pasar a release una version probada."
+          else
+            TITULO="HestiaCP $OBJETIVO: la fusion pierde piezas de QemuCP"
+            CUERPO="La version $OBJETIVO se fusiona sin conflictos, pero el resultado **ha perdido** partes de QemuCP:
+          $FALTA
+
+          **No se ha subido nada; release no se ha tocado.** Hay que hacer la fusion a mano y recuperar esas partes antes de subir la rama \`$RAMA\`."
+          fi
+          gh issue create --title "$TITULO" --body "$(printf '%s\n' "$CUERPO" | sed 's/^          //')"
+
+      - name: Aviso por email (si estan configurados los secretos)
+        if: steps.ver.outputs.accion == 'fusionar' && env.MAIL_USERNAME != ''
+        continue-on-error: true
+        env:
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: QemuCP Bot <${{ secrets.MAIL_USERNAME }}>
+          subject: "[QemuCP] HestiaCP ${{ steps.ver.outputs.objetivo }}: ${{ steps.fusion.outputs.estado == 'ok' && steps.piezas.outputs.estado == 'ok' && 'en prueba' || 'necesita revision' }}"
+          body: |
+            HestiaCP ${{ steps.ver.outputs.objetivo }} (QemuCP esta en ${{ steps.ver.outputs.nuestra }}).
+            Detalles y pasos siguientes en los issues del repositorio:
+            https://github.com/${{ github.repository }}/issues
+            La rama release NO se ha tocado.
+            -- QemuCP Sync Bot

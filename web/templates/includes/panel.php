@@ -303,10 +303,16 @@
 			<div class="container qemucp-look-banner-inner">
 				<p>
 					<i class="fas fa-user-gear"></i>
-					<?= sprintf(
-     	tohtml(_("You are managing the account of %s")),
-     	"<strong>" . tohtml($user) . "</strong> (" . tohtml($panel[$user]["NAME"] ?? "") . ")",
-     ) ?>
+					<?php
+					// Se escapa cada trozo de la frase por separado: tohtml() convierte
+					// "%" en "&percnt;" y un sprintf() posterior ya no encontraria el %s
+					$qemucp_frase = explode("%s", _("You are managing the account of %s"), 2);
+					$qemucp_nombre = trim($panel[$user]["NAME"] ?? "");
+					echo tohtml($qemucp_frase[0]) .
+						"<strong>" . tohtml($user) . "</strong>" .
+						($qemucp_nombre !== "" ? " (" . tohtml($qemucp_nombre) . ")" : "") .
+						tohtml($qemucp_frase[1] ?? "");
+					?>
 				</p>
 				<a class="button button-secondary" href="/logout/?token=<?= tohtml($_SESSION["token"]) ?>">
 					<i class="fas fa-arrow-left"></i><?= tohtml(_("Back to your account")) ?>

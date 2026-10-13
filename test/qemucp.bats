@@ -373,7 +373,7 @@ crear() {
     grep -q 'extends WordPressSetup' "$H/web/src/app/WebApp/Installers/WordPressOptimized/WordPressOptimizedSetup.php"
     grep -q 'extends PrestaShopSetup' "$H/web/src/app/WebApp/Installers/PrestaShopOptimized/PrestaShopOptimizedSetup.php"
     # La lista usa la carpeta (no el nombre visible) para logo e ?app=
-    grep -q '"app" => $app_dir' "$H/web/templates/pages/list_webapps.php"
+    grep -qF '"app" => $app_dir' "$H/web/templates/pages/list_webapps.php"
 }
 
 @test "Performance Dashboard: enlace en la barra y sin la comprobacion de \$_SESSION['role']" {
