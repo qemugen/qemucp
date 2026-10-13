@@ -284,24 +284,32 @@ nada, verifican sintaxis (`bash -n`, `php -l`) y se revierten solos si algo
 falla. Comentarios y salida en español, sin acentos en el código. Los
 commits terminan con las líneas de atribución que pida la sesión.
 
-## Tema propio de QemuCP (pendiente)
+## Tema propio de QemuCP (`qemucp`)
 
-Objetivo: un tema más sencillo que los de HestiaCP. En las listas, en lugar
-del icono de lápiz (y demás iconos de acción) se ve un botón con texto
-("Editar", "Suspender", "Borrar"...).
+Hecho: `web/css/src/themes/qemucp.css`, tema plano y sencillo con el aspecto
+de Plesk (barra superior oscura, acento azul `#28aade`, sin degradados ni
+sombras). En las listas las acciones son botones con texto ("Editar
+Dominio", "Suspender", "Borrar"...) en lugar de iconos, siempre visibles
+(no solo al pasar el raton). "Borrar" va en rojo y la accion principal
+(`shortcut-enter`) en azul.
+
+Es **solo CSS**, sin tocar plantillas: muestra el
+`<span class="u-hide-desktop">` que cada `.units-table-row-action-link` de
+`web/templates/pages/list_*.php` ya lleva traducido, y oculta el `.fas`.
+El texto es el de esas plantillas (p.ej. "Editar Dominio", no "Editar");
+acortarlo exigiria tocar las plantillas. Si upstream anade una lista nueva
+con acciones sin ese span, el boton saldria vacio: revisarlo al sincronizar.
 
 Dónde está cada cosa:
-- Temas: `web/css/src/themes/*.css` (default, dark, flat, vestia). Se
+- Temas: `web/css/src/themes/*.css` (default, dark, flat, vestia, qemucp).
+  `default.min.css` se carga siempre y el tema elegido va encima. Se
   compilan a `web/css/themes/*.min.css` en el build del paquete
-  (`src/hst_autocompile.sh`, assets con Node). Los usuarios lo eligen en su
-  perfil (`v-change-user-theme`); `v-list-sys-themes` los lista.
-- Acciones de las listas: `web/templates/pages/list_*.php`, bloques
-  `<li class="units-table-row-action">` con `<i class="fas fa-pencil ...">`
-  y un `<span class="u-hide-desktop">` que YA lleva el texto traducido
-  ("Edit Domain"...), oculto en escritorio. Un tema puede mostrar ese span y
-  ocultar el icono solo con CSS, sin tocar las plantillas (sobrevive mejor a
-  las actualizaciones de upstream). Tocar plantillas solo si hace falta.
-- Traducciones: `web/locale/es/LC_MESSAGES/hestiacp.po`.
-- Para que sea el tema por defecto de las instalaciones nuevas: ajustar
-  `install/qemucp_install.sh` (PASO 2C fija el tema) y comprobarlo en
-  `test/qemucp.bats`.
+  (`build.js`, lightningcss con nesting y custom media). Los usuarios lo
+  eligen en su perfil (`v-change-user-theme`); `v-list-sys-themes` los lista.
+- Tema por defecto: PASO 2C de `install/qemucp_install.sh`, **solo en
+  instalaciones nuevas** (relanzar no cambia el tema de un servidor que ya
+  funciona). Fija `THEME` en `hestia.conf` (lo heredan los usuarios nuevos,
+  que `v-add-user` crea con `THEME=''`) y el del admin. Si `qemucp` no
+  existe (instalacion desde apt) cae a `flat`.
+- Pruebas: bloque "tema" al final de `test/qemucp.bats`.
+- Traducciones: `web/locale/es/LC_MESSAGES/hestiacp.mo` (solo el `.mo`).

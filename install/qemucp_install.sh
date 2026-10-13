@@ -2141,14 +2141,33 @@ source /usr/local/hestia/conf/hestia.conf 2>/dev/null || true
 HESTIA=/usr/local/hestia
 
 # ---------------------------------------------
-#  PASO 2C: IDIOMA ESPANOL + TEMA DARK
+#  PASO 2C: IDIOMA ESPANOL + TEMA QEMUCP
 # ---------------------------------------------
-header "PASO 2C: Forzando idioma Espanol + tema Dark"
+header "PASO 2C: Forzando idioma Espanol + tema QemuCP"
 
 $HESTIA/bin/v-change-user-language admin es 2>/dev/null && \
     log "Idioma admin: Espanol" || warn "Idioma admin: configura manualmente"
-$HESTIA/bin/v-change-user-theme admin flat 2>/dev/null && \
-    log "Tema admin: Dark" || warn "Tema admin: configura manualmente"
+
+# Tema: solo en instalaciones nuevas. Al relanzar el instalador en un
+# servidor que ya funciona no se toca el tema que tengan elegido.
+# 'qemucp' (web/css/src/themes/qemucp.css) va en el paquete compilado desde
+# el fork; si se instalo desde apt no existe y se cae a 'flat'.
+# THEME en hestia.conf es el tema del sistema: lo heredan los usuarios
+# nuevos (v-add-user les deja THEME='') y la pantalla de login.
+if [ "$SKIP_BASE_INSTALL" = "no" ]; then
+    QEMUCP_TEMA="flat"
+    if $HESTIA/bin/v-list-sys-themes plain 2>/dev/null | grep -qx "qemucp"; then
+        QEMUCP_TEMA="qemucp"
+    else
+        warn "Tema qemucp no disponible (instalacion desde apt?): se usa flat"
+    fi
+    $HESTIA/bin/v-change-sys-config-value THEME "$QEMUCP_TEMA" 2>/dev/null && \
+        log "Tema del sistema: $QEMUCP_TEMA" || warn "Tema del sistema: configura manualmente"
+    $HESTIA/bin/v-change-user-theme admin "$QEMUCP_TEMA" 2>/dev/null && \
+        log "Tema admin: $QEMUCP_TEMA" || warn "Tema admin: configura manualmente"
+else
+    log "Tema: se conserva el actual (servidor ya instalado)"
+fi
 
 HESTIA_CONF="$HESTIA/conf/hestia.conf"
 if grep -q "^LANGUAGE=" "$HESTIA_CONF" 2>/dev/null; then
@@ -2158,7 +2177,8 @@ else
 fi
 log "Idioma global del panel: Espanol"
 
-# Hook post-creacion: nuevos usuarios heredan es + dark automaticamente
+# Hook post-creacion (codigo muerto, ver NOTA abajo): solo idioma; el tema
+# lo heredan los usuarios nuevos de THEME en hestia.conf
 HOOK_DIR="$HESTIA/data/hooks"
 mkdir -p "$HOOK_DIR"
 cat > "$HOOK_DIR/post_add_user.sh" << 'HOOKEOF'
@@ -2167,7 +2187,6 @@ HESTIA=/usr/local/hestia
 NEW_USER="$1"
 [[ -z "$NEW_USER" ]] && exit 0
 $HESTIA/bin/v-change-user-language "$NEW_USER" es 2>/dev/null || true
-$HESTIA/bin/v-change-user-theme "$NEW_USER" flat 2>/dev/null || true
 HOOKEOF
 chmod +x "$HOOK_DIR/post_add_user.sh" 2>/dev/null || true
 # NOTA: data/hooks/post_add_user.sh tampoco lo ejecuta HestiaCP. Se deja

@@ -233,3 +233,28 @@ crear() {
     nginx -T 2>/dev/null | grep -qE 'load_module .*geoip2'
     nginx -T 2>/dev/null | grep -qE 'load_module .*brotli'
 }
+
+# ------------------------------------------------------------------ tema
+@test "el tema qemucp va en el paquete y no se pierde ningun tema de HestiaCP" {
+    for t in default dark flat vestia qemucp; do
+        echo "tema $t"; [ -s "$H/web/css/themes/$t.min.css" ]
+    done
+    # Acciones como botones con texto: se muestra el span traducido y se
+    # oculta el icono
+    grep -q 'units-table-row-action-link>.u-hide-desktop{display:inline!important' "$H/web/css/themes/qemucp.min.css"
+    "$B/v-list-sys-themes" plain | grep -qx qemucp
+    "$B/v-list-sys-themes" json | python3 -c 'import json,sys; assert "qemucp" in json.load(sys.stdin)'
+}
+
+@test "qemucp es el tema por defecto: sistema, admin y usuarios nuevos" {
+    grep -qx "THEME='qemucp'" "$H/conf/hestia.conf"
+    grep -qx "THEME='qemucp'" "$H/data/users/admin/user.conf"
+    # v-add-user deja THEME='' = hereda el del sistema
+    grep -qx "THEME=''" "$H/data/users/$U/user.conf"
+}
+
+@test "el panel sirve el CSS del tema qemucp" {
+    run curl -sk --max-time 20 -o /dev/null -w '%{http_code}' "https://127.0.0.1:8083/css/themes/qemucp.min.css"
+    echo "HTTP $output"
+    [ "$output" = "200" ]
+}

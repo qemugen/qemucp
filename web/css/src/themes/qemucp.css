@@ -1,0 +1,452 @@
+/*
+    Theme Name:  QemuCP
+    Author:      QemuCP
+    Website:     qemucp.com
+
+    Tema sencillo y plano (inspirado en el aspecto de Plesk): barra superior
+    oscura, acento azul, sin degradados ni sombras. En las listas las
+    acciones son botones con texto ("Editar", "Suspender", "Borrar"...) en
+    lugar de iconos.
+
+    Solo CSS: el texto de cada boton es el <span class="u-hide-desktop"> que
+    las plantillas list_*.php ya llevan traducido dentro de cada
+    .units-table-row-action-link. Aqui se muestra ese span y se oculta el
+    icono, sin tocar las plantillas (sobrevive a las actualizaciones).
+*/
+
+@import url("../media_queries");
+
+:root {
+	--animate-duration: 150ms;
+	--font-family: "Open Sans", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+	--border-radius-base: 3px;
+
+	/* Colors */
+	--color-text: #4a4a4a;
+	--color-text-link: #0d7fb6;
+	--color-text-link-hover: #28aade;
+	--color-text-heading: #222;
+	--color-background: #f4f5f7;
+
+	/* Propias del tema */
+	--qemucp-accent: #28aade;
+	--qemucp-accent-dark: #1a8bc0;
+	--qemucp-dark: #263646;
+	--qemucp-dark-hover: #33475b;
+	--qemucp-border: #d5d9de;
+	--qemucp-danger: #d0312d;
+
+	/* Alerts */
+	--alert-border-color: transparent;
+	--alert-box-shadow: none;
+	--alert-text-shadow: none;
+	--alert-info-color: #28aade;
+	--alert-danger-color: #d0312d;
+	--alert-success-color: #4caf50;
+
+	/* Top Bar */
+	--top-bar-background: var(--qemucp-dark);
+	--top-bar-box-shadow: none;
+	--top-bar-border-bottom: 0;
+}
+
+body {
+	background-color: var(--color-background);
+}
+
+/* Top bar
+   ========================================================================== */
+
+.top-bar-usage-inner {
+	text-shadow: none;
+}
+
+.top-bar-notifications-panel {
+	@media (--viewport-small) {
+		box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
+		border-color: var(--qemucp-border);
+	}
+}
+
+.top-bar-menu-panel {
+	background-color: var(--qemucp-dark);
+}
+
+.top-bar-menu-link {
+	color: #e8edf2;
+	text-shadow: none;
+	border-left: 0;
+	border-right: 0;
+
+	&:hover,
+	&:active,
+	&.active {
+		color: #fff;
+		background: var(--qemucp-dark-hover);
+		box-shadow: none;
+		text-shadow: none;
+		border-left: 0;
+		border-right: 0;
+	}
+
+	&.active {
+		box-shadow: inset 0 -3px 0 var(--qemucp-accent);
+	}
+}
+
+.top-bar-menu-link-logout {
+	color: #ffb4a8;
+}
+
+/* Main menu
+   ========================================================================== */
+
+.main-menu {
+	background-color: #fff;
+	border-bottom: 1px solid var(--qemucp-border);
+}
+
+.main-menu-item-link {
+	&:hover .main-menu-item-label,
+	&.active .main-menu-item-label {
+		color: var(--qemucp-accent-dark);
+	}
+
+	&.active .main-menu-item-label .fas {
+		color: var(--qemucp-accent-dark);
+	}
+
+	@media (--viewport-medium) {
+		border-bottom-color: #fff;
+
+		&:hover,
+		&.active {
+			border-bottom-color: var(--qemucp-accent);
+		}
+	}
+}
+
+.main-menu-item-label {
+	color: #333;
+}
+
+/* Toolbar
+   ========================================================================== */
+
+.toolbar {
+	border-top: 0;
+	border-bottom-color: var(--qemucp-border);
+
+	&.active {
+		box-shadow: 0 2px 4px rgb(0 0 0 / 6%);
+	}
+}
+
+.toolbar-sorting-menu {
+	box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+	border-color: var(--qemucp-border);
+	background-color: #fff;
+}
+
+.toolbar-link {
+	text-transform: none;
+}
+
+.toolbar-input-submit {
+	text-shadow: none;
+}
+
+/* Units table (listas)
+   ========================================================================== */
+
+.units-table {
+	@media (--viewport-large) {
+		background-color: #fff;
+		border: 1px solid var(--qemucp-border);
+	}
+}
+
+.units-table-header {
+	@media (--viewport-large) {
+		border: 0;
+		border-bottom: 1px solid var(--qemucp-border);
+		background: #f7f8fa;
+		box-shadow: none;
+		color: #555;
+	}
+}
+
+.units-table-row {
+	background-color: #fff;
+	border-color: var(--qemucp-border);
+	border-radius: var(--border-radius-base);
+
+	&.selected {
+		background-color: #eaf6fc;
+		box-shadow: none;
+	}
+
+	&.focus {
+		border-left: 2px solid var(--qemucp-accent);
+		background-color: #f2f9fd;
+	}
+
+	@media (--viewport-large) {
+		border-radius: 0;
+		border-bottom-color: #e6e9ec;
+
+		&:last-child {
+			border-bottom: 0;
+		}
+
+		&:hover {
+			background-color: #f7fbfe;
+			box-shadow: none;
+			border-left-color: transparent;
+			border-right-color: transparent;
+		}
+
+		&.selected {
+			border-left-color: transparent;
+			border-right-color: transparent;
+
+			&:hover {
+				background-color: #e2f2fa;
+			}
+		}
+	}
+}
+
+.units-table-cell {
+	& a {
+		color: var(--color-text-link);
+
+		&:hover {
+			color: var(--color-text-link-hover);
+		}
+	}
+}
+
+/* Acciones: botones con texto en lugar de iconos */
+.units-table-row-actions {
+	gap: 4px;
+	padding-top: 6px;
+
+	@media (--viewport-large) {
+		visibility: visible;
+		flex-wrap: wrap;
+		padding-top: 0;
+	}
+}
+
+.units-table-row-action {
+	margin: 0;
+
+	& .units-table-row-action-link {
+		display: inline-flex;
+		align-items: center;
+		white-space: nowrap;
+		padding: 2px 9px;
+		font-size: 0.75rem;
+		font-weight: 600;
+		line-height: 1.5;
+		color: #333;
+		background-color: #fff;
+		border: 1px solid var(--qemucp-border);
+		border-radius: var(--border-radius-base);
+		transition:
+			background-color 0.15s,
+			border-color 0.15s,
+			color 0.15s;
+
+		&:hover,
+		&:focus-visible {
+			color: var(--qemucp-accent-dark);
+			background-color: #eef8fd;
+			border-color: var(--qemucp-accent);
+		}
+
+		&:active {
+			background-color: #dcf0fa;
+		}
+
+		/* El icono sobra: el boton ya dice lo que hace */
+		& > .fas {
+			display: none;
+		}
+
+		/* Mostrar el texto traducido que trae la plantilla (oculto por
+		   .u-hide-desktop en escritorio). Selector mas especifico que la
+		   utilidad para ganarle a su !important. */
+		& > .u-hide-desktop {
+			display: inline !important;
+		}
+	}
+
+	/* Accion principal (Editar / Detalles) */
+	&.shortcut-enter .units-table-row-action-link {
+		color: var(--color-text-link);
+	}
+
+	/* Borrar */
+	&.shortcut-delete .units-table-row-action-link {
+		color: var(--qemucp-danger);
+
+		&:hover,
+		&:focus-visible {
+			color: #fff;
+			background-color: var(--qemucp-danger);
+			border-color: var(--qemucp-danger);
+		}
+	}
+}
+
+.units-table-row.disabled .units-table-row-action-link {
+	background-color: #f7f7f7;
+}
+
+.units-table-badge {
+	@media (--viewport-large) {
+		box-shadow: none;
+		text-shadow: none;
+		border-color: var(--qemucp-border);
+		background-color: #f2f4f6;
+		border-radius: var(--border-radius-base);
+	}
+}
+
+/* Statistics
+   ========================================================================== */
+
+.stats-item {
+	background-color: #fff;
+	border-color: var(--qemucp-border);
+
+	@media (--viewport-large) {
+		&:hover {
+			box-shadow: none;
+		}
+	}
+}
+
+/* Panel / box collapse / tabs
+   ========================================================================== */
+
+.panel {
+	box-shadow: none;
+	border: 1px solid var(--qemucp-border);
+}
+
+.box-collapse-header {
+	background: #f7f8fa;
+	box-shadow: none;
+}
+
+.tabs {
+	box-shadow: none;
+}
+
+/* Forms
+   ========================================================================== */
+
+.form-control,
+.form-select {
+	box-shadow: none;
+	border-color: #c4cad0;
+	border-radius: var(--border-radius-base);
+
+	&:focus {
+		border-color: var(--qemucp-accent);
+		box-shadow: 0 0 0 2px rgb(40 170 222 / 20%);
+	}
+}
+
+.password-meter {
+	box-shadow: none;
+}
+
+/* Buttons
+   ========================================================================== */
+
+.button {
+	color: #fff;
+	font-weight: 600;
+	text-shadow: none;
+	border: 1px solid var(--qemucp-accent-dark);
+	border-radius: var(--border-radius-base);
+	background: var(--qemucp-accent);
+	box-shadow: none;
+
+	&:hover {
+		color: #fff;
+		text-shadow: none;
+		border-color: var(--qemucp-accent-dark);
+		background: var(--qemucp-accent-dark);
+		box-shadow: none;
+	}
+
+	&:active {
+		color: #fff;
+		text-shadow: none;
+		border-color: #157298;
+		background: #157298;
+		box-shadow: none;
+	}
+}
+
+.button-secondary {
+	color: #333;
+	border-color: #c4cad0;
+	background: #fff;
+
+	&:hover {
+		color: var(--qemucp-accent-dark);
+		border-color: var(--qemucp-accent);
+		background: #eef8fd;
+	}
+
+	&:active {
+		color: var(--qemucp-accent-dark);
+		border-color: var(--qemucp-accent);
+		background: #dcf0fa;
+	}
+}
+
+.button-danger {
+	&:hover {
+		color: #fff;
+		border-color: var(--qemucp-danger);
+		background: var(--qemucp-danger);
+	}
+
+	&:active {
+		color: #fff;
+		border-color: #a52421;
+		background: #a52421;
+	}
+}
+
+/* Modals
+   ========================================================================== */
+
+.modal {
+	border-radius: var(--border-radius-base);
+	box-shadow: 0 4px 16px rgb(0 0 0 / 25%);
+}
+
+/* Login
+   ========================================================================== */
+
+.page-login,
+.page-reset {
+	background: var(--color-background);
+}
+
+.login {
+	@media (--viewport-small) {
+		background-color: #fff;
+		border: 1px solid var(--qemucp-border);
+		border-radius: var(--border-radius-base);
+		box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
+	}
+}
