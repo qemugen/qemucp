@@ -221,6 +221,49 @@ h1 {
 	}
 }
 
+/* Ancho: en pantallas grandes el contenido aprovecha mas espacio que los
+   1024px de HestiaCP (las listas con botones de texto lo necesitan)
+   ========================================================================== */
+
+@media (min-width: 1280px) {
+	.container,
+	.toolbar-inner {
+		max-width: 1240px;
+	}
+}
+
+/* Aviso "Estas gestionando la cuenta de..." (panel.php, modo "entrar como")
+   ========================================================================== */
+
+.qemucp-look-banner {
+	color: #8a6100;
+	background-color: #fff6dd;
+	border-bottom: 1px solid #f5e0a3;
+}
+
+.qemucp-look-banner-inner {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px 16px;
+	padding: 10px 20px;
+
+	& p {
+		margin: 0;
+		font-weight: 600;
+	}
+
+	& .fas {
+		margin-right: 6px;
+	}
+
+	@media (--viewport-large) {
+		padding-left: 0;
+		padding-right: 0;
+	}
+}
+
 /* Main menu
    ========================================================================== */
 
@@ -230,6 +273,14 @@ h1 {
 
 	@media (--viewport-medium) {
 		padding-top: 6px;
+	}
+}
+
+/* Con APLICACIONES son 8 pestanas: en tableta, si no caben, a otra fila
+   en vez de desbordar la pagina */
+.main-menu-list {
+	@media (--viewport-small) {
+		flex-wrap: wrap;
 	}
 }
 
@@ -301,9 +352,11 @@ h1 {
 .main-menu-item-label {
 	color: var(--qemucp-navy);
 	letter-spacing: 0.02em;
-	/* El icono va junto al texto, no en otra linea, aunque el menu sea
-	   ajustado ("BASES DE DATOS"...) */
-	white-space: nowrap;
+	/* El icono va junto al texto, no en otra linea ("BASES DE DATOS"...).
+	   Solo en escritorio: en tableta no cabria y desbordaria la pagina */
+	@media (--viewport-large) {
+		white-space: nowrap;
+	}
 
 	& .fas {
 		color: var(--qemucp-cyan);
@@ -385,6 +438,32 @@ h1 {
 	}
 }
 
+/* Cabeceras que solo tenian icono (disco, trafico, webs...): se muestra el
+   texto, que la plantilla ya trae para lectores de pantalla */
+.units-table-header .units-table-cell {
+	@media (--viewport-large) {
+		& > .fas {
+			display: none;
+		}
+
+		& > .u-hidden-visually {
+			position: static !important;
+			width: auto !important;
+			height: auto !important;
+			clip-path: none !important;
+			overflow: visible !important;
+			white-space: normal !important;
+			margin: 0 !important;
+			padding: 0 !important;
+		}
+	}
+}
+
+/* Fila de tu propia cuenta: icono suelto sin texto ni enlace */
+.units-table-row-action:not(:has(a)) {
+	display: none;
+}
+
 .units-table-row {
 	background-color: #fff;
 	border-color: var(--qemucp-border);
@@ -455,9 +534,103 @@ h1 {
 	}
 }
 
+/* Cifras de las columnas (disco, trafico...) en una sola linea */
+.units-table-cell.u-text-center-desktop {
+	@media (--viewport-large) {
+		white-space: nowrap;
+	}
+}
+
+/* Vista de tarjetas (movil/tableta): espacio tras "Nombre:", "IP:"... */
+.units-table-cell > .u-hide-desktop {
+	margin-right: 4px;
+}
+
 .units-table-heading-cell {
 	& a {
 		font-weight: 600;
+	}
+
+	/* Que el nombre del dominio no se parta por culpa de los botones */
+	@media (--viewport-large) {
+		min-width: 230px;
+	}
+}
+
+/* Lista de webs: subdominios debajo de su dominio (list_web.php)
+   -------------------------------------------------------------------------- */
+.qemucp-domain-parent {
+	color: #8a99ad;
+	font-weight: 400;
+}
+
+.units-table-badge.qemucp-badge-sub,
+.units-table-badge.qemucp-badge-count {
+	display: inline-block;
+	margin-left: 6px;
+	padding: 1px 8px;
+	font-size: 0.66rem;
+	line-height: 1.6;
+	vertical-align: middle;
+	border-radius: 999px;
+}
+
+.units-table-badge.qemucp-badge-sub {
+	color: var(--qemucp-blue-dark);
+	background-color: var(--qemucp-cyan-soft);
+}
+
+.units-table-badge.qemucp-badge-count {
+	color: #5b6b80;
+	background-color: #eef2f6;
+}
+
+.qemucp-aliases {
+	margin-top: 3px;
+	font-style: normal;
+}
+
+.units-table-row.qemucp-subdomain {
+	/* Movil: la tarjeta del subdominio, metida bajo la de su dominio */
+	margin-left: 18px;
+	background-color: #fbfdff;
+
+	@media (--viewport-large) {
+		margin-left: 0;
+
+		& .units-table-heading-cell {
+			position: relative;
+			padding-left: 44px;
+
+			/* Linea en "L" que une el subdominio con su dominio */
+			&::before {
+				content: "";
+				position: absolute;
+				left: 22px;
+				top: 0;
+				width: 12px;
+				height: 50%;
+				border-left: 2px solid #bfe9f7;
+				border-bottom: 2px solid #bfe9f7;
+				border-bottom-left-radius: 6px;
+			}
+		}
+
+		&.qemucp-depth-2 .units-table-heading-cell {
+			padding-left: 66px;
+
+			&::before {
+				left: 44px;
+			}
+		}
+
+		&.qemucp-depth-3 .units-table-heading-cell {
+			padding-left: 88px;
+
+			&::before {
+				left: 66px;
+			}
+		}
 	}
 }
 

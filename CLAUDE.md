@@ -415,3 +415,19 @@ barra superior junto a Configuracion del servidor). La API
 `panel.php` de upstream). Al fusionar una version nueva, conservar los
 bloques QemuCP de `panel.php`; lo comprueba `test/qemucp.bats`.
 
+## Lista de webs y panel de usuario (tema qemucp)
+
+- `list_web.php`: cada subdominio va justo debajo de su dominio (el dominio
+  del usuario de nombre mas largo que lo contiene), con sangria y linea en
+  "L", la parte propia en negrita y la etiqueta "Subdominio"; el dominio
+  muestra "N subdominios" y los alias como "Tambien responde a: ...".
+  `data-sort-name` del subdominio = "padre subdominio" para que ordenar por
+  nombre no rompa los grupos.
+- `panel.php`: franja "Estas gestionando la cuenta de X / Volver a tu
+  cuenta" cuando un admin entra como usuario (`$_SESSION["look"]`), solo con
+  el tema qemucp. Antes solo lo indicaba un icono, y el tema oculta ese
+  bloque entre 1024 y 1279px.
+- Tema: contenido hasta 1240px en pantallas >=1280px; cabeceras de tabla
+  que eran solo icono muestran su `.u-hidden-visually`; el menu principal
+  pasa a dos filas en tableta (son 8 pestanas con APLICACIONES).
+

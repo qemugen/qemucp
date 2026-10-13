@@ -363,3 +363,11 @@ crear() {
     b=$(grep -n 'userContext' "$H/web/list/performance/index.php" | head -1 | cut -d: -f1)
     [ "$a" -lt "$b" ]
 }
+
+@test "lista de webs: subdominios agrupados bajo su dominio; aviso al entrar en un usuario" {
+    grep -q 'qemucp_parent' "$H/web/templates/pages/list_web.php"
+    grep -q 'qemucp-subdomain' "$H/web/css/themes/qemucp.min.css"
+    grep -q 'qemucp-look-banner' "$H/web/templates/includes/panel.php"
+    "$H/php/bin/php" -l "$H/web/templates/pages/list_web.php" >/dev/null
+    "$H/php/bin/php" -l "$H/web/templates/includes/panel.php" >/dev/null
+}

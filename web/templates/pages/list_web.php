@@ -89,8 +89,44 @@
 
 		<!-- Begin web domain list item loop -->
 		<?php
+			// QemuCP: cada subdominio va justo debajo de su dominio (el de nombre
+			// mas largo que lo contiene), en el orden elegido para los dominios
+			$data = is_array($data) ? $data : [];
+			$qemucp_parent = [];
+			foreach (array_keys($data) as $qemucp_d) {
+				foreach (array_keys($data) as $qemucp_p) {
+					if ($qemucp_p !== $qemucp_d && str_ends_with($qemucp_d, "." . $qemucp_p)
+						&& strlen($qemucp_p) > strlen($qemucp_parent[$qemucp_d] ?? "")) {
+						$qemucp_parent[$qemucp_d] = $qemucp_p;
+					}
+				}
+			}
+			$qemucp_children = [];
+			foreach ($qemucp_parent as $qemucp_d => $qemucp_p) {
+				$qemucp_children[$qemucp_p][] = $qemucp_d;
+			}
+			$qemucp_ordered = [];
+			$qemucp_depth = [];
+			$qemucp_add = function ($d, $depth) use (&$qemucp_add, &$qemucp_ordered, &$qemucp_depth, $qemucp_children, $data) {
+				$qemucp_ordered[$d] = $data[$d];
+				$qemucp_depth[$d] = $depth;
+				$children = $qemucp_children[$d] ?? [];
+				sort($children);
+				foreach ($children as $child) {
+					$qemucp_add($child, $depth + 1);
+				}
+			};
+			foreach (array_keys($data) as $qemucp_d) {
+				if (!isset($qemucp_parent[$qemucp_d])) {
+					$qemucp_add($qemucp_d, 0);
+				}
+			}
+			$data = $qemucp_ordered;
+
 			foreach ($data as $key => $value) {
 				++$i;
+				$qemucp_is_sub = isset($qemucp_parent[$key]);
+				$qemucp_sort_name = $qemucp_is_sub ? $qemucp_parent[$key] . " " . $key : $key;
 				if ($data[$key]['SUSPENDED'] == 'yes') {
 					$status = 'suspended';
 					$spnd_action = 'unsuspend';
@@ -195,10 +231,10 @@
 				$has_ssl = filter_var($data[$key]['SSL'], FILTER_VALIDATE_BOOL);
 				$vstats_scheme = $has_ssl ? 'https' : 'http';
 			?>
-			<div class="units-table-row <?php if ($data[$key]['SUSPENDED'] == 'yes') echo 'disabled'; ?> js-unit"
+			<div class="units-table-row <?php if ($data[$key]['SUSPENDED'] == 'yes') echo 'disabled'; ?><?= $qemucp_is_sub ? " qemucp-subdomain qemucp-depth-" . min(3, $qemucp_depth[$key]) : "" ?> js-unit"
 				data-sort-ip="<?= tohtml(str_replace(".", "", $data[$key]["IP"])) ?>"
 				data-sort-date="<?= tohtml(strtotime($data[$key]["DATE"] . " " . $data[$key]["TIME"])) ?>"
-				data-sort-name="<?= tohtml($key) ?>"
+				data-sort-name="<?= tohtml($qemucp_sort_name) ?>"
 				data-sort-bandwidth="<?= tohtml($data[$key]["U_BANDWIDTH"]) ?>"
 				data-sort-disk="<?= tohtml($data[$key]["U_DISK"]) ?>">
 				<div class="units-table-cell">
@@ -221,14 +257,24 @@
 						}
 						?>
 						<a href="/edit/web/?<?= tohtml(http_build_query(["domain" => $key, "token" => $_SESSION['token']])) ?>" title="<?= tohtml( _("Edit Domain")) ?>: <?= tohtml($key) ?>">
-							<?= tohtml($key) ?>
-								<?php
-									if (!empty($alias_new) && !empty($data[$key]['ALIAS'])) {
-										$aliases = implode(', ', $alias_new);
-										echo "<p class='hint u-max-width300 u-text-truncate'>(" . tohtml($aliases) . ")</p>";
-									}
-								?>
-							</a>
+							<?php if ($qemucp_is_sub) {
+								// "blog" en negrita, ".qemucp.com" atenuado
+								$qemucp_own = substr($key, 0, -strlen($qemucp_parent[$key]) - 1); ?>
+								<span class="qemucp-domain-own"><?= tohtml($qemucp_own) ?></span><span class="qemucp-domain-parent">.<?= tohtml($qemucp_parent[$key]) ?></span>
+							<?php } else { ?>
+								<?= tohtml($key) ?>
+							<?php } ?>
+						</a>
+						<?php if ($qemucp_is_sub) { ?>
+							<span class="units-table-badge qemucp-badge-sub"><?= tohtml(_("Subdomain")) ?></span>
+						<?php } elseif (!empty($qemucp_children[$key])) { ?>
+							<span class="units-table-badge qemucp-badge-count"><?= tohtml(count($qemucp_children[$key]) === 1 ? _("1 subdomain") : sprintf(_("%d subdomains"), count($qemucp_children[$key]))) ?></span>
+						<?php } ?>
+						<?php if (!empty($alias_new) && !empty($data[$key]['ALIAS'])) { ?>
+							<p class="hint qemucp-aliases u-max-width300 u-text-truncate" title="<?= tohtml(implode(', ', $alias_new)) ?>">
+								<?= tohtml(_("Also answers to")) ?>: <?= tohtml(implode(', ', $alias_new)) ?>
+							</p>
+						<?php } ?>
 						<?php } ?>
 				</div>
 				<div class="units-table-cell">

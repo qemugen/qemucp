@@ -61,6 +61,14 @@ TEXTOS = {
     "Cache cleared.": "Caché vaciada.",
     "Backup created in %s": "Copia de seguridad creada en %s",
     "The action could not be completed.": "No se ha podido completar la acción.",
+    # Aviso al entrar en la cuenta de un usuario (panel.php)
+    "You are managing the account of %s": "Estás gestionando la cuenta de %s",
+    "Back to your account": "Volver a tu cuenta",
+    # Lista de webs: subdominios agrupados bajo su dominio
+    "Subdomain": "Subdominio",
+    "1 subdomain": "1 subdominio",
+    "%d subdomains": "%d subdominios",
+    "Also answers to": "También responde a",
     # Performance Dashboard (web/list/performance)
     "Performance": "Rendimiento",
     "Server Performance": "Rendimiento del servidor",

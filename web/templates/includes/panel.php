@@ -295,6 +295,26 @@
 		</div>
 	</div>
 
+	<!-- QemuCP: aviso claro cuando un administrador entra en la cuenta de un
+	     usuario (antes solo lo indicaba un icono). Solo con el tema qemucp
+	     para no cambiar los demas temas. -->
+	<?php if (!empty($_SESSION["look"]) && (($_SESSION["userTheme"] ?? "") ?: ($_SESSION["THEME"] ?? "")) === "qemucp") { ?>
+		<div class="qemucp-look-banner" role="status">
+			<div class="container qemucp-look-banner-inner">
+				<p>
+					<i class="fas fa-user-gear"></i>
+					<?= sprintf(
+     	tohtml(_("You are managing the account of %s")),
+     	"<strong>" . tohtml($user) . "</strong> (" . tohtml($panel[$user]["NAME"] ?? "") . ")",
+     ) ?>
+				</p>
+				<a class="button button-secondary" href="/logout/?token=<?= tohtml($_SESSION["token"]) ?>">
+					<i class="fas fa-arrow-left"></i><?= tohtml(_("Back to your account")) ?>
+				</a>
+			</div>
+		</div>
+	<?php } ?>
+
 	<nav x-data="{ open: false }" class="main-menu">
 		<div class="container">
 			<button x-on:click="open = !open" type="button" class="main-menu-toggle">
