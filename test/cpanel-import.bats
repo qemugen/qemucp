@@ -368,3 +368,13 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
     grep -q "FALLO .*no-existe" "$R"
     grep -q "Correctas: 1   Fallidas: 1" "$R"
 }
+
+@test "ssl en lote: no pide nada a Let's Encrypt si el DNS no apunta aqui" {
+    run bash /hestiacp-git/install/migrate/ssl-lote.sh cpclient
+    echo "$output" | tail -6
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "Certificados emitidos: 0"
+    echo "$output" | grep -q "ESPERA  principal-ci.com"
+    # ni siquiera registra cuenta de Let's Encrypt
+    ! grep -qs "^KID=" /usr/local/hestia/data/users/cpclient/ssl/le.conf
+}

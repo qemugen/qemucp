@@ -28,6 +28,9 @@ SALIDA="/root/qemucp-lote-$(date +%Y%m%d-%H%M%S)"
 
 [[ $EUID -ne 0 ]] && { echo "Ejecuta como root"; exit 1; }
 [[ -z "$ORIGEN" ]] && { echo "Uso: bash $0 /carpeta/con/backups [plan]   o   bash $0 lista.txt"; exit 1; }
+if [[ ! -f "$DIR_SCRIPT/ssl-lote.sh" ]]; then
+    wget -q "https://raw.githubusercontent.com/qemugen/qemucp/release/install/migrate/ssl-lote.sh" -O "$DIR_SCRIPT/ssl-lote.sh" || true
+fi
 if [[ ! -f "$MIG" ]]; then
     wget -q "https://raw.githubusercontent.com/qemugen/qemucp/release/install/migrate/cpanel-import.sh" -O "$MIG" \
         || { echo "No esta cpanel-import.sh junto a este script y no se pudo descargar"; exit 1; }
@@ -97,4 +100,7 @@ echo ""
 echo "Resumen: $RESUMEN"
 echo "Logs de cada cuenta en: $SALIDA"
 echo "Credenciales nuevas (paneles, bases de datos): /root/qemucp-import-credentials.txt"
+echo ""
+echo "SSL: cuando el DNS apunte aqui, lanza (y relanza al dia siguiente para los que tarden):"
+echo "  bash $DIR_SCRIPT/ssl-lote.sh"
 [[ $N_MAL -eq 0 ]]

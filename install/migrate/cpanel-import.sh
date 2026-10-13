@@ -1795,24 +1795,11 @@ fi
 # No se pide durante la migracion: el DNS suele apuntar aun al origen, la
 # validacion falla y cada fallo cuenta para el limite de Let's Encrypt.
 header "SSL de Let's Encrypt (cuando el DNS apunte aqui)"
-for DOM in "${WEB_CREADOS[@]:-}"; do
-    [[ -z "$DOM" ]] && continue
-    MAILSSL="no"; $BIN/v-list-mail-domain "$CPANEL_USER" "$DOM" &>/dev/null && MAILSSL="yes"
-    # Todos los alias del dominio (www y los aparcados): si no, el certificado
-    # no los cubre y el https de los aparcados falla.
-    ALI=$( { grep "^DOMAIN='$DOM'" "$HESTIA/data/users/$CPANEL_USER/web.conf" 2>/dev/null || true; } \
-          | grep -oP "ALIAS='\K[^']*" || true)
-    # ...pero solo los que existen en el DNS: un alias sin registro (p.ej.
-    # www.blog.dominio.com) hace fallar el certificado entero.
-    ALI_OK=()
-    for a in ${ALI//,/ }; do
-        if ! command -v dig >/dev/null 2>&1 || [[ -n "$(dig +short +time=2 +tries=1 @127.0.0.1 "$a" A 2>/dev/null)" ]]; then
-            ALI_OK+=("$a")
-        fi
-    done
-    ALI=$(IFS=,; echo "${ALI_OK[*]:-}")
-    echo "  $BIN/v-add-letsencrypt-domain $CPANEL_USER $DOM '$ALI' $MAILSSL" | tee -a "$LOG"
-done
+# Con varias cuentas, pedirlos a mano choca con los limites de Let's Encrypt
+# (10 altas de cuenta por IP cada 3 horas, 5 fallos por nombre y hora).
+# ssl-lote.sh solo pide lo que ya apunta aqui y usa una sola cuenta.
+echo "  Cuando el DNS de los dominios apunte a este servidor:" | tee -a "$LOG"
+echo "    bash $(cd "$(dirname "$0")" && pwd)/ssl-lote.sh $CPANEL_USER" | tee -a "$LOG"
 [[ ${#SSL_OK[@]} -gt 0 ]] && info "Mientras tanto ya tienen el SSL de cPanel: ${SSL_OK[*]}"
 
 # -- Limpieza ---------------------------------------------------
