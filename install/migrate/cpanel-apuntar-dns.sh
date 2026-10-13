@@ -6,6 +6,7 @@
 # el DNS de los dominios sigue estando en el cPanel. Usa el fichero que
 # genera dns-para-cpanel.sh en el servidor QemuCP.
 #
+#   bash cpanel-apuntar-dns.sh todas --bajar-ttl              1o, horas antes
 #   bash cpanel-apuntar-dns.sh dominios-qemucp.txt             solo MUESTRA
 #   bash cpanel-apuntar-dns.sh dominios-qemucp.txt --aplicar   aplica
 #
@@ -27,9 +28,70 @@ set -uo pipefail
 LISTA="${1:-}"
 APLICAR="no"; [[ "${2:-}" == "--aplicar" ]] && APLICAR="si"
 [[ $EUID -ne 0 ]] && { echo "Ejecuta como root"; exit 1; }
-[[ -f "$LISTA" ]] || { echo "Uso: bash $0 dominios-qemucp.txt [--aplicar]"; exit 1; }
 ZDIR="${QEMUCP_ZONAS:-/var/named}"
 [[ -d "$ZDIR" ]] || { echo "No esta $ZDIR: ¿es el servidor cPanel?"; exit 1; }
+
+# ------------------------------------------------------------
+# --bajar-ttl: ANTES del cambio (horas antes), baja a 300 s el TTL de todos
+# los registros, sin cambiar ningun valor. Asi, cuando se aplique el cambio,
+# los DNS de todo el mundo lo ven en ~5 minutos en vez de en horas (lo que
+# ya tienen guardado caduca segun el TTL VIEJO; bajarlo a la vez que se
+# cambia no sirve).
+#   bash cpanel-apuntar-dns.sh todas --bajar-ttl
+#   bash cpanel-apuntar-dns.sh dominios-qemucp.txt --bajar-ttl
+# ------------------------------------------------------------
+if [[ "${2:-}" == "--bajar-ttl" ]]; then
+    if [[ "$LISTA" == "todas" ]]; then
+        DOMS=$(cd "$ZDIR" && ls *.db 2>/dev/null | sed 's/\.db$//')
+    elif [[ -f "$LISTA" ]]; then
+        DOMS=$(cut -d'|' -f1 "$LISTA" | grep -v '^#')
+    else
+        echo "Uso: bash $0 todas|dominios-qemucp.txt --bajar-ttl"; exit 1
+    fi
+    BK="/root/dns-antes-de-ttl-$(date +%Y%m%d-%H%M%S)"; mkdir -p "$BK"
+    MAXTTL=0; N=0
+    for D in $DOMS; do
+        Z="$ZDIR/$D.db"; [[ -f "$Z" ]] || continue
+        T=$(mktemp)
+        awk 'BEGIN { insoa = 0 }
+        {
+            if (insoa) { print; if ($0 ~ /\)/) insoa = 0; next }
+            if ($0 ~ /^\$TTL[ \t]+[0-9]+/) { m = $2 + 0; if (m > max) max = m; if (m > 300) $0 = "$TTL 300"; print; next }
+            if ($0 ~ /^[ \t]*;/ || $0 ~ /^[ \t]*$/ || $0 ~ /^\$/) { print; next }
+            if ($0 ~ /[ \t]SOA[ \t]/) { print; if ($0 ~ /\(/ && $0 !~ /\)/) insoa = 1; next }
+            # TTL numerico como 2o campo (nombre TTL ...) o 1er campo si la linea empieza en blanco
+            if (match($0, /^[^ \t]+[ \t]+[0-9]+[ \t]/) || match($0, /^[ \t]+[0-9]+[ \t]/)) {
+                pre = $0; n = split($0, f, /[ \t]+/)
+                k = ($0 ~ /^[ \t]/) ? 2 : 2
+                # el TTL de los NS no cuenta para la espera (no se cambian)
+                if (f[k] ~ /^[0-9]+$/) { if (f[k] + 0 > max && $0 !~ /[ \t]NS[ \t]/) max = f[k] + 0
+                    if (f[k] + 0 > 300) { sub("[ \t]" f[k] "[ \t]", "\t300\t") } }
+            }
+            print
+        }
+        END { print max + 0 > "/dev/fd/3" }' "$Z" > "$T" 3> "$T.m"
+        M=$(cat "$T.m"); [[ "${M:-0}" -gt "$MAXTTL" ]] && MAXTTL=$M
+        if cmp -s "$T" "$Z"; then echo "-- $D: ya estaba a 300 o menos"; rm -f "$T" "$T.m"; continue; fi
+        perl -0pi -e 's/(\bSOA\b[^(]*\(\s*)(\d+)/$1.($2+1)/e' "$T"
+        if named-checkzone -q "$D" "$T" >/dev/null 2>&1; then
+            cp -p "$Z" "$BK/"; cat "$T" > "$Z"
+            rndc reload "$D" >/dev/null 2>&1 || true
+            [[ -e /var/cpanel/cluster/root/config ]] && /scripts/dnscluster synczone "$D" >/dev/null 2>&1 || true
+            echo "OK $D: TTL a 300 (antes hasta ${M}s)"; N=$((N+1))
+        else
+            echo "!! $D: no se toca (la zona resultante no valida)"
+        fi
+        rm -f "$T" "$T.m"
+    done
+    if [[ $MAXTTL -ge 3600 ]]; then ESPERA="$(( (MAXTTL + 3599) / 3600 )) hora(s)"; else ESPERA="$(( (MAXTTL + 59) / 60 )) minuto(s)"; fi
+    echo ""
+    echo "$N zonas con TTL 300. Copia en $BK"
+    echo "Espera al menos $ESPERA (el TTL mas alto que habia en web/correo era ${MAXTTL}s) antes de aplicar el cambio:"
+    echo "  bash $0 dominios-qemucp.txt --aplicar"
+    exit 0
+fi
+
+[[ -f "$LISTA" ]] || { echo "Uso: bash $0 dominios-qemucp.txt [--aplicar]   |   bash $0 todas --bajar-ttl"; exit 1; }
 
 # IPs de ESTE servidor (las que hay que sustituir): locales, la principal de
 # cPanel y las publicas si esta tras NAT. QEMUCP_IPS_VIEJAS="a b" para forzar.
