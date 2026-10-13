@@ -98,6 +98,7 @@ scripts propios que parsean por posición. Las claves nuevas van solo en
 ## Parches propios (ya aplicados, no re-descubrir)
 
 ### Límite de subdominios separado (`install/parche-subdominios.sh`)
+
 HestiaCP cuenta todo dominio web en `WEB_DOMAINS`, así que un subdominio
 gasta el mismo cupo que un dominio adicional. En cPanel son cupos
 distintos. Se añadió `WEB_SUBDOMAINS` a los paquetes.
@@ -122,6 +123,7 @@ distintos. Se añadió `WEB_SUBDOMAINS` a los paquetes.
 - `WEB_DOMAINS=1` significa "solo el principal, sin adicionales".
 
 ### Cola de reinicios (`install/arreglar-crons.sh`)
+
 HestiaCP no reinicia servicios al crear un dominio: los encola en
 `data/queue/restart.pipe` y los procesa un cron de `hestiaweb`
 (`*/2 * * * * v-update-sys-queue restart`). Si ese crontab falta, está
@@ -132,6 +134,7 @@ resuelve aunque esté apuntando, hasta que se guarda la zona en el panel
 nada". Atajo: `v-restart-dns yes`.
 
 ### Otros ya corregidos
+
 - **`session.save_path` duplicado**: la plantilla de HestiaCP trae
   `session.save_path = /home/%user%/tmp` y el instalador añadía el bloque
   de Redis sin quitarla. Rompía PrestaShop, Joomla y Moodle. Se arregla en
@@ -212,7 +215,7 @@ falle en producción).
 - **`_dmarc` y MX duplicados tras migrar**: QemuCP crea su `_dmarc` y su
   MX, y el migrador importaba también los de cPanel. Dos `_dmarc` hacen que
   el receptor no pueda elegir política (Proofpoint: `554 5.7.5 Permanent
-  error evaluating DMARC policy`); dos MX con prioridad 0 reparten el correo
+error evaluating DMARC policy`); dos MX con prioridad 0 reparten el correo
   al azar. Visto en `artifactum.com` y `ganaderiagranda.es`. **Corregido en
   el migrador**: con correo local no importa los MX de cPanel que apuntan
   dentro de la zona, y del `_dmarc` conserva solo el del cliente (su
@@ -303,6 +306,7 @@ acortarlo exigiria tocar las plantillas. Si upstream anade una lista nueva
 con acciones sin ese span, el boton saldria vacio: revisarlo al sincronizar.
 
 Dónde está cada cosa:
+
 - Nada de iconos sueltos para el usuario final. Ademas de las listas:
   barra superior con el texto bajo cada icono (las etiquetas
   `.top-bar-menu-link-label` ya vienen traducidas; la barra pasa a todo el
@@ -324,6 +328,13 @@ Dónde está cada cosa:
   que `v-add-user` crea con `THEME=''`) y el del admin. Si `qemucp` no
   existe (instalacion desde apt) cae a `flat`.
 - Pruebas: bloque "tema" al final de `test/qemucp.bats`.
+- Compilar en local (sin servidor): hay un Node en
+  `~/Desarrollo/node-v24.21.0-darwin-arm64/bin`; `npm ci && node build.js`
+  deja `web/css/themes/*.min.css` (ignorados por git). Lo que el tema no
+  debe perder (revisado): foco de teclado del menu (`.main-menu-item.focus`)
+  y de las filas (`.units-table-row.focus`, en la primera celda porque el
+  borde de una fila de tabla no se pinta), `.button-danger` en rojo, y el
+  `!important` de `.u-unstyled-button` en los botones "Generar".
 - Gestor de archivos (FileGator, `/fm`): es otra aplicacion y **los temas
   del panel no le llegan**. Lleva su propio CSS,
   `install/deb/filemanager/filegator/dist/css/qemucp-fm.css`, enlazado en
@@ -337,6 +348,7 @@ Dónde está cada cosa:
 
 Objetivo: que el panel hable el idioma de un usuario normal, no el de un
 sysadmin. Hecho hasta ahora:
+
 - "Plantilla Backend" -> **"Version de PHP"** en editar dominio web, crear
   plan y editar plan (y en sus mensajes de error). Las opciones se ven
   como "PHP 8.3" / "Por defecto del servidor" con `qemucp_backend_label()`
@@ -344,10 +356,10 @@ sysadmin. Hecho hasta ahora:
   que no cambia nada en los datos. Se quito la etiqueta "PHP-FPM".
 
 Como hacerlo con otros textos:
+
 - En la plantilla, usar un msgid en ingles claro (`_("PHP Version")`) en
   lugar de cambiar la traduccion de uno existente que se use en mas sitios.
 - Las traducciones van en `install/qemucp-textos.py` (diccionario
   `TEXTOS`), que reescribe `web/locale/es/LC_MESSAGES/hestiacp.mo` (el
   repo no trae `.po`). **Relanzarlo tras sincronizar locales de upstream**:
   el `.mo` de upstream no trae estos textos. Lo comprueba `test/qemucp.bats`.
-

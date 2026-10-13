@@ -234,7 +234,6 @@ h1 {
 }
 
 .main-menu-item-link {
-	border-radius: var(--border-radius-base) var(--border-radius-base) 0 0;
 	transition: background-color 0.2s;
 
 	&:hover {
@@ -257,6 +256,9 @@ h1 {
 	@media (--viewport-medium) {
 		position: relative;
 		border-bottom: 0;
+		border-radius: var(--border-radius-base) var(--border-radius-base) 0 0;
+		padding-left: 14px;
+		padding-right: 14px;
 
 		&::after {
 			content: "";
@@ -286,9 +288,22 @@ h1 {
 	}
 }
 
+/* Foco de teclado (flechas/atajos): default.css lo marca con el borde
+   inferior, que aqui no existe; se usa la barra de degradado */
+.main-menu-item.focus .main-menu-item-link {
+	background-color: #f4f9fd;
+
+	&::after {
+		opacity: 1;
+	}
+}
+
 .main-menu-item-label {
 	color: var(--qemucp-navy);
 	letter-spacing: 0.02em;
+	/* El icono va junto al texto, no en otra linea, aunque el menu sea
+	   ajustado ("BASES DE DATOS"...) */
+	white-space: nowrap;
 
 	& .fas {
 		color: var(--qemucp-cyan);
@@ -411,7 +426,8 @@ h1 {
 		}
 
 		&:hover .units-table-cell:first-child,
-		&.selected .units-table-cell:first-child {
+		&.selected .units-table-cell:first-child,
+		&.focus .units-table-cell:first-child {
 			box-shadow: inset 3px 0 0 var(--qemucp-cyan);
 		}
 
@@ -457,37 +473,62 @@ h1 {
 	}
 }
 
+/* Estilo de boton para cualquier accion de lista (tambien las de
+   list_wp.php, que no van en .units-table-row-action y llevan icono + texto) */
+.units-table-row-action-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	white-space: nowrap;
+	padding: 3px 10px;
+	font-size: 0.74rem;
+	font-weight: 600;
+	line-height: 1.5;
+	color: #3a4a60;
+	background-color: #f3f6fa;
+	border: 1px solid #e1e7ef;
+	border-radius: 999px;
+	transition:
+		background-color 0.15s,
+		border-color 0.15s,
+		color 0.15s,
+		box-shadow 0.15s;
+
+	&:hover,
+	&:focus-visible {
+		color: var(--qemucp-blue-dark);
+		background-color: var(--qemucp-cyan-soft);
+		border-color: #9fe3f7;
+		box-shadow: 0 2px 6px rgb(0 200 245 / 20%);
+	}
+
+	&:active {
+		background-color: #c9f0fc;
+	}
+
+	@media (--viewport-large) {
+		padding: 3px 10px;
+		background-color: #f3f6fa;
+		border: 1px solid #e1e7ef;
+	}
+
+	& .fas {
+		margin: 0;
+		padding: 0;
+		font-size: 0.75rem;
+	}
+}
+
 .units-table-row-action {
 	margin: 0;
 
+	/* Selectores con dos clases: ganan a ".units-table-cell a" */
 	& .units-table-row-action-link {
-		display: inline-flex;
-		align-items: center;
-		white-space: nowrap;
-		padding: 3px 10px;
-		font-size: 0.74rem;
-		font-weight: 600;
-		line-height: 1.5;
 		color: #3a4a60;
-		background-color: #f3f6fa;
-		border: 1px solid #e1e7ef;
-		border-radius: 999px;
-		transition:
-			background-color 0.15s,
-			border-color 0.15s,
-			color 0.15s,
-			box-shadow 0.15s;
 
 		&:hover,
 		&:focus-visible {
 			color: var(--qemucp-blue-dark);
-			background-color: var(--qemucp-cyan-soft);
-			border-color: #9fe3f7;
-			box-shadow: 0 2px 6px rgb(0 200 245 / 20%);
-		}
-
-		&:active {
-			background-color: #c9f0fc;
 		}
 
 		/* El icono sobra: el boton ya dice lo que hace */
@@ -584,7 +625,7 @@ h1 {
 		box-shadow 0.2s,
 		transform 0.2s;
 
-	&:hover {
+	&:hover:not(.disabled) {
 		box-shadow: 0 8px 24px rgb(11 26 46 / 12%);
 		transform: translateY(-2px);
 	}
@@ -622,13 +663,10 @@ h1 {
 }
 
 .tabs {
-	border-radius: 10px;
-	box-shadow: var(--qemucp-shadow);
-}
-
-.tabs {
 	border-color: var(--qemucp-border);
+	border-radius: 10px;
 	background-color: #fff;
+	box-shadow: var(--qemucp-shadow);
 }
 
 .tabs-items {
@@ -805,12 +843,14 @@ h1 {
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
-	padding: 1px 9px;
+	/* !important: estos botones llevan .u-unstyled-button, que quita fondo,
+	   borde y relleno con !important */
+	padding: 1px 9px !important;
 	font-size: 0.72rem;
 	font-weight: 600;
 	color: #17724c;
-	background-color: #e8f7ef;
-	border: 1px solid #bfe8d3;
+	background-color: #e8f7ef !important;
+	border: 1px solid #bfe8d3 !important;
 	border-radius: 999px;
 
 	&::after {
@@ -818,7 +858,7 @@ h1 {
 	}
 
 	&:hover {
-		background-color: #d3f0e1;
+		background-color: #d3f0e1 !important;
 	}
 
 	& .fas {
@@ -958,7 +998,19 @@ h1 {
 	}
 }
 
-.button-danger {
+/* Acciones peligrosas ("Continuar" tras un aviso, "Borrar"): rojas tambien
+   en reposo, no con el degradado azul de los botones normales */
+.button-danger,
+.button-secondary.button-danger {
+	color: var(--qemucp-danger);
+	border: 1px solid #ffd5d6;
+	background: #fff1f1;
+	box-shadow: none;
+
+	& .fas {
+		color: inherit;
+	}
+
 	&:hover {
 		color: #fff;
 		border-color: var(--qemucp-danger);
@@ -1001,8 +1053,7 @@ h1 {
 .page-reset {
 	background:
 		radial-gradient(circle at 20% 15%, rgb(0 200 245 / 30%) 0%, transparent 45%),
-		radial-gradient(circle at 85% 90%, rgb(31 122 224 / 35%) 0%, transparent 50%),
-		#0b1a2e;
+		radial-gradient(circle at 85% 90%, rgb(31 122 224 / 35%) 0%, transparent 50%), #0b1a2e;
 }
 
 .login {
@@ -1043,6 +1094,13 @@ h1 {
 
 		&:focus {
 			background-color: rgb(255 255 255 / 10%);
+		}
+
+		/* El autorrelleno del navegador pone fondo claro: se mantiene oscuro */
+		&:-webkit-autofill {
+			-webkit-text-fill-color: #fff;
+			box-shadow: 0 0 0 100px #13284a inset;
+			caret-color: #fff;
 		}
 	}
 
