@@ -38,7 +38,7 @@ class WordPressOptimizedSetup extends WordPressSetup {
 		$this->config["form"]["site_name"]["value"] = "Mi web";
 	}
 
-	protected function setupApplication(InstallationTarget $target, array $options = null): void {
+	protected function setupApplication(InstallationTarget $target, ?array $options = null): void {
 		parent::setupApplication($target, $options);
 
 		$php = $options["php_version"];

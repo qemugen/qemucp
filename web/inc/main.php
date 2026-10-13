@@ -637,3 +637,13 @@ function qemucp_backend_label($template) {
 	}
 	return $template;
 }
+
+/**
+ * QemuCP: true si el usuario ve el tema qemucp (el suyo o, si no eligio,
+ * el del sistema). Las plantillas propias del tema (lista de webs, aviso al
+ * entrar como usuario) solo se usan con el; los demas temas no cambian.
+ */
+function qemucp_theme_active() {
+	$theme = !empty($_SESSION["userTheme"]) ? $_SESSION["userTheme"] : $_SESSION["THEME"] ?? "";
+	return $theme === "qemucp";
+}

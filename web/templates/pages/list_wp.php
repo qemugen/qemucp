@@ -12,7 +12,7 @@
 </div>
 <!-- End toolbar -->
 
-<div class="container">
+<div class="container qemucp-page">
 
 	<h1 class="u-mt20 u-mb20"><?= tohtml(_("Applications")) ?></h1>
 	<?php show_alert_message($_SESSION); ?>

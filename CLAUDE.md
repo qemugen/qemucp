@@ -417,17 +417,27 @@ bloques QemuCP de `panel.php`; lo comprueba `test/qemucp.bats`.
 
 ## Lista de webs y panel de usuario (tema qemucp)
 
-- `list_web.php`: cada subdominio va justo debajo de su dominio (el dominio
-  del usuario de nombre mas largo que lo contiene), con sangria y linea en
-  "L", la parte propia en negrita y la etiqueta "Subdominio"; el dominio
-  muestra "N subdominios" y los alias como "Tambien responde a: ...".
-  `data-sort-name` del subdominio = "padre subdominio" para que ordenar por
-  nombre no rompa los grupos.
+- Con el tema qemucp, `web/list/web/index.php` usa
+  `templates/pages/list_web_qemucp.php` (`qemucp_theme_active()` en
+  `inc/main.php`); con los demas temas sigue `list_web.php` **sin tocar**
+  (igual que upstream). Lista sencilla: un `<details class="qemucp-site">`
+  por web; al pulsarlo se despliega su panel de opciones con icono y texto
+  agrupadas como en Plesk (Web, Archivos y datos, Correo y DNS,
+  Estadisticas y registros; Suspender/Borrar abajo). Cada subdominio va
+  justo debajo de su dominio y sangrado; `data-sort-name` = cadena desde el
+  dominio raiz para que ordenar por nombre no rompa los grupos. Conserva
+  `js-unit`, `js-unit-checkbox`, `shortcut-*` y `js-confirm-action` (orden,
+  acciones masivas, atajos de teclado y confirmaciones del JS del panel).
 - `panel.php`: franja "Estas gestionando la cuenta de X / Volver a tu
-  cuenta" cuando un admin entra como usuario (`$_SESSION["look"]`), solo con
-  el tema qemucp. Antes solo lo indicaba un icono, y el tema oculta ese
-  bloque entre 1024 y 1279px.
-- Tema: contenido hasta 1240px en pantallas >=1280px; cabeceras de tabla
-  que eran solo icono muestran su `.u-hidden-visually`; el menu principal
-  pasa a dos filas en tableta (son 8 pestanas con APLICACIONES).
+  cuenta" cuando un admin entra como usuario, solo con el tema qemucp.
+- En los controladores, `$user` **ya va entrecomillado** (`quoteshellarg`
+  en `inc/main.php`): no volver a pasarlo por `quoteshellarg`.
 
+## Probar PHP sin servidor
+
+No hay PHP en el Mac: `npx @php-wasm/cli` (PHP 8.5 en WebAssembly, del
+proyecto WordPress Playground) sirve para `-l` y para ejecutar scripts que
+lean el repo (sin `exec` de comandos `v-*`). `test/qemucp-local/instaladores.php`
+carga todos los instaladores y simula las versiones optimizadas. Para ver
+una plantilla real: definir `_()`, `tohtml()`, `$_SESSION` y los datos que
+espera, e `include` la plantilla.

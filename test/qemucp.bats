@@ -364,10 +364,15 @@ crear() {
     [ "$a" -lt "$b" ]
 }
 
-@test "lista de webs: subdominios agrupados bajo su dominio; aviso al entrar en un usuario" {
-    grep -q 'qemucp_parent' "$H/web/templates/pages/list_web.php"
-    grep -q 'qemucp-subdomain' "$H/web/css/themes/qemucp.min.css"
+@test "lista de webs del tema qemucp (desplegable estilo Plesk) y aviso al entrar en un usuario" {
+    # Con el tema qemucp el controlador usa su plantilla; los demas temas, la de HestiaCP
+    grep -q 'list_web_qemucp' "$H/web/list/web/index.php"
+    grep -q 'qemucp_theme_active' "$H/web/inc/main.php"
+    ! grep -q 'qemucp_parent' "$H/web/templates/pages/list_web.php"
+    grep -q 'qemucp_parent' "$H/web/templates/pages/list_web_qemucp.php"
+    grep -q 'qemucp-site-panel' "$H/web/css/themes/qemucp.min.css"
     grep -q 'qemucp-look-banner' "$H/web/templates/includes/panel.php"
-    "$H/php/bin/php" -l "$H/web/templates/pages/list_web.php" >/dev/null
-    "$H/php/bin/php" -l "$H/web/templates/includes/panel.php" >/dev/null
+    for f in templates/pages/list_web_qemucp.php templates/includes/panel.php list/web/index.php; do
+        "$H/php/bin/php" -l "$H/web/$f" >/dev/null
+    done
 }

@@ -28,7 +28,7 @@ if (empty($domain) || !array_key_exists($action, $actions)) {
 exec(
 	HESTIA_CMD .
 		"v-qemucp-wp " .
-		quoteshellarg($user) .
+		$user .
 		" " .
 		quoteshellarg($action) .
 		" " .
@@ -41,7 +41,7 @@ if ($return_var === 0) {
 	$message = $actions[$action];
 	if ($action === "backup") {
 		$file = end($output) ?: "";
-		$message = sprintf($message, str_replace("/home/" . $user . "/", "~/", $file));
+		$message = sprintf($message, str_replace("/home/" . $user_plain . "/", "~/", $file));
 	}
 	$_SESSION["ok_msg"] = tohtml($domain) . ": " . tohtml($message);
 } else {
