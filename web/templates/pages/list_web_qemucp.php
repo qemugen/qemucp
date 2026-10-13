@@ -127,13 +127,13 @@ $qemucp_size = function ($v) {
 };
 
 // Una opcion del panel: icono + texto
-$qemucp_tile = function ($href, $icon, $label, $extra = []) {
+$qemucp_tile = function ($href, $icon, $label, $extra = [], $color = "blue") {
 	$attrs = "";
 	foreach ($extra as $name => $value) {
 		$attrs .= " " . $name . '="' . tohtml($value) . '"';
 	}
 	return '<a class="qemucp-tile' . (isset($extra["data-confirm-title"]) ? " data-controls js-confirm-action" : "") . '" href="' .
-		tohtml($href) . '"' . $attrs . '><span class="qemucp-tile-icon"><i class="fas ' . tohtml($icon) . '"></i></span><span class="qemucp-tile-label">' .
+		tohtml($href) . '"' . $attrs . '><span class="qemucp-tile-icon qemucp-c-' . tohtml($color) . '"><i class="fas ' . tohtml($icon) . '"></i></span><span class="qemucp-tile-label">' .
 		tohtml($label) . "</span></a>";
 };
 ?>
@@ -230,42 +230,42 @@ $qemucp_tile = function ($href, $icon, $label, $extra = []) {
 					<ul class="units-table-row-actions qemucp-site-groups">
 						<li class="qemucp-group">
 							<p class="qemucp-group-title"><?= tohtml(_("Website")) ?></p>
-							<div class="units-table-row-action" data-key-action="href"><?= $qemucp_tile($url, "fa-arrow-up-right-from-square", _("Visit website"), ["target" => "_blank", "rel" => "noopener"]) ?></div>
+							<div class="units-table-row-action" data-key-action="href"><?= $qemucp_tile($url, "fa-arrow-up-right-from-square", _("Visit website"), ["target" => "_blank", "rel" => "noopener"], "sky") ?></div>
 							<?php if ($read_only !== true && !$suspended) { ?>
-								<div class="units-table-row-action shortcut-enter" data-key-action="href"><?= $qemucp_tile($edit, "fa-pen-to-square", _("Edit settings")) ?></div>
-								<div class="units-table-row-action"><?= $qemucp_tile($edit, "fa-code", _("PHP Version")) ?></div>
-								<div class="units-table-row-action"><?= $qemucp_tile($edit, "fa-shield-halved", _("SSL / HTTPS")) ?></div>
-								<div class="units-table-row-action"><?= $qemucp_tile("/add/webapp/?" . http_build_query(["domain" => $key]), "fa-cubes", _("Install application")) ?></div>
+								<div class="units-table-row-action shortcut-enter" data-key-action="href"><?= $qemucp_tile($edit, "fa-pen-to-square", _("Edit settings"), [], "indigo") ?></div>
+								<div class="units-table-row-action"><?= $qemucp_tile($edit, "fa-code", _("PHP Version"), [], "violet") ?></div>
+								<div class="units-table-row-action"><?= $qemucp_tile($edit, "fa-shield-halved", _("SSL / HTTPS"), [], "green") ?></div>
+								<div class="units-table-row-action"><?= $qemucp_tile("/add/webapp/?" . http_build_query(["domain" => $key]), "fa-cubes", _("Install application"), [], "brand") ?></div>
 							<?php } ?>
 						</li>
 						<li class="qemucp-group">
 							<p class="qemucp-group-title"><?= tohtml(_("Files and data")) ?></p>
 							<?php if (!empty($_SESSION["FILE_MANAGER"]) && $_SESSION["FILE_MANAGER"] !== "false") { ?>
-								<div class="units-table-row-action"><?= $qemucp_tile("/fm/", "fa-folder-open", _("File manager")) ?></div>
+								<div class="units-table-row-action"><?= $qemucp_tile("/fm/", "fa-folder-open", _("File manager"), [], "amber") ?></div>
 							<?php } ?>
-							<div class="units-table-row-action"><?= $qemucp_tile("/list/db/", "fa-database", _("Databases")) ?></div>
+							<div class="units-table-row-action"><?= $qemucp_tile("/list/db/", "fa-database", _("Databases"), [], "teal") ?></div>
 							<?php if ($read_only !== true && !$suspended) { ?>
-								<div class="units-table-row-action" data-key-action="href"><?= $qemucp_tile("/download/site/?" . http_build_query(["site" => $key, "token" => $_SESSION["token"]]), "fa-download", _("Download copy")) ?></div>
+								<div class="units-table-row-action" data-key-action="href"><?= $qemucp_tile("/download/site/?" . http_build_query(["site" => $key, "token" => $_SESSION["token"]]), "fa-download", _("Download copy"), [], "blue") ?></div>
 							<?php } ?>
 						</li>
 						<li class="qemucp-group">
 							<p class="qemucp-group-title"><?= tohtml(_("Mail and DNS")) ?></p>
 							<?php if (isset($qemucp_mail[$key])) { ?>
-								<div class="units-table-row-action"><?= $qemucp_tile("/list/mail/?" . http_build_query(["domain" => $key, "token" => $_SESSION["token"]]), "fa-envelope", _("Email accounts")) ?></div>
+								<div class="units-table-row-action"><?= $qemucp_tile("/list/mail/?" . http_build_query(["domain" => $key, "token" => $_SESSION["token"]]), "fa-envelope", _("Email accounts"), [], "rose") ?></div>
 							<?php } elseif ($read_only !== true) { ?>
-								<div class="units-table-row-action"><?= $qemucp_tile("/add/mail/", "fa-envelope", _("Set up email")) ?></div>
+								<div class="units-table-row-action"><?= $qemucp_tile("/add/mail/", "fa-envelope", _("Set up email"), [], "rose") ?></div>
 							<?php } ?>
 							<?php if (isset($qemucp_dns[$key])) { ?>
-								<div class="units-table-row-action"><?= $qemucp_tile("/list/dns/?" . http_build_query(["domain" => $key, "token" => $_SESSION["token"]]), "fa-book-atlas", _("DNS records")) ?></div>
+								<div class="units-table-row-action"><?= $qemucp_tile("/list/dns/?" . http_build_query(["domain" => $key, "token" => $_SESSION["token"]]), "fa-book-atlas", _("DNS records"), [], "orange") ?></div>
 							<?php } ?>
 						</li>
 						<li class="qemucp-group">
 							<p class="qemucp-group-title"><?= tohtml(_("Statistics and logs")) ?></p>
 							<?php if (!empty($site["STATS"])) { ?>
-								<div class="units-table-row-action shortcut-w" data-key-action="href"><?= $qemucp_tile($url . "vstats/", "fa-chart-column", _("Statistics"), ["target" => "_blank", "rel" => "noopener"]) ?></div>
+								<div class="units-table-row-action shortcut-w" data-key-action="href"><?= $qemucp_tile($url . "vstats/", "fa-chart-column", _("Statistics"), ["target" => "_blank", "rel" => "noopener"], "blue") ?></div>
 							<?php } ?>
-							<div class="units-table-row-action shortcut-l" data-key-action="href"><?= $qemucp_tile("/list/web-log/?" . http_build_query(["domain" => $key, "type" => "access"]), "fa-file-lines", _("Visits log")) ?></div>
-							<div class="units-table-row-action"><?= $qemucp_tile("/list/web-log/?" . http_build_query(["domain" => $key, "type" => "error"]), "fa-triangle-exclamation", _("Errors log")) ?></div>
+							<div class="units-table-row-action shortcut-l" data-key-action="href"><?= $qemucp_tile("/list/web-log/?" . http_build_query(["domain" => $key, "type" => "access"]), "fa-file-lines", _("Visits log"), [], "cyan") ?></div>
+							<div class="units-table-row-action"><?= $qemucp_tile("/list/web-log/?" . http_build_query(["domain" => $key, "type" => "error"]), "fa-triangle-exclamation", _("Errors log"), [], "red") ?></div>
 						</li>
 					</ul>
 
@@ -277,11 +277,11 @@ $qemucp_tile = function ($href, $icon, $label, $extra = []) {
 						<?php if ($read_only !== true) { ?>
 							<span class="qemucp-site-danger">
 								<?php if ($suspended) { ?>
-									<span class="units-table-row-action shortcut-s" data-key-action="js"><?= $qemucp_tile("/unsuspend/web/?" . http_build_query(["domain" => $key, "token" => $_SESSION["token"]]), "fa-play", _("Unsuspend"), ["data-confirm-title" => _("Unsuspend"), "data-confirm-message" => sprintf(_("Are you sure you want to unsuspend domain %s?"), $key)]) ?></span>
+									<span class="units-table-row-action shortcut-s" data-key-action="js"><?= $qemucp_tile("/unsuspend/web/?" . http_build_query(["domain" => $key, "token" => $_SESSION["token"]]), "fa-play", _("Unsuspend"), ["data-confirm-title" => _("Unsuspend"), "data-confirm-message" => sprintf(_("Are you sure you want to unsuspend domain %s?"), $key)], "green") ?></span>
 								<?php } else { ?>
-									<span class="units-table-row-action shortcut-s" data-key-action="js"><?= $qemucp_tile("/suspend/web/?" . http_build_query(["domain" => $key, "token" => $_SESSION["token"]]), "fa-pause", _("Suspend"), ["data-confirm-title" => _("Suspend"), "data-confirm-message" => sprintf(_("Are you sure you want to suspend domain %s?"), $key)]) ?></span>
+									<span class="units-table-row-action shortcut-s" data-key-action="js"><?= $qemucp_tile("/suspend/web/?" . http_build_query(["domain" => $key, "token" => $_SESSION["token"]]), "fa-pause", _("Suspend"), ["data-confirm-title" => _("Suspend"), "data-confirm-message" => sprintf(_("Are you sure you want to suspend domain %s?"), $key)], "amber") ?></span>
 								<?php } ?>
-								<span class="units-table-row-action shortcut-delete is-delete" data-key-action="js"><?= $qemucp_tile("/delete/web/?" . http_build_query(["domain" => $key, "token" => $_SESSION["token"]]), "fa-trash", _("Delete"), ["data-confirm-title" => _("Delete"), "data-confirm-message" => sprintf(_("Are you sure you want to delete domain %s?"), $key)]) ?></span>
+								<span class="units-table-row-action shortcut-delete is-delete" data-key-action="js"><?= $qemucp_tile("/delete/web/?" . http_build_query(["domain" => $key, "token" => $_SESSION["token"]]), "fa-trash", _("Delete"), ["data-confirm-title" => _("Delete"), "data-confirm-message" => sprintf(_("Are you sure you want to delete domain %s?"), $key)], "red") ?></span>
 							</span>
 						<?php } ?>
 					</div>
