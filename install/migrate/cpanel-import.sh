@@ -50,6 +50,8 @@ header() { echo -e "\n${BLUE}========================================${NC}" | te
            echo -e "${BLUE}========================================${NC}" | tee -a "$LOG"; }
 info()   { echo -e "  -> $1" | tee -a "$LOG"; }
 pendiente() { PENDIENTES+=("$1"); warn "$1"; }
+# Si algo falla sin control (set -e), decir DONDE en vez de cortar en silencio
+trap 'echo -e "${RED}[ERROR]${NC} Fallo inesperado en la linea $LINENO: $BASH_COMMAND" | tee -a "$LOG"' ERR
 
 DOM_RE='^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$'
 es_dominio() { [[ "$1" =~ $DOM_RE ]]; }
@@ -237,8 +239,10 @@ SUB_DOMAINS=("${SUBS_TMP[@]:-}")
 # Orden: los adicionales por nombre y los subdominios de menos a mas niveles
 ADDON_DOMAINS=($(printf '%s\n' "${ADDON_DOMAINS[@]:-}" | grep -v '^$' | sort -u || true))
 PARKED_DOMAINS=($(printf '%s\n' "${PARKED_DOMAINS[@]:-}" | grep -v '^$' | sort -u || true))
-SUB_DOMAINS=($(for s in "${SUB_DOMAINS[@]:-}"; do [[ -n "$s" ]] && echo "$(etiquetas "$s") $s"; done \
-    | sort -n -k1,1 -k2,2 | awk '{print $2}' | uniq))
+# (if, no "&&": con una cuenta sin subdominios el bucle acabaria en falso y,
+# con pipefail, set -e cortaba el script aqui sin decir nada)
+SUB_DOMAINS=($(for s in "${SUB_DOMAINS[@]:-}"; do if [[ -n "$s" ]]; then echo "$(etiquetas "$s") $s"; fi; done \
+    | sort -n -k1,1 -k2,2 | awk '{print $2}' | uniq || true))
 
 # Carpeta web de cada dominio en el servidor de origen
 ud_docroot() {  # $1 = fichero userdata
