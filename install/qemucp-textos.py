@@ -20,6 +20,36 @@ TEXTOS = {
     # Selector de version de PHP (antes "Plantilla Backend")
     "PHP Version": "Versión de PHP",
     "Server default": "Por defecto del servidor",
+    # WP-TOOL (gestor de WordPress: web/list/wp, web/edit/wp)
+    "WordPress Manager": "Gestor de WordPress",
+    "Manage your WordPress": "Gestiona tus WordPress",
+    "Website": "Web",
+    "Active": "Activa",
+    "In maintenance": "En mantenimiento",
+    "Open WordPress": "Entrar en WordPress",
+    "Update all": "Actualizar todo",
+    "Make backup": "Hacer copia de seguridad",
+    "Clear cache": "Vaciar caché",
+    "Maintenance mode": "Modo mantenimiento",
+    "End maintenance": "Quitar mantenimiento",
+    "Update WordPress, plugins and themes of %s? Make a backup first if you are not sure.":
+        "¿Actualizar WordPress, plugins y temas de %s? Si no estás seguro, haz antes una copia de seguridad.",
+    "Make a backup of %s (files and database)?":
+        "¿Hacer una copia de seguridad de %s (archivos y base de datos)?",
+    "Make %s visible to visitors again?": "¿Volver a mostrar %s a los visitantes?",
+    "Show a maintenance notice to the visitors of %s?":
+        "¿Mostrar un aviso de mantenimiento a los visitantes de %s?",
+    "No WordPress has been found in your websites yet.":
+        "Todavía no hay ningún WordPress en tus webs.",
+    "Install WordPress": "Instalar WordPress",
+    "Choose the website where you want to install it:": "Elige la web donde quieres instalarlo:",
+    "Install WordPress in %s": "Instalar WordPress en %s",
+    "WordPress, plugins and themes updated.": "WordPress, plugins y temas actualizados.",
+    "Maintenance mode enabled.": "Modo mantenimiento activado.",
+    "Maintenance mode disabled.": "Modo mantenimiento desactivado: la web vuelve a verse.",
+    "Cache cleared.": "Caché vaciada.",
+    "Backup created in %s": "Copia de seguridad creada en %s",
+    "The action could not be completed.": "No se ha podido completar la acción.",
 }
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

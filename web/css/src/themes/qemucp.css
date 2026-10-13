@@ -588,7 +588,30 @@ h1 {
 		border: 0;
 		background-color: var(--qemucp-cyan-soft);
 		border-radius: 999px;
+		padding-left: 10px;
+		padding-right: 10px;
+		white-space: nowrap;
 	}
+}
+
+/* Estados en palabras (WP-TOOL: "Activa", "En mantenimiento") */
+.units-table-badge.qemucp-badge-ok {
+	color: #17724c;
+	background-color: #e8f7ef;
+}
+
+.units-table-badge.qemucp-badge-warning {
+	color: #8a6100;
+	background-color: #fff6dd;
+}
+
+/* Icono SVG de WordPress en el menu (Font Awesome brands no se carga) */
+.main-menu-item-label .qemucp-wp-icon {
+	fill: var(--qemucp-cyan) !important;
+}
+
+.main-menu-item-link.active .qemucp-wp-icon {
+	fill: var(--qemucp-blue-dark) !important;
 }
 
 .units-table-footer {

@@ -62,6 +62,9 @@ mkdir -p "$HESTIA/web/list/wp" "$HESTIA/web/edit/wp"
 curl -s "$FORK/web/list/wp/index.php$CB"          -o "$HESTIA/web/list/wp/index.php"
 curl -s "$FORK/web/edit/wp/index.php$CB"          -o "$HESTIA/web/edit/wp/index.php"
 curl -s "$FORK/web/templates/pages/list_wp.php$CB" -o "$HESTIA/web/templates/pages/list_wp.php"
+# Las acciones las ejecuta este comando como root (el panel corre como
+# hestiaweb y solo puede lanzar bin/v-*)
+curl -s "$FORK/bin/v-qemucp-wp$CB" -o "$HESTIA/bin/v-qemucp-wp" && chmod 755 "$HESTIA/bin/v-qemucp-wp"
 
 # --- 7. Performance Dashboard (ficheros propios) ---
 mkdir -p "$HESTIA/web/list/performance" "$HESTIA/web/api/performance-stats"

@@ -32,6 +32,7 @@ teardown_file() {
     "$B/v-delete-user" "ciq${CI_ID}" >/dev/null 2>&1 || true
     "$B/v-delete-user" "ciw${CI_ID}" >/dev/null 2>&1 || true
     "$B/v-delete-user" "cis${CI_ID}" >/dev/null 2>&1 || true
+    "$B/v-delete-user" "wpq${CI_ID}" >/dev/null 2>&1 || true
     rm -f "$H/data/packages/ciplan.pkg"
 }
 
@@ -295,4 +296,38 @@ crear() {
     # favicon cuadrado de QemuCP (el de qemugen era un logo apaisado 180x36)
     python3 -c 'import struct,sys; d=open(sys.argv[1],"rb").read(24); w,h=struct.unpack(">II",d[16:24]); assert w==h, (w,h)' "$H/web/images/favicon.png"
     grep -q 'href="/images/favicon.png"' "$H/web/templates/includes/css.php"
+}
+
+# ------------------------------------------------------------------ WP-TOOL
+@test "WP-TOOL: la pestana WORDPRESS esta en el menu (se perdio en la sync 1.10.3)" {
+    grep -q 'href="/list/wp/"' "$H/web/templates/includes/panel.php"
+    [ -x "$B/v-qemucp-wp" ]
+    for f in list/wp/index.php edit/wp/index.php templates/pages/list_wp.php; do
+        echo "fichero $f"; [ -s "$H/web/$f" ]
+    done
+    # Las acciones llevan token anti-CSRF
+    grep -q 'verify_csrf' "$H/web/edit/wp/index.php"
+}
+
+@test "WP-TOOL: v-qemucp-wp detecta WordPress, su version y el modo mantenimiento" {
+    W="wpq${CI_ID}"; D="wp${CI_ID}.test"
+    "$B/v-add-user" "$W" 'Ci-Pass-2026!x' "wp@qemucp.test" default "WPQ" >/dev/null
+    [ "$(crear $W $D)" = "CREADO" ]
+    R="/home/$W/web/$D/public_html"
+    # Sin WordPress: lista vacia y las acciones se niegan
+    [ "$("$B/v-qemucp-wp" "$W" list | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')" = "0" ]
+    run "$B/v-qemucp-wp" "$W" flush-cache "$D"
+    [ "$status" -ne 0 ]
+    # WordPress de mentira: basta con lo que mira la deteccion
+    mkdir -p "$R/wp-includes"
+    echo '<?php // config' > "$R/wp-config.php"
+    printf "<?php\n\$wp_version = '6.6.2';\n" > "$R/wp-includes/version.php"
+    out=$("$B/v-qemucp-wp" "$W" list); echo "$out"
+    echo "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin)[sys.argv[1]]; assert d["VERSION"]=="6.6.2" and d["MAINTENANCE"]=="no", d' "$D"
+    touch "$R/.maintenance"
+    "$B/v-qemucp-wp" "$W" list | python3 -c 'import json,sys; assert json.load(sys.stdin)[sys.argv[1]]["MAINTENANCE"]=="yes"' "$D"
+    # Accion desconocida y dominio ajeno: error
+    run "$B/v-qemucp-wp" "$W" borrar-todo "$D";  [ "$status" -ne 0 ]
+    run "$B/v-qemucp-wp" "$W" update "noexiste.test"; [ "$status" -ne 0 ]
+    "$B/v-delete-user" "$W" >/dev/null 2>&1 || true
 }

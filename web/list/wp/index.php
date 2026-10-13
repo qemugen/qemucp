@@ -1,43 +1,33 @@
 <?php
+// QemuCP WP-TOOL: lista de las webs con WordPress del usuario.
+// La deteccion la hace bin/v-qemucp-wp (como root): el panel corre como
+// hestiaweb y no puede leer ni ejecutar nada dentro de /home/USUARIO.
 $TAB = "WP";
 
 // Main include
 include $_SERVER["DOCUMENT_ROOT"] . "/inc/main.php";
 
-// Obtener todos los dominios web del usuario
-exec(HESTIA_CMD . "v-list-web-domains " . $user . " 'json'", $output, $return_var);
-$web_domains = json_decode(implode("", $output), true);
-$output = [];
-
-// Detectar cuales tienen WordPress instalado
-$wp_sites = [];
-foreach ($web_domains as $domain => $domain_data) {
-    $docroot = "/home/" . $user . "/web/" . $domain . "/public_html";
-    $wp_config = $docroot . "/wp-config.php";
-    $wp_login = $docroot . "/wp-login.php";
-
-    if (file_exists($wp_config) || file_exists($wp_login)) {
-        // Obtener version de WP
-        $wp_version = "unknown";
-        $version_file = $docroot . "/wp-includes/version.php";
-        if (file_exists($version_file)) {
-            $version_content = file_get_contents($version_file);
-            preg_match('/\$wp_version\s*=\s*[\'"]([^\'"]+)[\'"]/', $version_content, $matches);
-            $wp_version = $matches[1] ?? "unknown";
-        }
-
-        // Verificar si hay actualizacion disponible (via wp-cli si disponible)
-        $wp_sites[$domain] = [
-            "version"  => $wp_version,
-            "ssl"      => $domain_data["SSL"] ?? "no",
-            "suspended"=> $domain_data["SUSPENDED"] ?? "no",
-            "docroot"  => $docroot,
-        ];
-    }
+exec(HESTIA_CMD . "v-qemucp-wp " . quoteshellarg($user) . " list", $output, $return_var);
+$wp_sites = $return_var === 0 ? json_decode(implode("", $output), true) : [];
+if (!is_array($wp_sites)) {
+	$wp_sites = [];
 }
+unset($output);
+
+// Dominios sin WordPress: se ofrecen para instalarlo con el instalador de
+// aplicaciones
+exec(HESTIA_CMD . "v-list-web-domains " . quoteshellarg($user) . " json", $output, $return_var);
+$web_domains = $return_var === 0 ? json_decode(implode("", $output), true) : [];
+$domains_without_wp = [];
+foreach (is_array($web_domains) ? $web_domains : [] as $domain => $domain_data) {
+	if (!isset($wp_sites[$domain]) && ($domain_data["SUSPENDED"] ?? "no") !== "yes") {
+		$domains_without_wp[] = $domain;
+	}
+}
+unset($output);
 
 // Render page
-render_page($user, $TAB, "list_wp", $wp_sites);
+render_page($user, $TAB, "list_wp");
 
 // Back uri
 $_SESSION["back"] = $_SERVER["REQUEST_URI"];

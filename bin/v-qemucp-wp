@@ -1,0 +1,170 @@
+#!/bin/bash
+# info: QemuCP WP-TOOL - gestionar las instalaciones de WordPress de un usuario
+# options: USER ACTION [DOMAIN]
+#
+# example: v-qemucp-wp admin list
+# example: v-qemucp-wp admin update example.com
+#
+# Acciones:
+#   list             JSON con los dominios del usuario que tienen WordPress
+#   update           actualiza WordPress, plugins y temas
+#   maintenance-on   activa el modo mantenimiento
+#   maintenance-off  desactiva el modo mantenimiento
+#   flush-cache      vacia la cache de objetos y regenera los enlaces
+#   backup           copia de archivos + base de datos en ~/wp-backups
+#
+# El panel (usuario hestiaweb) solo puede ejecutar los comandos v-*: por eso
+# WP-CLI se lanza aqui, como el propio usuario (user_exec), y no desde PHP.
+# Usa el WP-CLI por usuario de HestiaCP (~/.wp-cli/wp, v-add-user-wp-cli),
+# que se instala solo la primera vez.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+action=$2
+domain=$3
+
+if [ -z "$HESTIA" ]; then
+	HESTIA="/usr/local/hestia"
+fi
+
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Raiz de la web del dominio (respeta la carpeta personalizada)
+wp_docroot() {
+	local custom
+	custom=$(get_object_value 'web' 'DOMAIN' "$1" '$CUSTOM_DOCROOT')
+	if [ -n "$custom" ]; then
+		echo "${custom%/}"
+	else
+		echo "$HOMEDIR/$user/web/$1/public_html"
+	fi
+}
+
+# Escapar un texto para meterlo entre comillas en JSON
+json_str() {
+	local s="${1//\\/\\\\}"
+	s="${s//\"/\\\"}"
+	printf '%s' "$s" | tr -d '\000-\037'
+}
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '2' "$#" 'USER ACTION [DOMAIN]'
+is_format_valid 'user'
+is_object_valid 'user' 'USER' "$user"
+
+case "$action" in
+	list) ;;
+	update | maintenance-on | maintenance-off | flush-cache | backup)
+		[ -z "$domain" ] && check_result "$E_ARGS" "Usage: v-qemucp-wp USER $action DOMAIN"
+		is_format_valid 'domain'
+		is_object_valid 'web' 'DOMAIN' "$domain"
+		is_object_unsuspended 'user' 'USER' "$user"
+		is_object_unsuspended 'web' 'DOMAIN' "$domain"
+		check_hestia_demo_mode
+		;;
+	*)
+		check_result "$E_INVALID" "Unknown action: $action"
+		;;
+esac
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+if [ "$action" = "list" ]; then
+	echo "{"
+	first=1
+	for d in $(grep -o "^DOMAIN='[^']*'" "$USER_DATA/web.conf" 2> /dev/null | cut -d"'" -f2); do
+		docroot=$(wp_docroot "$d")
+		[ -f "$docroot/wp-config.php" ] || [ -f "$docroot/wp-includes/version.php" ] || continue
+		version=$(grep -oP "^\\\$wp_version\s*=\s*'\K[^']+" "$docroot/wp-includes/version.php" 2> /dev/null | head -1)
+		maintenance="no"
+		[ -f "$docroot/.maintenance" ] && maintenance="yes"
+		ssl=$(get_object_value 'web' 'DOMAIN' "$d" '$SSL')
+		suspended=$(get_object_value 'web' 'DOMAIN' "$d" '$SUSPENDED')
+		[ "$first" -eq 1 ] || echo ","
+		first=0
+		printf '\t"%s": {"VERSION": "%s", "MAINTENANCE": "%s", "SSL": "%s", "SUSPENDED": "%s", "DOCROOT": "%s"}' \
+			"$(json_str "$d")" "$(json_str "${version:-}")" "$maintenance" \
+			"$(json_str "${ssl:-no}")" "$(json_str "${suspended:-no}")" "$(json_str "$docroot")"
+	done
+	[ "$first" -eq 1 ] || echo
+	echo "}"
+	exit 0
+fi
+
+docroot=$(wp_docroot "$domain")
+if [ ! -f "$docroot/wp-config.php" ]; then
+	check_result "$E_NOTEXIST" "WordPress not found in $domain"
+fi
+
+# WP-CLI del usuario (se instala la primera vez)
+wp_bin="$HOMEDIR/$user/.wp-cli/wp"
+if [ ! -x "$wp_bin" ]; then
+	$BIN/v-add-user-wp-cli "$user" > /dev/null 2>&1
+	[ -x "$wp_bin" ] || check_result "$E_NOTEXIST" "WP-CLI could not be installed"
+fi
+
+wp() {
+	user_exec "$wp_bin" --path="$docroot" --no-color "$@"
+}
+
+rc=0
+case "$action" in
+	update)
+		wp core update || rc=$?
+		wp plugin update --all || rc=$?
+		wp theme update --all || rc=$?
+		wp core update-db || true
+		;;
+	maintenance-on)
+		wp maintenance-mode activate || rc=$?
+		;;
+	maintenance-off)
+		wp maintenance-mode deactivate || rc=$?
+		;;
+	flush-cache)
+		wp cache flush || rc=$?
+		wp rewrite flush || true
+		;;
+	backup)
+		backup_dir="$HOMEDIR/$user/wp-backups"
+		stamp=$(date +%Y-%m-%d_%H-%M-%S)
+		tmp_dir="$HOMEDIR/$user/tmp"
+		db_file="$tmp_dir/${domain}_db_$stamp.sql"
+		backup_file="$backup_dir/${domain}_$stamp.tar.gz"
+		user_exec mkdir -p "$backup_dir" "$tmp_dir"
+		wp db export "$db_file" || rc=$?
+		if [ "$rc" -eq 0 ]; then
+			user_exec tar -czf "$backup_file" -C "$docroot" . -C "$tmp_dir" "$(basename "$db_file")" || rc=$?
+		fi
+		rm -f "$db_file"
+		[ "$rc" -eq 0 ] && echo "$backup_file"
+		;;
+esac
+
+if [ "$rc" -ne 0 ]; then
+	check_result "$E_UPDATE" "WP-CLI $action failed in $domain"
+fi
+
+#----------------------------------------------------------#
+#                       Hestia                             #
+#----------------------------------------------------------#
+
+# Logging
+$BIN/v-log-action "$user" "Info" "Web" "WordPress $action (Domain: $domain)."
+log_event "$OK" "$ARGUMENTS"
+
+exit
