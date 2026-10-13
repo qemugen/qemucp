@@ -30,7 +30,7 @@ BRAND_NAME="QemuCP"
 # Logo desde el fork de GitHub (fiable). Fallback: zonasdnsprivadas.com
 BRAND_LOGO="https://raw.githubusercontent.com/qemugen/qemucp/release/web/images/logo.png"
 BRAND_LOGO_FALLBACK="https://zonasdnsprivadas.com/scripts/assets/img/logo.png"
-ADMIN_EMAIL="soporte@qemugen.com"
+ADMIN_EMAIL="soporte@qemucp.com"
 ADMIN_PASS=$(cat /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 24 || true)
 TIMEZONE="Europe/Madrid"
 HESTIA_LANG="es"  # Idioma del panel HestiaCP (NO confundir con locale del SO)
@@ -67,8 +67,8 @@ _qemucp_rechazo() {
     echo "  +-------------------------------------------+"
     echo "  |      QemuCP - Acceso Restringido          |"
     echo "  |                                           |"
-    echo "  |  Este software es propiedad de QemuGen.  |"
-    echo "  |  Contacta: soporte@qemugen.com            |"
+    echo "  |  Este software es propiedad de QemuCP.   |"
+    echo "  |  Contacta: soporte@qemucp.com             |"
     echo "  +-------------------------------------------+"
     echo ""
     exit 1
@@ -2230,12 +2230,15 @@ else
     warn "No se pudo descargar el logo - se usara el logo por defecto"
 fi
 
-if command -v convert &>/dev/null; then
-    convert "$WEB_DIR/images/custom/brand-logo.png" \
+# Iconos: del simbolo cuadrado de QemuCP (images/favicon.png, va en el
+# paquete), no del logo apaisado, que en 32x32 sale deformado
+if command -v convert &>/dev/null && [ -f "$WEB_DIR/images/favicon.png" ]; then
+    convert "$WEB_DIR/images/favicon.png" \
         -background none -resize 32x32 "$WEB_DIR/images/favicon.ico" 2>/dev/null || true
-    convert "$WEB_DIR/images/custom/brand-logo.png" \
-        -background none -resize 180x180 "$WEB_DIR/images/apple-touch-icon.png" 2>/dev/null || true
-    log "Favicon y apple-touch-icon generados"
+    [ -f "$WEB_DIR/images/apple-touch-icon.png" ] || \
+        convert "$WEB_DIR/images/favicon.png" \
+            -background none -resize 180x180 "$WEB_DIR/images/apple-touch-icon.png" 2>/dev/null || true
+    log "Favicon y apple-touch-icon de QemuCP"
 fi
 
 cat > "$THEME_DIR/custom-brand.css" << 'CSSEOF'

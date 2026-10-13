@@ -287,3 +287,12 @@ crear() {
     [ "$n" -ge 9 ]
     grep -q 'qemucp-edit-link' "$H/web/css/themes/qemucp.min.css"
 }
+
+@test "el panel no muestra la marca qemugen (textos, logos ni favicon)" {
+    r=$(grep -rIil "qemugen" "$H/web/templates" "$H/web/inc" "$H/web/locale" 2>/dev/null || true)
+    echo "con qemugen: ${r:-ninguno}"
+    [ -z "$r" ]
+    # favicon cuadrado de QemuCP (el de qemugen era un logo apaisado 180x36)
+    python3 -c 'import struct,sys; d=open(sys.argv[1],"rb").read(24); w,h=struct.unpack(">II",d[16:24]); assert w==h, (w,h)' "$H/web/images/favicon.png"
+    grep -q 'href="/images/favicon.png"' "$H/web/templates/includes/css.php"
+}

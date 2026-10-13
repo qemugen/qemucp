@@ -365,3 +365,18 @@ Como hacerlo con otros textos:
   `TEXTOS`), que reescribe `web/locale/es/LC_MESSAGES/hestiacp.mo` (el
   repo no trae `.po`). **Relanzarlo tras sincronizar locales de upstream**:
   el `.mo` de upstream no trae estos textos. Lo comprueba `test/qemucp.bats`.
+
+## Marca: QemuCP, nunca qemugen
+
+Todo lo que ve el usuario dice QemuCP. Logos e iconos en `web/images/`:
+`logo.svg`/`logo-header.svg` (logo apaisado, blanco), `logo.png` y
+`logo-full.png` (el mismo en PNG), `favicon.png` (64px),
+`apple-touch-icon.png` (180px) y `web/favicon.ico` (16/32/48): simbolo de
+QemuCP sobre cuadrado marino redondeado, sacado de `logo.svg`. Correo:
+`soporte@qemucp.com`. Lo comprueba `test/qemucp.bats`.
+
+Lo que **no** se cambia: las URLs `github.com/qemugen/qemucp` y
+`raw.githubusercontent.com/qemugen/qemucp/...` (es donde vive el
+repositorio; cambiarlas rompe instalar y actualizar) y el nombre del
+servidor de produccion qemugen.com.
+

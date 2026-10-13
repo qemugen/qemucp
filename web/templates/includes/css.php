@@ -1,5 +1,5 @@
-<link rel="alternate icon" href="/images/favicon.png" type="image/png">
-<link rel="icon" href="/images/logo.svg" type="image/svg+xml">
+<link rel="icon" href="/images/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/images/apple-touch-icon.png">
 <link rel="stylesheet" href="/css/themes/default.min.css?<?= JS_LATEST_UPDATE ?>">
 
 <?php
