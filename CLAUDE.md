@@ -283,3 +283,25 @@ Los scripts de `install/` son idempotentes, hacen backup antes de tocar
 nada, verifican sintaxis (`bash -n`, `php -l`) y se revierten solos si algo
 falla. Comentarios y salida en español, sin acentos en el código. Los
 commits terminan con las líneas de atribución que pida la sesión.
+
+## Tema propio de QemuCP (pendiente)
+
+Objetivo: un tema más sencillo que los de HestiaCP. En las listas, en lugar
+del icono de lápiz (y demás iconos de acción) se ve un botón con texto
+("Editar", "Suspender", "Borrar"...).
+
+Dónde está cada cosa:
+- Temas: `web/css/src/themes/*.css` (default, dark, flat, vestia). Se
+  compilan a `web/css/themes/*.min.css` en el build del paquete
+  (`src/hst_autocompile.sh`, assets con Node). Los usuarios lo eligen en su
+  perfil (`v-change-user-theme`); `v-list-sys-themes` los lista.
+- Acciones de las listas: `web/templates/pages/list_*.php`, bloques
+  `<li class="units-table-row-action">` con `<i class="fas fa-pencil ...">`
+  y un `<span class="u-hide-desktop">` que YA lleva el texto traducido
+  ("Edit Domain"...), oculto en escritorio. Un tema puede mostrar ese span y
+  ocultar el icono solo con CSS, sin tocar las plantillas (sobrevive mejor a
+  las actualizaciones de upstream). Tocar plantillas solo si hace falta.
+- Traducciones: `web/locale/es/LC_MESSAGES/hestiacp.po`.
+- Para que sea el tema por defecto de las instalaciones nuevas: ajustar
+  `install/qemucp_install.sh` (PASO 2C fija el tema) y comprobarlo en
+  `test/qemucp.bats`.
