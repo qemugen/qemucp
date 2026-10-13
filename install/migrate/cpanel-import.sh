@@ -1541,7 +1541,10 @@ get_config_dbname() {
     case "$TYPE" in
         wordpress)  grep "DB_NAME" "$FILE" 2>/dev/null | grep -oP "define\(\s*['\"]DB_NAME['\"]\s*,\s*['\"]\K[^'\"]+" | head -1 ;;
         ps16)       grep "_DB_NAME_" "$FILE" 2>/dev/null | grep -oP "define\('_DB_NAME_',\s*'\K[^']+" | head -1 ;;
-        ps17)       grep "database_name:" "$FILE" 2>/dev/null | awk -F: '{print $2}' | tr -d " '\"" | head -1 ;;
+        # PrestaShop 1.7/8: app/config/parameters.php es un array PHP
+        # ('database_name' => 'x'); parameters.yml (1.7.0-1.7.3) es YAML
+        ps17)       { grep -oP "'database_name'\s*=>\s*'\K[^']+" "$FILE" 2>/dev/null \
+                      || grep "database_name:" "$FILE" 2>/dev/null | awk -F: '{print $2}' | tr -d " '\""; } | head -1 ;;
         joomla)     grep 'public \$db ' "$FILE" 2>/dev/null | grep -oP "=\s*'\K[^']+" | head -1 ;;
         whmcs)      grep '\$db_name' "$FILE" 2>/dev/null | grep -oP '=\s*["'"'"']\K[^"'"'"']+' | head -1 ;;
         opencart)   grep "DB_DATABASE" "$FILE" 2>/dev/null | grep -oP "'\K[^']+" | tail -1 ;;
@@ -1569,11 +1572,15 @@ update_one_config() {
         ps16)
             sed -i "s|define('_DB_NAME_'.*|define('_DB_NAME_', '$DB');|" "$FILE" 2>/dev/null
             sed -i "s|define('_DB_USER_'.*|define('_DB_USER_', '$USER');|" "$FILE" 2>/dev/null
-            sed -i "s|define('_DB_PASSWD_'.*|define('_DB_PASSWD_', '$PASS');|" "$FILE" 2>/dev/null ;;
+            sed -i "s|define('_DB_PASSWD_'.*|define('_DB_PASSWD_', '$PASS');|" "$FILE" 2>/dev/null
+            rm -f "${FILE%/config/settings.inc.php}/cache/class_index.php" 2>/dev/null
+            find "${FILE%/config/settings.inc.php}/cache/smarty/compile" "${FILE%/config/settings.inc.php}/cache/smarty/cache" \
+                -mindepth 1 ! -name index.php -delete 2>/dev/null || true ;;
         ps17)
-            sed -i "s|database_name:.*|database_name: $DB|" "$FILE" 2>/dev/null
-            sed -i "s|database_user:.*|database_user: $USER|" "$FILE" 2>/dev/null
-            sed -i "s|database_password:.*|database_password: $PASS|" "$FILE" 2>/dev/null ;;
+            sed -i -E "s|('database_name'[[:space:]]*=>[[:space:]]*)'[^']*'|\1'$DB'|; s|('database_user'[[:space:]]*=>[[:space:]]*)'[^']*'|\1'$USER'|; s|('database_password'[[:space:]]*=>[[:space:]]*)'[^']*'|\1'$PASS'|" "$FILE" 2>/dev/null
+            sed -i "s|database_name:.*|database_name: $DB|; s|database_user:.*|database_user: $USER|; s|database_password:.*|database_password: $PASS|" "$FILE" 2>/dev/null
+            # cache con rutas y contenedores del servidor viejo
+            rm -rf "${FILE%/app/config/parameters.*}/var/cache/prod" "${FILE%/app/config/parameters.*}/var/cache/dev" 2>/dev/null ;;
         joomla)
             sed -i "s|public \$db =.*|public \$db = '$DB';|" "$FILE" 2>/dev/null
             sed -i "s|public \$user =.*|public \$user = '$USER';|" "$FILE" 2>/dev/null
@@ -1624,7 +1631,7 @@ process_domain_configs() {
         case "$FOUND_CONFIG" in
             */wp-config.php) FOUND_TYPE="wordpress" ;;
             */config/settings.inc.php) FOUND_TYPE="ps16" ;;
-            */app/config/parameters.php) FOUND_TYPE="ps17" ;;
+            */app/config/parameters.php|*/app/config/parameters.yml) FOUND_TYPE="ps17" ;;
             */sites/default/settings.php) FOUND_TYPE="drupal" ;;
             */app/etc/env.php) FOUND_TYPE="magento2" ;;
             */app/etc/local.xml) FOUND_TYPE="magento1" ;;
@@ -1685,7 +1692,7 @@ process_domain_configs() {
         fi
     done < <(find "$WEBROOT" -maxdepth 4 \
         \( -name "wp-config.php" -o -name "settings.inc.php" -o -name "parameters.php" \
-           -o -name "configuration.php" -o -name "config.php" -o -name "settings.php" \
+           -o -name "parameters.yml" -o -name "configuration.php" -o -name "config.php" -o -name "settings.php" \
            -o -name "env.php" -o -name "local.xml" -o -name "database.php" -o -name ".env" \) \
         -type f 2>/dev/null)
 }
