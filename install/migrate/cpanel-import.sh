@@ -23,7 +23,7 @@
 # Al terminar comprueba cada zona DNS y lista lo que haya que revisar a mano.
 # ============================================================
 
-set -euo pipefail
+set -Eeuo pipefail   # -E: el aviso de fallo (trap ERR) tambien dentro de funciones
 
 BACKUP="${1:-}"
 FORCE_USER="${2:-}"
@@ -51,7 +51,9 @@ header() { echo -e "\n${BLUE}========================================${NC}" | te
 info()   { echo -e "  -> $1" | tee -a "$LOG"; }
 pendiente() { PENDIENTES+=("$1"); warn "$1"; }
 # Si algo falla sin control (set -e), decir DONDE en vez de cortar en silencio
-trap 'echo -e "${RED}[ERROR]${NC} Fallo inesperado en la linea $LINENO: $BASH_COMMAND" | tee -a "$LOG"' ERR
+# (solo en el proceso principal: dentro de $(...) un fallo no corta el script
+# y avisar ahi ensuciaria el valor capturado)
+trap '[[ $BASH_SUBSHELL -eq 0 ]] && echo -e "${RED}[ERROR]${NC} Fallo inesperado en la linea $LINENO: $BASH_COMMAND" | tee -a "$LOG"' ERR
 
 DOM_RE='^([a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$'
 es_dominio() { [[ "$1" =~ $DOM_RE ]]; }
@@ -768,7 +770,7 @@ detect_php_version() {
     if [[ -z "$V" ]]; then
         for UD in "$BACKUP_PATH/userdata/$DOMAIN" "$BACKUP_PATH/userdata/${ADDON_LINK[$DOMAIN]:-none}"; do
             [[ -f "$UD" ]] || continue
-            V=$( { grep -aiP "^phpversion" "$UD" || true; } | grep -oP "php[0-9]{2}" | grep -oP "[0-9]{2}" | head -1)
+            V=$( { grep -aiP "^phpversion" "$UD" || true; } | grep -oP "php[0-9]{2}" | grep -oP "[0-9]{2}" | head -1 || true)
             [[ -n "$V" ]] && break
         done
     fi
@@ -1644,7 +1646,10 @@ process_domain_configs() {
         esac
         [[ -z "$FOUND_TYPE" ]] && continue
 
-        CONFIG_DB=$(get_config_dbname "$FOUND_CONFIG" "$FOUND_TYPE")
+        # "|| true": un config sin el dato (wp-config con getenv, settings.php
+        # sin base de datos...) hace fallar el grep y, con pipefail, cortaba
+        # la importacion entera en este punto.
+        CONFIG_DB=$(get_config_dbname "$FOUND_CONFIG" "$FOUND_TYPE" || true)
         [[ -z "$CONFIG_DB" ]] && continue
         info "CMS detectado ($FOUND_TYPE): $FOUND_CONFIG [DB configurada: $CONFIG_DB]"
 
@@ -1655,7 +1660,8 @@ process_domain_configs() {
             DB_USER=$(echo "$DB_ENTRY" | cut -d: -f2)
             DB_PASS=$(echo "$DB_ENTRY" | cut -d: -f3-)
             if [[ "$DB_FINAL" == "$CONFIG_DB" || "$(quitar_prefijo "${DB_FINAL#${CPANEL_USER}_}")" == "$(quitar_prefijo "$CONFIG_DB")" ]]; then
-                update_one_config "$FOUND_CONFIG" "$FOUND_TYPE" "$DB_FINAL" "$DB_USER" "$DB_PASS"
+                update_one_config "$FOUND_CONFIG" "$FOUND_TYPE" "$DB_FINAL" "$DB_USER" "$DB_PASS" \
+                    || pendiente "No se pudo actualizar $FOUND_CONFIG: poner a mano la DB $DB_FINAL"
                 log "  Config actualizado con DB $DB_FINAL (match exacto)"
                 MATCHED="yes"
                 break
@@ -1669,7 +1675,8 @@ process_domain_configs() {
                 DB_FINAL=$(echo "$DB_ENTRY" | cut -d: -f1)
                 DB_USER=$(echo "$DB_ENTRY" | cut -d: -f2)
                 DB_PASS=$(echo "$DB_ENTRY" | cut -d: -f3-)
-                update_one_config "$FOUND_CONFIG" "$FOUND_TYPE" "$DB_FINAL" "$DB_USER" "$DB_PASS"
+                update_one_config "$FOUND_CONFIG" "$FOUND_TYPE" "$DB_FINAL" "$DB_USER" "$DB_PASS" \
+                    || pendiente "No se pudo actualizar $FOUND_CONFIG: poner a mano la DB $DB_FINAL"
                 log "  Config actualizado con DB $DB_FINAL (unica DB migrada)"
             else
                 pendiente "CMS en $FOUND_CONFIG usa la base de datos $CONFIG_DB y no hay ninguna migrada con ese nombre: revisar a mano"
