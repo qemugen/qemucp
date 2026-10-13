@@ -12,7 +12,7 @@ nginx_conf="${domain_conf_path}/nginx.ssl.conf"
 
 # Check if any file under /etc/nginx/conf.d/domains/ contains a line
 # with this IP followed by “quic reuseport;”. If not, proceed.
-if ! grep -qR "${ip}.*quic reuseport" /etc/nginx/conf.d/domains/; then
+if ! grep -qR "${ip}.*quic reuseport" /etc/nginx/conf.d/; then
 	# Modify the domain's nginx config: replace "quic" with "quic reuseport"
 	# to enable the reuseport option for QUIC.
 	sed -i.bak 's/quic/quic reuseport/' "$nginx_conf"

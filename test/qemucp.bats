@@ -127,6 +127,28 @@ crear() {
     [ -n "$output" ]
 }
 
+@test "varias webs con SSL a la vez: nginx sigue validando y recargando (HTTP/3)" {
+    for n in 1 2 3; do
+        D="ssl${n}${CI_ID}.qemucp.test"
+        "$B/v-add-web-domain" "$U" "$D" >/dev/null
+        T=$(mktemp -d)
+        openssl req -x509 -newkey rsa:2048 -nodes -days 30 -subj "/CN=$D" \
+            -keyout "$T/$D.key" -out "$T/$D.crt" >/dev/null 2>&1
+        run "$B/v-add-web-domain-ssl" "$U" "$D" "$T"
+        echo "ssl $D: $output"
+        [ "$status" -eq 0 ]
+        rm -rf "$T"
+    done
+    run nginx -t
+    echo "$output"
+    [ "$status" -eq 0 ]
+    run "$B/v-restart-proxy"
+    [ "$status" -eq 0 ]
+    # HTTP/3 sigue activo y reuseport aparece una sola vez por IP:443
+    grep -q "quic" "/etc/nginx/conf.d/domains/ssl1${CI_ID}.qemucp.test.ssl.conf"
+    [ "$( { grep -rhoE "listen +[0-9.]+:443 quic reuseport" /etc/nginx/conf.d/ || true; } | sort | uniq -d | wc -l)" -eq 0 ]
+}
+
 # ---------------------------------------------------------------- MariaDB
 @test "mariadb aplica las optimizaciones de QemuCP" {
     bp=$(mysql -Nse "SELECT @@innodb_buffer_pool_size")
