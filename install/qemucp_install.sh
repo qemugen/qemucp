@@ -257,6 +257,20 @@ qemucp_fuente() {
     fi
 }
 
+# Quita del historial de root las lineas de instalacion/actualizacion de
+# QemuCP (descarga del instalador, token, clave). Solo puede limpiar el
+# FICHERO: la linea de la sesion actual sigue en la memoria de esa shell y
+# bash la guarda al salir, salvo que el comando empiece con un espacio
+# (HISTCONTROL=ignoreboth, por defecto en Ubuntu). Por eso las
+# instrucciones de instalacion empiezan con un espacio.
+qemucp_limpiar_historial() {
+    local h
+    for h in /root/.bash_history /root/.zsh_history "${HOME:-/root}/.bash_history"; do
+        [ -f "$h" ] || continue
+        sed -i -E '/qemucp_install|QEMUCP_GH_TOKEN|QEMUCP_KEY|raw\.githubusercontent\.com\/qemugen|read -rsp "Token/d' "$h" 2>/dev/null || true
+    done
+}
+
 qemucp_sin_fuente() {
     echo -e "\033[0;31m[!!]\033[0m No se pudo descargar el codigo de QemuCP ($QEMUCP_REPO, rama $QEMUCP_RAMA)."
     if [[ -z "$QEMUCP_GH_TOKEN" ]]; then
@@ -352,6 +366,7 @@ if [[ "$QEMUCP_MODO" == "actualizar" ]]; then
     echo ""
     log "Actualizado: hestia $AC_ANTES -> $AC_NUEVA (fork, commit $AC_COMMIT)"
     rm -rf "$AC_SRC" /tmp/hestiacp-src
+    qemucp_limpiar_historial
     rm -f "$0" 2>/dev/null || true
     trap - EXIT
     exit 0
@@ -4381,5 +4396,7 @@ echo -e "${GREEN}==========================================================${NC}
 # $HESTIA/data/qemucp, que es desde donde los usa el hook post_install.
 rm -rf /opt/qemucp /opt/qemucp-src /tmp/hestiacp-src 2>/dev/null || true
 
+# Sin rastro de la instalacion: historial de comandos y el propio script
+qemucp_limpiar_historial
 # Autoborrado del script de instalacion (al final, tras completar todos los pasos)
 rm -f "$0" 2>/dev/null || true
