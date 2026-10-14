@@ -96,7 +96,7 @@ if (!empty($installer)) {
 			$app_installer_class = sprintf($class, $matches[1], $matches[1]);
 
 			// QemuCP: clave = carpeta del instalador. El nombre visible puede no
-			// coincidir ("WordPress Optimizado (QemuCP)" -> WordPressOptimized) y
+			// coincidir ("WordPress Optimizado" -> WordPressOptimized) y
 			// la plantilla lo usaba para el logo y para ?app=
 			$v_web_apps[$matches[1]] = (new $app_installer_class($hestia))->getInfo();
 		}

@@ -23,7 +23,7 @@ use Hestia\WebApp\Installers\PrestaShop\PrestaShopSetup;
 
 class PrestaShopOptimizedSetup extends PrestaShopSetup {
 	protected array $info = [
-		"name" => "PrestaShop Optimizado (QemuCP)",
+		"name" => "PrestaShop Optimizado",
 		"group" => "ecommerce",
 		// Misma version que el instalador oficial (se descarga su zip)
 		"version" => "9.1.5",

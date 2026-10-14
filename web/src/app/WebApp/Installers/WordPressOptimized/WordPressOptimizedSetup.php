@@ -25,7 +25,7 @@ use RuntimeException;
 
 class WordPressOptimizedSetup extends WordPressSetup {
 	protected array $info = [
-		"name" => "WordPress Optimizado (QemuCP)",
+		"name" => "WordPress Optimizado",
 		"group" => "cms",
 		"version" => "latest",
 		"thumbnail" => "wp-qemucp-thumb.png",
