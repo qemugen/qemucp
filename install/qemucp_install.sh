@@ -333,8 +333,30 @@ if [[ "$QEMUCP_MODO" == "actualizar" ]]; then
     # del fork (no rebrandear encima, volver a poner el hold).
     echo "fork $AC_COMMIT $(date '+%F %T')" > /usr/local/hestia/conf/qemucp-origen
 
+    # Hook de QemuCP y los scripts que usa. Los servidores instalados desde
+    # apt (o antes de que existiera el hook) no lo tienen, y sin el el
+    # postinst no reaplica nuestros parches. Se instala ANTES de dpkg para
+    # que se ejecute ya en esta actualizacion.
+    mkdir -p /usr/local/hestia/data/qemucp
+    for S in instalar-hook.sh parche-subdominios.sh arreglar-crons.sh qemucp-rebrand.sh; do
+        if [ -f "$AC_SRC/install/$S" ]; then
+            cp -f "$AC_SRC/install/$S" "/usr/local/hestia/data/qemucp/$S"
+            chmod +x "/usr/local/hestia/data/qemucp/$S"
+        fi
+    done
+    if grep -q "QemuCP" /etc/hestiacp/hooks/post_install.sh 2>/dev/null; then
+        log "Hook post_install de QemuCP presente"
+    elif bash /usr/local/hestia/data/qemucp/instalar-hook.sh >> "$AC_LOG" 2>&1 \
+        && grep -q "QemuCP" /etc/hestiacp/hooks/post_install.sh 2>/dev/null; then
+        log "Hook post_install de QemuCP instalado (este servidor no lo tenia)"
+    else
+        warn "No se pudo instalar el hook post_install (ver $AC_LOG)"
+    fi
+
     info "Instalando el paquete (el hook post_install se ejecuta solo)..."
-    AC_HOOK_N=$(wc -l < /var/log/qemucp-post-install.log 2>/dev/null || echo 0)
+    # Lineas que ya tenia el log del hook (0 si nunca se ha ejecutado)
+    AC_HOOK_N=0
+    [ -f /var/log/qemucp-post-install.log ] && AC_HOOK_N=$(wc -l < /var/log/qemucp-post-install.log)
     apt-mark unhold hestia >> "$AC_LOG" 2>&1 || true
     dpkg -i --force-confold "$AC_DEB" >> "$AC_LOG" 2>&1 \
         || error "dpkg fallo (ver $AC_LOG). Copia de la configuracion en $AC_BK"
@@ -352,12 +374,20 @@ if [[ "$QEMUCP_MODO" == "actualizar" ]]; then
     sleep 3
     AC_PUERTO=$( { grep "^BACKEND_PORT=" /usr/local/hestia/conf/hestia.conf || true; } | cut -d"'" -f2)
     AC_PUERTO="${AC_PUERTO:-8083}"
-    if systemctl is-active --quiet hestia \
-        && curl -sk --max-time 10 "https://127.0.0.1:${AC_PUERTO}/login/" | grep -qi "qemucp"; then
+    # Responde = HTTP 200 en /login/. La marca se mira aparte: un servidor
+    # instalado desde apt puede seguir llamandose "Hestia Control Panel", y
+    # antes eso se tomaba por "el panel no responde".
+    AC_HTTP=$(curl -sk -o /tmp/qemucp-login.html -w '%{http_code}' --max-time 15 \
+        "https://127.0.0.1:${AC_PUERTO}/login/" 2>/dev/null || true)
+    if systemctl is-active --quiet hestia && [ "$AC_HTTP" = "200" ]; then
         log "Panel respondiendo en el puerto $AC_PUERTO"
+        grep -qi "qemucp" /tmp/qemucp-login.html \
+            || warn "El panel funciona pero la pagina de acceso no dice QemuCP (APP_NAME en hestia.conf)"
     else
-        warn "El panel no responde en el puerto $AC_PUERTO: systemctl status hestia"
+        warn "El panel NO responde en el puerto $AC_PUERTO (HTTP ${AC_HTTP:-sin respuesta}): systemctl status hestia"
+        warn "Copia de la configuracion anterior en $AC_BK"
     fi
+    rm -f /tmp/qemucp-login.html
     for s in nginx apache2 php8.3-fpm; do
         systemctl list-unit-files "$s.service" >/dev/null 2>&1 || continue
         systemctl is-active --quiet "$s" 2>/dev/null || warn "$s no esta activo tras actualizar"
