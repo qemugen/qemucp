@@ -3813,6 +3813,28 @@ sysctl -e -p /etc/sysctl.d/99-qemucp-performance.conf > /dev/null 2>&1 \
 log "Parametros de kernel optimizados"
 
 # ---------------------------------------------
+#  PASO 10A1: EXIM - LINEAS LARGAS
+# ---------------------------------------------
+# Exim 4.95+ devuelve los correos con lineas de mas de 998 caracteres
+# ("message has lines too long for transport"). Outlook y muchos formularios
+# web los generan y Gmail/Microsoft los aceptan: se sube el limite en los
+# transportes smtp. Solo si la version de Exim conoce la opcion (4.95+).
+EXIM_TPL=/etc/exim4/exim4.conf.template
+EXIM_VER=$(exim4 -bV 2>/dev/null | grep -oP 'version \K[0-9]+\.[0-9]+' | head -1 || true)
+if [ -f "$EXIM_TPL" ] && [ -n "$EXIM_VER" ] && printf '%s\n4.95\n' "$EXIM_VER" | sort -V | head -1 | grep -qx "4.95" \
+   && ! grep -q "message_linelength_limit" "$EXIM_TPL"; then
+    cp "$EXIM_TPL" "$EXIM_TPL.antes-linelength"
+    sed -i -E '/^(remote_smtp|smtp_relay_smtp):$/{n;s/^(  driver = smtp)$/\1\n  message_linelength_limit = 1048576/}' "$EXIM_TPL"
+    if exim4 -C "$EXIM_TPL" -bV >/dev/null 2>&1 || exim4 -bV >/dev/null 2>&1; then
+        systemctl restart exim4 >/dev/null 2>&1 || true
+        log "Exim: limite de longitud de linea ampliado (correos de Outlook/formularios)"
+    else
+        cp "$EXIM_TPL.antes-linelength" "$EXIM_TPL"
+        warn "Exim no acepto message_linelength_limit: se deja como estaba"
+    fi
+fi
+
+# ---------------------------------------------
 #  PASO 10A2: HTTP/3 SIN "reuseport" REPETIDO
 # ---------------------------------------------
 # Las plantillas SSL llevaban "listen IP:443 quic reuseport" en cada web y

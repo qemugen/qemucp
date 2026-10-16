@@ -394,11 +394,19 @@ begin transports
 
 smtp_relay_smtp:
   driver = smtp
+  # QemuCP: Exim 4.95+ devuelve los correos con lineas de mas de 998
+  # caracteres ("message has lines too long for transport"); muchos
+  # programas (Outlook, formularios web) los generan y Gmail/Microsoft los aceptan.
+  message_linelength_limit = 1048576
   hosts_require_auth = $host_address
   hosts_require_tls = $host_address
 
 remote_smtp:
   driver = smtp
+  # QemuCP: Exim 4.95+ devuelve los correos con lineas de mas de 998
+  # caracteres ("message has lines too long for transport"); muchos
+  # programas (Outlook, formularios web) los generan y Gmail/Microsoft los aceptan.
+  message_linelength_limit = 1048576
   helo_data = ${lookup dnsdb{>: defer_never,ptr=$sending_ip_address}{${listextract{1}{$value}}}{$primary_hostname}}
   dkim_domain = DKIM_DOMAIN
   dkim_selector = mail
