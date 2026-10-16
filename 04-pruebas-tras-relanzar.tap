@@ -1,0 +1,35 @@
+1..34
+ok 1 el panel se ha instalado desde el fork y esta retenido frente a apt
+ok 2 la version instalada es la del fork
+ok 3 servicios activos
+ok 4 el panel responde en el puerto 8083 con la marca QemuCP
+ok 5 las configuraciones de nginx, apache y php-fpm son validas
+ok 6 plantillas php-fpm: un unico bloque QemuCP y una sola session.save_path
+ok 7 redis responde
+ok 8 las sesiones PHP de una web se guardan en Redis
+ok 9 varias webs con SSL a la vez: nginx sigue validando y recargando (HTTP/3)
+ok 10 mariadb aplica las optimizaciones de QemuCP
+ok 11 el hook de post-actualizacion esta en la ruta que ejecuta HestiaCP
+ok 12 la cola de reinicios esta operativa (crontab de hestiaweb)
+ok 13 un dominio nuevo resuelve solo, sin guardar la zona a mano
+ok 14 limite de subdominios: plan de 1 dominio y 2 subdominios
+ok 15 el boton del panel (v-add-domain) crea el vhost de un subdominio con el cupo de dominios lleno
+ok 16 los contadores de dominios y subdominios se guardan bien
+ok 17 un plan que no cubre el uso se rechaza con el mensaje de subdominios
+ok 18 un usuario con plan heredado (sin WEB_SUBDOMAINS) se comporta como HestiaCP original
+ok 19 el JSON de paquetes que lee el panel es valido e incluye WEB_SUBDOMAINS
+ok 20 fail2ban esta activo y con las jaulas de HestiaCP cargadas
+ok 21 nginx.conf no tiene load_module duplicados
+ok 22 nginx carga los modulos GeoIP2 y Brotli
+ok 23 el tema qemucp va en el paquete y no se pierde ningun tema de HestiaCP
+ok 24 qemucp es el tema por defecto: sistema, admin y usuarios nuevos
+ok 25 el panel sirve el CSS del tema qemucp
+ok 26 el gestor de archivos carga el CSS de QemuCP (logo blanco visible)
+ok 27 el selector de PHP se llama 'Version de PHP' y muestra PHP 8.3 en vez de PHP-8_3
+ok 28 Configuracion del servidor: los lapices llevan el texto 'Editar' para el tema qemucp
+ok 29 el panel no muestra la marca qemugen (textos, logos ni favicon)
+ok 30 WP-TOOL: la pestana APLICACIONES esta en el menu (se perdio en la sync 1.10.3)
+ok 31 WP-TOOL: v-qemucp-wp detecta WordPress, su version y el modo mantenimiento
+ok 32 instalador de aplicaciones: todos los instaladores cargan (uno roto tumba la lista entera)
+ok 33 Performance Dashboard: enlace en la barra y sin la comprobacion de $_SESSION['role']
+ok 34 lista de webs del tema qemucp (desplegable estilo Plesk) y aviso al entrar en un usuario
