@@ -51,7 +51,7 @@ N=0
 for U in "${USUARIOS[@]}"; do
     [[ -d "/home/$U/web" ]] || continue
     while IFS= read -r CFG; do
-        grep -q 'CFG->dataroot' "$CFG" 2>/dev/null || continue
+        grep -qP '\$CFG->dataroot\s*=' "$CFG" 2>/dev/null || continue
         moodle_dataroot "$CFG" && N=$((N+1))
     done < <(find "/home/$U/web" -maxdepth 5 -path '*/public_html*' -name config.php -type f 2>/dev/null)
 done
