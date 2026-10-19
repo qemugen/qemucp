@@ -637,6 +637,39 @@ fi
 # ============================================================
 header "Creando dominios web"
 
+# Dominios del backup que cuelgan de un dominio de OTRA cuenta de este
+# servidor (p.ej. cliente.hostingnovapyme34.com, cuyo hostingnovapyme34.com
+# es de la cuenta del hosting): QemuCP no deja crearlos ("belongs to a
+# different user"). Se permite temporalmente en ese dominio durante la
+# importacion y se vuelve a cerrar al terminar (tambien si el script falla).
+PERMITIDOS=()
+cerrar_permisos() {
+    local x
+    for x in "${PERMITIDOS[@]:-}"; do
+        [[ -z "$x" ]] && continue
+        $BIN/v-delete-web-domain-allow-users "${x%%|*}" "${x#*|}" >> "$LOG" 2>&1 || true
+    done
+    PERMITIDOS=()
+}
+trap 'cerrar_permisos' EXIT
+for d in "${WEB_DOMAINS_ALL[@]}" "${PARKED_DOMAINS[@]:-}" "${!ZONA_TSV[@]}"; do
+    [[ -z "$d" ]] && continue
+    p="$d"
+    while [[ "$p" == *.*.* ]]; do
+        p="${p#*.}"
+        DUENO=$($BIN/v-search-domain-owner "$p" web 2>/dev/null || true)
+        [[ -z "$DUENO" || "$DUENO" == "$CPANEL_USER" ]] && continue
+        if ! grep -q "^DOMAIN='$p'.*ALLOW_USERS='yes'" "$HESTIA/data/users/$DUENO/web.conf" 2>/dev/null \
+           && ! en_lista "$DUENO|$p" "${PERMITIDOS[@]:-}"; then
+            if $BIN/v-add-web-domain-allow-users "$DUENO" "$p" >> "$LOG" 2>&1; then
+                PERMITIDOS+=("$DUENO|$p")
+                info "$d cuelga de $p (cuenta $DUENO): permitido durante la importacion"
+            fi
+        fi
+        break
+    done
+done
+
 SERVER_IP=$($BIN/v-list-sys-ips plain 2>/dev/null | awk '{print $1}' | grep -v "^$" | head -1 || true)
 [[ -z "$SERVER_IP" ]] && SERVER_IP=$($BIN/v-list-ips plain 2>/dev/null | awk '{print $1}' | grep -v "^$" | head -1 || true)
 [[ -z "$SERVER_IP" ]] && SERVER_IP=$(hostname -I | awk '{print $1}' || true)
@@ -731,6 +764,7 @@ if [[ -d "$HOMEDIR" ]]; then
         --exclude='/.ssh' --exclude='/.cache' --exclude='/.npm' --exclude='/.wp-cli'
         --exclude='/.autorespond' --exclude='/.contactemail' --exclude='/.zshrc')
     for DOM in "${WEB_CREADOS[@]:-}"; do
+        [[ -z "$DOM" ]] && continue
         ODR="${DOCROOT_ORIG[$DOM]:-}"; REL="${ODR#/home/$ORIG_USER/}"
         [[ -n "$REL" && "$REL" != "$ODR" ]] && EXTRA_EXCL+=(--exclude="/${REL%%/*}")
     done
@@ -1824,6 +1858,7 @@ echo "    bash $(cd "$(dirname "$0")" && pwd)/ssl-lote.sh $CPANEL_USER" | tee -a
 rm -rf "$WORK_DIR"
 
 # -- Resumen ----------------------------------------------------
+cerrar_permisos
 header "IMPORTACION COMPLETADA"
 INFORME="/root/qemucp-import-$CPANEL_USER-$(date +%Y%m%d-%H%M).txt"
 {
