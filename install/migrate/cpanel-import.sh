@@ -738,6 +738,14 @@ if [[ -d "$HOMEDIR" ]]; then
         done
         if rsync -a "${EXCL[@]}" "$SRC/" "$DEST_DOM/" >> "$LOG" 2>&1; then
             log "Ficheros de $DOM copiados (desde ${SRC#$HOMEDIR/})"
+            # WordPress admite wp-config.php una carpeta por ENCIMA de la web
+            # (en cPanel: /home/USUARIO/wp-config.php para public_html). Aqui
+            # esa carpeta es otra: sin esto WordPress no lo encuentra y manda
+            # a wp-admin/setup-config.php (instalacion nueva).
+            if [[ -f "$DEST_DOM/wp-load.php" && ! -f "$DEST_DOM/wp-config.php" && -f "$(dirname "$SRC")/wp-config.php" ]]; then
+                cp -p "$(dirname "$SRC")/wp-config.php" "$DEST_DOM/wp-config.php"
+                info "  $DOM: wp-config.php estaba fuera de la web en cPanel; copiado a public_html"
+            fi
         else
             pendiente "Error copiando ficheros de $DOM (ver $LOG)"
         fi
