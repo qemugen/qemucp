@@ -140,6 +140,10 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
     [ -f "$HT.cpanel-orig" ]
 }
 
+@test "migrador: el .htaccess de la raiz del home de cPanel no se copia (daba 500 en todas las webs)" {
+    [ ! -e "/home/$U/.htaccess" ]
+}
+
 @test "migrador: la web principal se sirve (PHP ejecutado, no descargado)" {
     run curl -s --max-time 10 -H "Host: principal-ci.com" "http://$(ip_srv)/index.php"
     echo "$output" | head -5

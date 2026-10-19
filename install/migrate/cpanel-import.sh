@@ -762,7 +762,11 @@ if [[ -d "$HOMEDIR" ]]; then
         --exclude='/.lastlogin' --exclude='/.bash_history' --exclude='/www' --exclude='/web'
         --exclude='/conf' --exclude='/backup-*.tar.gz' --exclude='/cpmove-*.tar.gz'
         --exclude='/.ssh' --exclude='/.cache' --exclude='/.npm' --exclude='/.wp-cli'
-        --exclude='/.autorespond' --exclude='/.contactemail' --exclude='/.zshrc')
+        --exclude='/.autorespond' --exclude='/.contactemail' --exclude='/.zshrc'
+        # .htaccess en la raiz del home: Apache lo lee para TODAS las webs del
+        # usuario (esta por encima de public_html) y sus directivas no estan
+        # permitidas ahi -> error 500 en todas ("... not allowed here")
+        --exclude='/.htaccess' --exclude='/.htpasswd' --exclude='/php.ini' --exclude='/.user.ini')
     for DOM in "${WEB_CREADOS[@]:-}"; do
         [[ -z "$DOM" ]] && continue
         ODR="${DOCROOT_ORIG[$DOM]:-}"; REL="${ODR#/home/$ORIG_USER/}"

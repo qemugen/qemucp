@@ -109,6 +109,8 @@ echo '<?php echo "shop"; ?>'      > "$H/shop.adicional-ci.com/index.php"
 mkdir -p "$H/otro-ci.org"
 echo '<?php echo "otro"; ?>'      > "$H/otro-ci.org/index.php"
 printf '#!/bin/bash\necho copia\n' > "$H/scripts/backup.sh"
+# .htaccess en la raiz del home (cPanel lo crea a veces): en QemuCP rompe todas las webs
+printf 'RedirectMatch 301 ^/viejo/(.*)$ /nuevo/$1\n<IfModule mod_rewrite.c>\nRewriteEngine On\n</IfModule>\n' > "$H/.htaccess"
 chmod 755 "$H/scripts/backup.sh"
 cat > "$H/public_html/.htaccess" << 'EOF'
 RewriteEngine On
