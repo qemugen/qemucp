@@ -202,6 +202,12 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
     [ ! -d /home/$U/mail/principal-ci.com/archivo/storage ]
 }
 
+@test "migrador: respuestas automaticas de cPanel (HTML a texto; las caducadas no)" {
+    v-list-mail-account "$U" principal-ci.com juan json | grep -q '"AUTOREPLY": "yes"'
+    v-list-mail-account-autoreply "$U" principal-ci.com juan | tee /dev/stderr | grep -q "Estoy fuera hasta el lunes"
+    ! v-list-mail-account "$U" principal-ci.com info json | grep -q '"AUTOREPLY": "yes"'
+}
+
 @test "migrador: cuota del buzon" {
     [ "$(mailval QUOTA principal-ci.com info)" = "500" ]
 }

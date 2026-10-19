@@ -1108,6 +1108,8 @@ destino_reenvio() {  # destino dominio
     x="${x#"${x%%[![:space:]]*}"}"; x="${x%"${x##*[![:space:]]}"}"; x="${x%\"}"; x="${x#\"}"
     case "$x" in
         ""|:fail:*|:blackhole:*) echo "" ;;
+        # autorespond de cPanel: la respuesta automatica se importa aparte
+        *cpanel/bin/autorespond*) echo "" ;;
         \|*|/*) echo "PIPE" ;;
         *@*) echo "${x,,}" ;;
         *) if [[ "${x,,}" == "$ORIG_USER" ]]; then echo "${DEFAULT_ADDR:-DEFAULT}"; else echo "${x,,}@$dom"; fi ;;
@@ -1206,9 +1208,29 @@ for MAIL_DOMAIN in "${MAIL_DOMS[@]:-}"; do [[ -n "$MAIL_DOMAIN" ]] && permisos_c
 [[ ${#MAIL_DOMS[@]} -gt 0 && -n "${MAIL_DOMS[0]:-}" ]] && \
     log "Correo: $N_CUENTAS cuentas ($N_PASS_ORIG con su contrasena original), $N_FWD reenvios"
 
-# Lo que no se puede migrar automaticamente
+# Respuestas automaticas (homedir/.autorespond/cuenta@dominio)
 if [[ -d "$HOMEDIR/.autorespond" ]] && [[ -n "$(ls -A "$HOMEDIR/.autorespond" 2>/dev/null)" ]]; then
-    pendiente "Hay respuestas automaticas en cPanel ($(ls "$HOMEDIR/.autorespond" | grep -c . || true)): crearlas a mano en el panel"
+    AR_PY="$(cd "$(dirname "$0")" && pwd)/autorespuestas-cpanel.py"
+    [[ -f "$AR_PY" ]] || wget -q -O "$AR_PY" "https://raw.githubusercontent.com/qemugen/qemucp/release/install/migrate/autorespuestas-cpanel.py" || true
+    if [[ -f "$AR_PY" ]]; then
+        N_AR=0
+        while IFS=$'\t' read -r ACC DOM EST B64; do
+            [[ -z "$ACC" ]] && continue
+            if [[ "$EST" == "caducada" ]]; then info "  Respuesta automatica de $ACC@$DOM caducada en cPanel: no se activa"; continue; fi
+            if ! cuenta_existe "$DOM" "$ACC"; then
+                pendiente "Respuesta automatica de $ACC@$DOM: ese buzon no existe aqui"; continue
+            fi
+            $BIN/v-delete-mail-account-autoreply "$CPANEL_USER" "$DOM" "$ACC" >> "$LOG" 2>&1 || true
+            if $BIN/v-add-mail-account-autoreply "$CPANEL_USER" "$DOM" "$ACC" "$(echo "$B64" | base64 -d)" >> "$LOG" 2>&1; then
+                N_AR=$((N_AR+1))
+            else
+                pendiente "No se pudo poner la respuesta automatica de $ACC@$DOM"
+            fi
+        done < <(python3 -I "$AR_PY" "$HOMEDIR/.autorespond" 2>> "$LOG" || true)
+        log "Respuestas automaticas importadas: $N_AR"
+    else
+        pendiente "Hay respuestas automaticas en cPanel: no se pudo descargar autorespuestas-cpanel.py; usar importar-autorespuestas.sh"
+    fi
 fi
 if [[ -d "$BACKUP_PATH/vf" ]]; then
     for f in "$BACKUP_PATH"/vf/*; do

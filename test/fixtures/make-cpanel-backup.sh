@@ -185,6 +185,14 @@ mkdir -p "$H/etc/adicional-ci.com"
 printf 'pepe:x:1001:1001::/home/%s/mail/adicional-ci.com/pepe:/home/%s\n' $U $U > "$H/etc/adicional-ci.com/passwd"
 msg "$H/mail/adicional-ci.com/pepe" 4001
 
+# Respuestas automaticas de cPanel: una activa (HTML) y una caducada
+mkdir -p "$H/.autorespond"
+printf 'From: "Juan" <juan@principal-ci.com>\nSubject: Fuera de la oficina\nContent-Type: text/html; charset=utf-8\n\n<p>Estoy <b>fuera</b> hasta el lunes.</p>\n' \
+    > "$H/.autorespond/juan@principal-ci.com"
+echo '{"interval":24,"start":1600000000,"stop":null}' > "$H/.autorespond/juan@principal-ci.com.json"
+printf 'Subject: Vacaciones\n\nVacaciones de 2020\n' > "$H/.autorespond/info@principal-ci.com"
+echo '{"interval":24,"start":1590000000,"stop":1600000000}' > "$H/.autorespond/info@principal-ci.com.json"
+
 # Reenviadores (valiases) y reenvio de dominio (vdomainaliases)
 cat > "$B/va/principal-ci.com" << 'EOF'
 ventas@principal-ci.com: juan@principal-ci.com,externo-ci@example.org
