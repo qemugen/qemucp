@@ -1613,6 +1613,36 @@ get_config_dbname() {
     esac
 }
 
+# Moodle: la carpeta de datos ($CFG->dataroot) suele estar en
+# /home/USUARIO/moodledata, fuera de lo que PHP puede abrir en QemuCP
+# (open_basedir): se pasa a web/DOMINIO/private/moodledata.
+moodle_dataroot() {  # $1 = config.php de un Moodle en /home/U/web/DOM/public_html/...
+    local cfg="$1" u dom old new src c
+    u=$(echo "$cfg" | cut -d/ -f3); dom=$(echo "$cfg" | cut -d/ -f5)
+    old=$(grep -oP "\\\$CFG->dataroot\s*=\s*['\"]\K[^'\"]+" "$cfg" | head -1)
+    [[ -z "$old" ]] && { return 0; }
+    new="/home/$u/web/$dom/private/moodledata"
+    if [[ "$old" == "$new" ]]; then return 0; fi
+    # Ya accesible (dentro de la web del dominio) y existe: no se toca
+    if [[ "$old" == /home/$u/web/$dom/* && -d "$old" ]]; then return 0; fi
+    src=""
+    for c in "$old" "/home/$u/${old#/home*/*/}"; do
+        [[ -d "$c" ]] && { src="$c"; break; }
+    done
+    mkdir -p "/home/$u/web/$dom/private"
+    if [[ -n "$src" ]]; then
+        if [[ -e "$new" ]]; then rsync -a "$src/" "$new/" && rm -rf "$src"; else mv "$src" "$new"; fi
+    else
+        mkdir -p "$new"
+        pendiente "Moodle de $dom: no se encontro su carpeta de datos ($old); se ha creado vacia (faltaran los ficheros subidos)"
+    fi
+    rm -rf "$new/cache" "$new/localcache" "$new/sessions" "$new/temp" 2>/dev/null
+    chown -R "$u:$u" "$new"; chmod 770 "$new"
+        sed -i -E "s#(\\\$CFG->dataroot[[:space:]]*=[[:space:]]*)['\"][^'\"]*['\"]#\1'$new'#" "$cfg"
+    log "  Moodle de $dom: carpeta de datos -> $new (PHP no puede usar $old)"
+}
+
+
 # Actualiza UN fichero de config concreto con las credenciales dadas
 update_one_config() {
     local FILE="$1"
@@ -1652,7 +1682,8 @@ update_one_config() {
         moodle)
             sed -i "s|\$CFG->dbname.*|\$CFG->dbname   = '$DB';|" "$FILE" 2>/dev/null
             sed -i "s|\$CFG->dbuser.*|\$CFG->dbuser   = '$USER';|" "$FILE" 2>/dev/null
-            sed -i "s|\$CFG->dbpass.*|\$CFG->dbpass   = '$PASS';|" "$FILE" 2>/dev/null ;;
+            sed -i "s|\$CFG->dbpass.*|\$CFG->dbpass   = '$PASS';|" "$FILE" 2>/dev/null 
+            moodle_dataroot "$FILE" || true ;;
         drupal|magento2|codeigniter)
             python3 -c "
 import re
