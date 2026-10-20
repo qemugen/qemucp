@@ -112,6 +112,18 @@ printf '#!/bin/bash\necho copia\n' > "$H/scripts/backup.sh"
 # .htaccess en la raiz del home (cPanel lo crea a veces): en QemuCP rompe todas las webs
 printf 'RedirectMatch 301 ^/viejo/(.*)$ /nuevo/$1\n<IfModule mod_rewrite.c>\nRewriteEngine On\n</IfModule>\n' > "$H/.htaccess"
 chmod 755 "$H/scripts/backup.sh"
+# .user.ini y php.ini del MultiPHP INI Editor de cPanel: en QemuCP colgaban webs
+cat > "$H/public_html/blog/.user.ini" << 'EOF2'
+; cPanel-generated php ini directives, do not edit
+[PHP]
+max_execution_time = 180
+max_input_vars = 20000
+memory_limit = 2048M
+session.save_path = "/tmp"
+upload_max_filesize = 1024M
+zlib.output_compression = On
+EOF2
+printf 'allow_url_include = On\nsession.save_path = "/tmp"\n' > "$H/public_html/blog/php.ini"
 cat > "$H/public_html/.htaccess" << 'EOF'
 RewriteEngine On
 php_value upload_max_filesize 64M

@@ -140,6 +140,21 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
     [ -f "$HT.cpanel-orig" ]
 }
 
+@test "migrador: .user.ini de cPanel limpiado y php.ini retirado (webs colgadas)" {
+    B=/home/$U/web/blog.principal-ci.com/public_html
+    cat "$B/.user.ini"
+    grep -q "^max_execution_time = 60$" "$B/.user.ini"
+    grep -q "^memory_limit = 512M$" "$B/.user.ini"
+    grep -q "^max_input_vars = 20000$" "$B/.user.ini"
+    grep -q "^upload_max_filesize = 256M$" "$B/.user.ini"
+    ! grep -qi "session.save_path\|zlib" "$B/.user.ini"
+    [ -f "$B/.user.ini.cpanel-orig" ]
+    [ ! -e "$B/php.ini" ]
+    [ -f "$B/.php.ini.cpanel-orig" ]
+    # el de public_html (creado desde php_value del .htaccess) se mantiene
+    grep -q "upload_max_filesize = 64M" /home/$U/web/principal-ci.com/public_html/.user.ini
+}
+
 @test "migrador: el .htaccess de la raiz del home de cPanel no se copia (daba 500 en todas las webs)" {
     [ ! -e "/home/$U/.htaccess" ]
 }

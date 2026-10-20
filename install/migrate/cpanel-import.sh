@@ -849,6 +849,93 @@ while IFS= read -r -d '' HT; do
 done < <(find "$DEST_HOME/web" -name .htaccess -type f -print0 2>/dev/null)
 [[ $HT_FIX -gt 0 ]] && log "$HT_FIX .htaccess adaptados (directivas de cPanel comentadas; original en .htaccess.cpanel-orig)"
 
+# ---- .user.ini / php.ini de cPanel -----------------------------
+# PHP-FPM lee .user.ini de cada carpeta de la web. El de cPanel (MultiPHP INI
+# Editor) trae ajustes que aqui hacen dano: session.save_path=/tmp (fuera de
+# open_basedir: fallan sesiones), zlib.output_compression (doble compresion
+# con nginx: paginas en blanco o colgadas), max_execution_time=180+ (un fallo
+# deja la web colgada minutos), rutas del servidor viejo... Se dejan solo los
+# ajustes utiles, con tope; el original queda en .user.ini.cpanel-orig.
+# php.ini en la web no lo usa PHP-FPM y deja ver la configuracion: se renombra
+# a .php.ini.cpanel-orig (los ficheros que empiezan por punto no se sirven).
+ini_bytes() {  # 128M / 1G / 512K / 1048576 -> bytes (-1 = ilimitado)
+    local v="${1^^}" n
+    n="${v%[KMG]}"
+    [[ "$n" =~ ^-?[0-9]+$ ]] || { echo 0; return; }
+    case "$v" in
+        *K) echo $((n * 1024)) ;;
+        *M) echo $((n * 1048576)) ;;
+        *G) echo $((n * 1073741824)) ;;
+        *)  echo "$n" ;;
+    esac
+}
+limpiar_user_ini() {  # $1 = fichero .user.ini, $2 = usuario dueno -> echo "claves_quitadas"
+    local f="$1" u="$2" k v b n quitadas=0 tmp
+    local -A val=()
+    local orden=()
+    [[ -f "$f.cpanel-orig" ]] || cp -p "$f" "$f.cpanel-orig"
+    while IFS= read -r linea || [[ -n "$linea" ]]; do
+        linea="${linea%$'\r'}"
+        [[ "$linea" =~ ^[[:space:]]*([A-Za-z0-9_.]+)[[:space:]]*=[[:space:]]*(.*)$ ]] || continue
+        k="${BASH_REMATCH[1],,}"; v="${BASH_REMATCH[2]}"
+        if [[ "$v" =~ ^\"([^\"]*)\" || "$v" =~ ^\'([^\']*)\' ]]; then
+            v="${BASH_REMATCH[1]}"
+        else
+            v="${v%%;*}"; v="${v%"${v##*[![:space:]]}"}"
+        fi
+        case "$k" in
+            memory_limit)
+                b=$(ini_bytes "$v")
+                if [[ "$b" -lt 0 || "$b" -gt $((512 * 1048576)) ]]; then v=512M; fi
+                [[ "$b" -eq 0 ]] && { quitadas=$((quitadas+1)); continue; } ;;
+            upload_max_filesize|post_max_size)
+                b=$(ini_bytes "$v")
+                if [[ "$b" -le 0 || "$b" -gt $((256 * 1048576)) ]]; then v=256M; fi ;;
+            max_execution_time|max_input_time)
+                [[ "$v" =~ ^-?[0-9]+$ ]] || { quitadas=$((quitadas+1)); continue; }
+                if [[ "$v" -le 0 || "$v" -gt 60 ]]; then v=60; fi ;;
+            max_input_vars)
+                [[ "$v" =~ ^[0-9]+$ ]] || { quitadas=$((quitadas+1)); continue; }
+                [[ "$v" -gt 50000 ]] && v=50000 ;;
+            max_file_uploads)
+                [[ "$v" =~ ^[0-9]+$ ]] || { quitadas=$((quitadas+1)); continue; }
+                [[ "$v" -gt 100 ]] && v=100 ;;
+            display_errors|log_errors|error_reporting|short_open_tag|output_buffering|date.timezone|default_charset|session.gc_maxlifetime|session.cookie_lifetime)
+                ;;
+            *)  quitadas=$((quitadas+1)); continue ;;
+        esac
+        [[ -z "${val[$k]+x}" ]] && orden+=("$k")
+        val[$k]="$v"
+    done < "$f"
+    if [[ ${#orden[@]} -eq 0 ]]; then
+        rm -f "$f"
+    else
+        tmp=$(mktemp)
+        echo "; QemuCP: ajustes de cPanel validos aqui (original en .user.ini.cpanel-orig)" > "$tmp"
+        for k in "${orden[@]}"; do echo "$k = ${val[$k]}" >> "$tmp"; done
+        cat "$tmp" > "$f"; rm -f "$tmp"
+        chown "$u:$u" "$f" 2>/dev/null || true
+    fi
+    chown "$u:$u" "$f.cpanel-orig" 2>/dev/null || true
+    echo "$quitadas"
+}
+limpiar_php_ini_web() {  # $1 = carpeta web/, $2 = usuario -> echo "n_user_ini n_php_ini"
+    local base="$1" u="$2" f nu=0 np=0
+    while IFS= read -r -d '' f; do
+        limpiar_user_ini "$f" "$u" >/dev/null
+        nu=$((nu+1))
+    done < <(find "$base" -name .user.ini -type f -print0 2>/dev/null)
+    while IFS= read -r -d '' f; do
+        grep -q '<?' "$f" 2>/dev/null && continue   # no es un ini
+        mv -f "$f" "$(dirname "$f")/.php.ini.cpanel-orig"
+        np=$((np+1))
+    done < <(find "$base" -name php.ini -type f -print0 2>/dev/null)
+    echo "$nu $np"
+}
+read -r N_UINI N_PHPINI < <(limpiar_php_ini_web "$DEST_HOME/web" "$CPANEL_USER")
+[[ "$N_UINI" -gt 0 ]] && log "$N_UINI .user.ini de cPanel limpiados (solo memoria, tiempos y subidas, con tope; original en .user.ini.cpanel-orig)"
+[[ "$N_PHPINI" -gt 0 ]] && log "$N_PHPINI php.ini de cPanel retirados de la web (PHP-FPM no los usa; copia en .php.ini.cpanel-orig)"
+
 # ============================================================
 #  BASES DE DATOS
 # ============================================================

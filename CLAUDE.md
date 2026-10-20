@@ -221,6 +221,16 @@ error evaluating DMARC policy`); dos MX con prioridad 0 reparten el correo
   dentro de la zona, y del `_dmarc` conserva solo el del cliente (su
   política de producción), quitando el de QemuCP. Además limpia los `\;`
   que cPanel escribe en los TXT entre comillas.
+- **`.user.ini` de cPanel (MultiPHP INI Editor) cuelga webs**: trae
+  `session.save_path="/tmp"` (fuera de open_basedir), `zlib.output_compression=On`
+  y `max_execution_time=180`; en haciendabolonia.com los procesos PHP-FPM se
+  quedaban minutos sin responder (`AH01075 ... (polling)` en Apache, `upstream
+  timed out` en nginx) mientras por consola la web cargaba en 2 s. **Corregido
+  en el migrador** (`limpiar_php_ini_web`): solo deja memoria (tope 512M),
+  tiempos (tope 60 s), max_input_vars, subidas (tope 256M), zona horaria y
+  errores; original en `.user.ini.cpanel-orig`; `php.ini` de la web pasa a
+  `.php.ini.cpanel-orig` (PHP-FPM no lo lee). Cuentas ya migradas:
+  `install/migrate/arreglar-user-ini.sh [usuario ...]`.
 - **Certificado SNI de correo**: Exim y Dovecot lo buscan en
   `/usr/local/hestia/ssl/mail/mail.DOMINIO.crt`. Sin él sirven el del
   hostname y los clientes avisan. Se emite con
