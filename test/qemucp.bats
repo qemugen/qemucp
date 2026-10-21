@@ -90,6 +90,24 @@ crear() {
     done
 }
 
+@test "seguridad PHP (php2shell): mitigacion activa en todos los php-fpm y actualizaciones automaticas" {
+    malas=""
+    for d in /etc/php/*/fpm; do
+        v=$(basename "$(dirname "$d")")
+        [ -f "$d/conf.d/99-qemucp-seguridad.ini" ] || { malas="$malas $v(sin-ini)"; continue; }
+        "php-fpm$v" -i 2>/dev/null | grep -q "session.upload_progress.enabled => Off" || malas="$malas $v(no-aplica)"
+    done
+    echo "versiones mal:${malas:- ninguna}"
+    [ -z "$malas" ]
+    if dpkg -l unattended-upgrades | grep -q '^ii'; then
+        grep -q "LP-PPA-ondrej-php" /etc/apt/apt.conf.d/52qemucp-php-seguridad
+    fi
+    run bash "$H/data/qemucp/parche-php.sh" --comprobar
+    echo "$output"
+    [ "$status" -eq 0 ]
+    echo "$output" | grep -q "Estado de PHP"
+}
+
 # --------------------------------------------- plantillas y sesiones (Redis)
 @test "plantillas php-fpm: un unico bloque QemuCP y una sola session.save_path" {
     malas=""

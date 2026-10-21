@@ -338,7 +338,7 @@ if [[ "$QEMUCP_MODO" == "actualizar" ]]; then
     # postinst no reaplica nuestros parches. Se instala ANTES de dpkg para
     # que se ejecute ya en esta actualizacion.
     mkdir -p /usr/local/hestia/data/qemucp
-    for S in instalar-hook.sh parche-subdominios.sh arreglar-crons.sh qemucp-rebrand.sh; do
+    for S in instalar-hook.sh parche-subdominios.sh arreglar-crons.sh qemucp-rebrand.sh parche-php.sh; do
         if [ -f "$AC_SRC/install/$S" ]; then
             cp -f "$AC_SRC/install/$S" "/usr/local/hestia/data/qemucp/$S"
             chmod +x "/usr/local/hestia/data/qemucp/$S"
@@ -392,6 +392,12 @@ if [[ "$QEMUCP_MODO" == "actualizar" ]]; then
         systemctl list-unit-files "$s.service" >/dev/null 2>&1 || continue
         systemctl is-active --quiet "$s" 2>/dev/null || warn "$s no esta activo tras actualizar"
     done
+
+    # Parches de seguridad de PHP (todas las versiones instaladas)
+    if [ -f /usr/local/hestia/data/qemucp/parche-php.sh ]; then
+        info "Aplicando los parches de seguridad de PHP..."
+        bash /usr/local/hestia/data/qemucp/parche-php.sh 2>&1 | tee -a "$AC_LOG" | grep -E "OK|!!|XX|SIN PARCHE|parcheado" || true
+    fi
 
     echo ""
     log "Actualizado: hestia $AC_ANTES -> $AC_NUEVA (fork, commit $AC_COMMIT)"
@@ -3027,6 +3033,21 @@ for VER in "${PHP_VERSIONS[@]}"; do
     done
     log "Extensiones PHP $VER: mysql, gd, curl, mbstring, xml, zip, intl, bcmath, soap, imagick, redis, apcu, mcrypt"
 done
+
+# Parches de seguridad de PHP (php2shell, CVE-2026-109618/109619, y los que
+# vengan): actualiza todas las versiones, mitigacion en conf.d y
+# actualizaciones automaticas del repositorio de Ondrej. Ver install/parche-php.sh
+mkdir -p "$HESTIA/data/qemucp"
+if cp -f "$FORK_SRC/install/parche-php.sh" "$HESTIA/data/qemucp/parche-php.sh" 2>/dev/null; then
+    chmod +x "$HESTIA/data/qemucp/parche-php.sh"
+    if bash "$HESTIA/data/qemucp/parche-php.sh" > /var/log/qemucp-parche-php-instalacion.log 2>&1; then
+        log "Parches de seguridad de PHP aplicados (ver /var/log/qemucp-parche-php-instalacion.log)"
+    else
+        warn "Parches de PHP con avisos: revisa /var/log/qemucp-parche-php-instalacion.log"
+    fi
+else
+    warn "No esta install/parche-php.sh en el fork: PHP sin los parches de seguridad de QemuCP"
+fi
 
 # ------ Calcular workers segun RAM ------------------------------------------------------------------------------------------------------------------------------------------
 RAM_MB=$(free -m | awk '/^Mem:/{print $2}')

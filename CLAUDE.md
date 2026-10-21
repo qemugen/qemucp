@@ -231,6 +231,15 @@ error evaluating DMARC policy`); dos MX con prioridad 0 reparten el correo
   errores; original en `.user.ini.cpanel-orig`; `php.ini` de la web pasa a
   `.php.ini.cpanel-orig` (PHP-FPM no lo lee). Cuentas ya migradas:
   `install/migrate/arreglar-user-ini.sh [usuario ...]`.
+- **Parches de PHP (`install/parche-php.sh`)**: Ubuntu no aplica solo las
+  actualizaciones del repositorio de Ondrej, asi que PHP se quedaba sin
+  parchear. El script actualiza todas las versiones instaladas, deja la
+  mitigacion de php2shell (CVE-2026-109618/109619, 21-oct-2026) en
+  `/etc/php/X.Y/fpm/conf.d/99-qemucp-seguridad.ini`
+  (`session.upload_progress.enabled = 0`), anade el PPA a unattended-upgrades
+  e informa de las webs en 7.x/8.0/8.1 (sin version oficial corregida). Lo
+  ejecutan la instalacion (PASO 7) y `--actualizar`; a mano:
+  `bash /usr/local/hestia/data/qemucp/parche-php.sh [--comprobar]`.
 - **Certificado SNI de correo**: Exim y Dovecot lo buscan en
   `/usr/local/hestia/ssl/mail/mail.DOMINIO.crt`. Sin él sirven el del
   hostname y los clientes avisan. Se emite con
