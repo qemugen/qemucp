@@ -3035,8 +3035,8 @@ for VER in "${PHP_VERSIONS[@]}"; do
 done
 
 # Parches de seguridad de PHP (php2shell, CVE-2026-109618/109619, y los que
-# vengan): actualiza todas las versiones, mitigacion en conf.d y
-# actualizaciones automaticas del repositorio de Ondrej. Ver install/parche-php.sh
+# vengan): actualiza todas las versiones y activa las actualizaciones
+# automaticas del repositorio de Ondrej (sin mitigaciones). Ver install/parche-php.sh
 mkdir -p "$HESTIA/data/qemucp"
 if cp -f "$FORK_SRC/install/parche-php.sh" "$HESTIA/data/qemucp/parche-php.sh" 2>/dev/null; then
     chmod +x "$HESTIA/data/qemucp/parche-php.sh"

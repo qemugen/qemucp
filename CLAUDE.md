@@ -233,10 +233,12 @@ error evaluating DMARC policy`); dos MX con prioridad 0 reparten el correo
   `install/migrate/arreglar-user-ini.sh [usuario ...]`.
 - **Parches de PHP (`install/parche-php.sh`)**: Ubuntu no aplica solo las
   actualizaciones del repositorio de Ondrej, asi que PHP se quedaba sin
-  parchear. El script actualiza todas las versiones instaladas, deja la
-  mitigacion de php2shell (CVE-2026-109618/109619, 21-oct-2026) en
-  `/etc/php/X.Y/fpm/conf.d/99-qemucp-seguridad.ini`
-  (`session.upload_progress.enabled = 0`), anade el PPA a unattended-upgrades
+  parchear. El script actualiza todas las versiones instaladas, anade el PPA
+  a unattended-upgrades (php2shell, CVE-2026-109618/109619, 21-oct-2026). La
+  mitigacion (`session.upload_progress.enabled = 0` en
+  `/etc/php/X.Y/fpm/conf.d/99-qemucp-seguridad.ini`) es SOLO con `--mitigar`:
+  el usuario no puede quitarla sin hablar con sus clientes; `--quitar-mitigacion`
+  la retira
   e informa de las webs en 7.x/8.0/8.1 (sin version oficial corregida). Lo
   ejecutan la instalacion (PASO 7) y `--actualizar`; a mano:
   `bash /usr/local/hestia/data/qemucp/parche-php.sh [--comprobar]`.

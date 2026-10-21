@@ -3,8 +3,10 @@
 #  QemuCP - Parches de seguridad de PHP (todas las versiones instaladas)
 #
 #  Uso:
-#    bash parche-php.sh              actualiza, aplica mitigaciones y reinicia
-#    bash parche-php.sh --comprobar  solo informa, no cambia nada
+#    bash parche-php.sh                      actualiza PHP y reinicia
+#    bash parche-php.sh --comprobar          solo informa, no cambia nada
+#    bash parche-php.sh --mitigar            ademas, mitigacion provisional
+#    bash parche-php.sh --quitar-mitigacion  quita la mitigacion y reinicia
 #
 #  Motivo (21-oct-2026, "php2shell"): CVE-2026-109618 y CVE-2026-109619,
 #  ejecucion remota de codigo en PHP desde la 5.4 hasta la 8.5, ya atacadas.
@@ -15,12 +17,12 @@
 #  Lo que hace:
 #   1. apt update y actualiza TODOS los paquetes php de cada version instalada
 #      (repositorio de Ondrej Sury; conserva php.ini y los pools: confold).
-#   2. Mitigacion en /etc/php/X.Y/fpm/conf.d/99-qemucp-seguridad.ini:
+#   2. SOLO con --mitigar: /etc/php/X.Y/fpm/conf.d/99-qemucp-seguridad.ini
 #        session.upload_progress.enabled = 0   (CVE-2026-109619)
 #        fatal_error_backtraces = 0            (solo 8.5)
 #      Es lo que recomienda PHP mientras no se parchea. No sustituye al parche.
-#      La barra de progreso de subidas de PHP deja de funcionar (casi nadie la
-#      usa: las webs actuales la hacen con JavaScript).
+#      Desactiva la barra de progreso de subidas de PHP en TODAS las webs del
+#      servidor: no se aplica por defecto (puede haber clientes que la usen).
 #   3. Actualizaciones automaticas de seguridad tambien para PHP: Ubuntu solo
 #      aplica las de su repositorio; se anade el de Ondrej a unattended-upgrades.
 #   4. Reinicia todos los php-fpm (el codigo viejo sigue en memoria hasta
@@ -32,8 +34,11 @@
 # ============================================================================
 set -uo pipefail
 [[ $EUID -ne 0 ]] && { echo "Ejecuta como root"; exit 1; }
-SOLO_COMPROBAR=no
-[[ "${1:-}" == "--comprobar" ]] && SOLO_COMPROBAR=si
+MODO="${1:-actualizar}"
+case "$MODO" in
+    actualizar|--comprobar|--mitigar|--quitar-mitigacion) ;;
+    *) echo "Uso: bash $0 [--comprobar | --mitigar | --quitar-mitigacion]"; exit 1 ;;
+esac
 LOG=/var/log/qemucp-parche-php.log
 HESTIA=/usr/local/hestia
 CVES='CVE-2026-10961[89]'
@@ -111,8 +116,32 @@ informe() {
     fi
 }
 
-if [[ "$SOLO_COMPROBAR" == "si" ]]; then
+if [[ "$MODO" == "--comprobar" ]]; then
     informe
+    exit 0
+fi
+
+reiniciar_php() {
+    local v
+    for v in "${VERSIONES[@]}"; do
+        systemctl list-unit-files "php$v-fpm.service" >/dev/null 2>&1 || continue
+        if php-fpm$v -t >> "$LOG" 2>&1; then
+            systemctl restart "php$v-fpm" >> "$LOG" 2>&1 || mal "php$v-fpm no arranca (ver journalctl -u php$v-fpm)"
+        else
+            mal "php$v-fpm: la configuracion no valida (ver $LOG); no se reinicia"
+        fi
+    done
+    if systemctl is-active --quiet apache2 2>/dev/null; then
+        apache2ctl configtest >> "$LOG" 2>&1 && systemctl reload apache2 >> "$LOG" 2>&1
+    fi
+    ok "php-fpm y Apache reiniciados"
+}
+
+if [[ "$MODO" == "--quitar-mitigacion" ]]; then
+    : > "$LOG"
+    rm -f /etc/php/*/fpm/conf.d/99-qemucp-seguridad.ini
+    ok "Mitigacion quitada: session.upload_progress vuelve a su valor normal"
+    reiniciar_php
     exit 0
 fi
 
@@ -142,8 +171,8 @@ for v in "${VERSIONES[@]}"; do
     fi
 done
 
-# --- 2. Mitigacion -----------------------------------------------------------
-for v in "${VERSIONES[@]}"; do
+# --- 2. Mitigacion (solo con --mitigar) --------------------------------------
+[[ "$MODO" == "--mitigar" ]] && for v in "${VERSIONES[@]}"; do
     [[ -d "/etc/php/$v/fpm/conf.d" ]] || continue
     INI="/etc/php/$v/fpm/conf.d/99-qemucp-seguridad.ini"
     {
@@ -154,7 +183,11 @@ for v in "${VERSIONES[@]}"; do
     } > "$INI.nuevo"
     if cmp -s "$INI.nuevo" "$INI"; then rm -f "$INI.nuevo"; else mv -f "$INI.nuevo" "$INI"; fi
 done
-ok "Mitigacion aplicada en todos los php-fpm (99-qemucp-seguridad.ini)"
+if [[ "$MODO" == "--mitigar" ]]; then
+    ok "Mitigacion aplicada en todos los php-fpm (99-qemucp-seguridad.ini)"
+elif ls /etc/php/*/fpm/conf.d/99-qemucp-seguridad.ini >/dev/null 2>&1; then
+    echo "     Mitigacion: se mantiene la que ya habia (quitar: --quitar-mitigacion)"
+fi
 
 # --- 3. Actualizaciones automaticas de PHP ------------------------------------
 if dpkg -l unattended-upgrades 2>/dev/null | grep -q '^ii'; then
@@ -174,23 +207,12 @@ else
 fi
 
 # --- 4. Reiniciar ------------------------------------------------------------
-for v in "${VERSIONES[@]}"; do
-    systemctl list-unit-files "php$v-fpm.service" >/dev/null 2>&1 || continue
-    if php-fpm$v -t >> "$LOG" 2>&1; then
-        systemctl restart "php$v-fpm" >> "$LOG" 2>&1 || mal "php$v-fpm no arranca (ver journalctl -u php$v-fpm)"
-    else
-        mal "php$v-fpm: la configuracion no valida (ver $LOG); no se reinicia"
-    fi
-done
-if systemctl is-active --quiet apache2 2>/dev/null; then
-    apache2ctl configtest >> "$LOG" 2>&1 && systemctl reload apache2 >> "$LOG" 2>&1
-fi
-ok "php-fpm y Apache reiniciados"
+reiniciar_php
 
 # Comprobacion: los procesos en marcha cargan la mitigacion
 for v in "${VERSIONES[@]}"; do
     [[ -f "/etc/php/$v/fpm/conf.d/99-qemucp-seguridad.ini" ]] || continue
-    php-fpm$v -i 2>/dev/null | grep -q "session.upload_progress.enabled => Off" \
+    php-fpm$v -i 2>&1 | grep -qi "session.upload_progress.enabled => off" \
         || avi "PHP $v: la mitigacion no aparece en php-fpm$v -i"
 done
 
