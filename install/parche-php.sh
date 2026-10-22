@@ -11,8 +11,8 @@
 #  Motivo (21-oct-2026, "php2shell"): CVE-2026-109618 y CVE-2026-109619,
 #  ejecucion remota de codigo en PHP desde la 5.4 hasta la 8.5, ya atacadas.
 #  Versiones corregidas: 8.5.12, 8.4.27, 8.3.36 y 8.2.35. PHP 8.1 y anteriores
-#  NO tienen version oficial corregida (solo parches sueltos del equipo de PHP
-#  que algunos repositorios, como el de Ondrej Sury, incorporan).
+#  NO tienen version oficial corregida; el repositorio de Ondrej Sury (el que
+#  usa QemuCP) publico el parche incorporado para 7.2-8.1 (CORREGIDA_PKG).
 #
 #  Lo que hace:
 #   1. apt update y actualiza TODOS los paquetes php de cada version instalada
@@ -50,6 +50,10 @@ mal()  { echo -e "${R}[XX]${N} $*"; }
 
 # Version corregida minima por rama (vacio = sin version oficial)
 declare -A CORREGIDA=([8.2]=8.2.35 [8.3]=8.3.36 [8.4]=8.4.27 [8.5]=8.5.12)
+# Ramas sin soporte: el repositorio de Ondrej Sury publico el 21/22-oct-2026
+# el parche incorporado (mismo numero de PHP, revision del paquete mayor).
+# Version completa minima del paquete (dpkg --compare-versions).
+declare -A CORREGIDA_PKG=([7.2]=7.2.34-66 [7.3]=7.3.33-35 [7.4]=1:7.4.33-31 [8.0]=1:8.0.30-25 [8.1]=8.1.34-9)
 
 VERSIONES=()
 for d in /etc/php/*/; do
@@ -70,6 +74,11 @@ parcheada() {
     [[ -z "$inst" ]] && inst=$(ver_paquete "php$v-fpm")
     if [[ -n "${CORREGIDA[$v]:-}" ]]; then
         dpkg --compare-versions "$inst" ge "${CORREGIDA[$v]}" && return 0
+    fi
+    if [[ -n "${CORREGIDA_PKG[$v]:-}" ]]; then
+        local full
+        full=$(dpkg-query -W -f='${Version}' "php$v-common" 2>/dev/null)
+        [[ -n "$full" ]] && dpkg --compare-versions "$full" ge "${CORREGIDA_PKG[$v]}" && return 0
     fi
     # Ramas sin version oficial (o Ubuntu con el numero viejo): buscar el CVE
     # en el registro de cambios del paquete (backports de Sury / Ubuntu)
@@ -93,7 +102,7 @@ informe() {
             if [[ -n "${CORREGIDA[$v]:-}" ]]; then
                 mal "PHP $v  SIN PARCHE       ($inst; hace falta ${CORREGIDA[$v]} o posterior)"
             else
-                mal "PHP $v  SIN PARCHE       ($inst; rama sin soporte, sin version oficial corregida)"
+                mal "PHP $v  SIN PARCHE       ($inst; rama sin soporte; hace falta ${CORREGIDA_PKG[$v]:-el backport} o posterior)"
             fi
         fi
         if [[ -f "/etc/php/$v/fpm/conf.d/99-qemucp-seguridad.ini" ]]; then
