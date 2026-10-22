@@ -1991,6 +1991,20 @@ log "3 scripts auxiliares desplegados en $AUX_DIR y verificados"
 # ---------------------------------------------
 header "PASO 1: Preparando sistema base"
 
+# apt-get update que no detiene la instalacion si UN repositorio falla (el
+# 22-oct-2026 apt.hestiacp.com daba "Hash Sum mismatch" y, con set -e, la
+# instalacion se paraba en el PASO 7). Se reintenta y se sigue con aviso.
+qemucp_apt_update() {
+    local i
+    for i in 1 2 3; do
+        apt-get update -qq 2>/tmp/qemucp-apt-update.err && return 0
+        sleep $((i * 15))
+    done
+    warn "apt-get update con errores (se sigue con los indices que hay):"
+    grep -E '^(E|W):' /tmp/qemucp-apt-update.err | head -3 | while read -r l; do warn "  $l"; done
+    return 0
+}
+
 # Reintentos de apt: el repositorio de PHP (Launchpad) da "503 Service
 # Unavailable" en picos (21-oct-2026, parches de php2shell) y con los 3
 # reintentos de hst-install la instalacion se quedaba sin nginx ni PHP.
@@ -2057,7 +2071,7 @@ grep -qE "^127\.0\.0\.1[[:space:]]+${HOSTNAME//./\\.}([[:space:]]|$)" /etc/hosts
     || echo "127.0.0.1 $HOSTNAME" >> /etc/hosts
 log "Hostname: $HOSTNAME"
 
-apt-get update -qq
+qemucp_apt_update
 apt-get upgrade -y -qq -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
 apt-get install -y -qq -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
     curl wget git unzip software-properties-common \
@@ -2070,7 +2084,7 @@ log "Paquetes base instalados"
 # PHP sera instalado y gestionado por HestiaCP en el PASO 2
 # Bloqueamos las versiones obsoletas via apt ANTES de que HestiaCP las instale
 add-apt-repository -y ppa:ondrej/php 2>/dev/null || true
-apt-get update -qq
+qemucp_apt_update
 
 # Bloquear instalacion de versiones PHP EOL (5.6, 7.0, 7.1)
 # HestiaCP con MultiPHP las instala automaticamente sin este bloqueo
@@ -3074,7 +3088,7 @@ for VER in "${PHP_EXTRA_VERSIONS[@]}"; do
 done
 
 # Instalar extensiones adicionales para todas las versiones disponibles
-apt-get update -qq
+qemucp_apt_update
 for VER in "${PHP_VERSIONS[@]}"; do
     # Extensiones ESENCIALES (CMS/WordPress las necesitan) + optimizacion
     # mysql=mysqli (WordPress/PrestaShop), gd (imagenes), curl, mbstring, xml, zip, intl, bcmath, soap
