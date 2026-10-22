@@ -242,6 +242,13 @@ error evaluating DMARC policy`); dos MX con prioridad 0 reparten el correo
   e informa de las webs en 7.x/8.0/8.1 (sin version oficial corregida). Lo
   ejecutan la instalacion (PASO 7) y `--actualizar`; a mano:
   `bash /usr/local/hestia/data/qemucp/parche-php.sh [--comprobar]`.
+- **PHP interno del panel (hestia-php)**: el instalador compila `hestia-php`
+  y `hestia-nginx` desde el fork (`src/deb/php/control`, ahora 8.5.12) en vez
+  de bajarlos de apt.hestiacp.com (22-oct-2026: indice con Hash Sum mismatch
+  y hestia-php 8.5.9 vulnerable a php2shell). `--actualizar` compila e
+  instala hestia-php si el del fork es mas nuevo. Para un parche de PHP
+  futuro: subir la version en `src/deb/php/control`. `apt-get update` del
+  instalador va por `qemucp_apt_update` (no se para si un repositorio falla).
 - **Certificado SNI de correo**: Exim y Dovecot lo buscan en
   `/usr/local/hestia/ssl/mail/mail.DOMINIO.crt`. Sin él sirven el del
   hostname y los clientes avisan. Se emite con
