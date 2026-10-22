@@ -1966,6 +1966,16 @@ log "3 scripts auxiliares desplegados en $AUX_DIR y verificados"
 # ---------------------------------------------
 header "PASO 1: Preparando sistema base"
 
+# Reintentos de apt: el repositorio de PHP (Launchpad) da "503 Service
+# Unavailable" en picos (21-oct-2026, parches de php2shell) y con los 3
+# reintentos de hst-install la instalacion se quedaba sin nginx ni PHP.
+# 81- se lee despues del 80-retries de hst-install, asi que gana este valor.
+cat > /etc/apt/apt.conf.d/81-qemucp-retries << 'APTEOF'
+Acquire::Retries "10";
+Acquire::http::Timeout "60";
+Acquire::https::Timeout "60";
+APTEOF
+
 # --- Usuario/grupo 'admin' preexistente ----------------------------------
 # hst-install aborta con "Username or Group allready exists" porque
 # comprueba /etc/passwd Y /etc/group. Muchas imagenes de Ubuntu traen el
