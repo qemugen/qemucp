@@ -2084,7 +2084,30 @@ grep -qE "^127\.0\.0\.1[[:space:]]+${HOSTNAME//./\\.}([[:space:]]|$)" /etc/hosts
 log "Hostname: $HOSTNAME"
 
 qemucp_apt_update
-apt-get upgrade -y -qq -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
+# grub-pc falla al actualizarse en muchos VPS (imagen clonada: debconf
+# apunta a un disco que ya no existe, p. ej. /dev/sda en un servidor con
+# /dev/vda). Con dpkg a medias, todos los apt-get siguientes fallan y la
+# instalacion se paraba aqui. Se le indica el disco real de arranque y se
+# termina de configurar.
+qemucp_arreglar_grub() {
+    local part disco
+    dpkg --audit 2>/dev/null | grep -q "grub" || dpkg -l grub-pc 2>/dev/null | grep -q '^i[FHU]' || return 0
+    part=$(findmnt -no SOURCE /boot 2>/dev/null || findmnt -no SOURCE / 2>/dev/null)
+    disco=$(lsblk -no PKNAME "$part" 2>/dev/null | head -1)
+    [[ -z "$disco" ]] && disco=$(lsblk -dno NAME,TYPE 2>/dev/null | awk '$2 == "disk" {print $1; exit}')
+    if [[ -n "$disco" && -b "/dev/$disco" ]]; then
+        warn "grub-pc no se pudo configurar: se instala en el disco de arranque /dev/$disco"
+        echo "grub-pc grub-pc/install_devices multiselect /dev/$disco" | debconf-set-selections
+    fi
+    DEBIAN_FRONTEND=noninteractive dpkg --configure -a --force-confdef --force-confold \
+        || warn "dpkg sigue con paquetes a medias: revisa 'dpkg --audit'"
+}
+export DEBIAN_FRONTEND=noninteractive
+if ! apt-get upgrade -y -qq -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"; then
+    qemucp_arreglar_grub
+    apt-get upgrade -y -qq -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
+        || warn "apt-get upgrade con errores: se sigue con la instalacion"
+fi
 apt-get install -y -qq -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" \
     curl wget git unzip software-properties-common \
     apt-transport-https ca-certificates gnupg lsb-release \
