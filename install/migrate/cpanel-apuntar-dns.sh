@@ -9,6 +9,10 @@
 #   bash cpanel-apuntar-dns.sh todas --bajar-ttl              1o, horas antes
 #   bash cpanel-apuntar-dns.sh dominios-qemucp.txt             solo MUESTRA
 #   bash cpanel-apuntar-dns.sh dominios-qemucp.txt --aplicar   aplica
+#   ... --aplicar --resincronizar-bd   ademas, justo antes de cambiar el DNS
+#        de cada cuenta, vuelve a copiar sus bases de datos al QemuCP (lo que
+#        entro en el cPanel durante la migracion). Sin --aplicar solo muestra
+#        que bases de datos copiaria. Necesita ssh-copy-id root@IP_QEMUCP.
 #
 # Por cada dominio de la lista, en su zona del cPanel:
 #   - registros A que apuntan a ESTE servidor cPanel -> IP de QemuCP
@@ -28,7 +32,13 @@
 set -uo pipefail
 
 LISTA="${1:-}"
-APLICAR="no"; [[ "${2:-}" == "--aplicar" ]] && APLICAR="si"
+APLICAR="no"; RESYNC="no"
+for arg in "${@:2}"; do
+    case "$arg" in
+        --aplicar) APLICAR="si" ;;
+        --resincronizar-bd) RESYNC="si" ;;
+    esac
+done
 [[ $EUID -ne 0 ]] && { echo "Ejecuta como root"; exit 1; }
 ZDIR="${QEMUCP_ZONAS:-/var/named}"
 [[ -d "$ZDIR" ]] || { echo "No esta $ZDIR: ¿es el servidor cPanel?"; exit 1; }
@@ -114,11 +124,78 @@ echo ""
 BK="/root/dns-antes-de-qemucp-$(date +%Y%m%d-%H%M%S)"
 [[ "$APLICAR" == "si" ]] && mkdir -p "$BK"
 N_OK=0; N_SIN=0; N_MAL=0
+N_RESYNC_OK=0; N_RESYNC_MAL=0; N_RESYNC_SALTA=0
 
-while IFS='|' read -r D NUEVA LOCAL DKIM; do
-    [[ -z "${D:-}" || "$D" == \#* ]] && continue
+# ---- --resincronizar-bd ------------------------------------------------
+# Vuelve a copiar las bases de datos de cada cuenta al QemuCP justo antes de
+# cambiar su DNS: lo que entro en el cPanel mientras se exportaba e
+# importaba (pedidos, usuarios, formularios...) no se pierde. Necesita
+# entrar por SSH sin contrasena del cPanel al QemuCP:
+#     ssh-copy-id root@IP_QEMUCP
+# En el QemuCP lo recibe recibir-bd.sh, que guarda antes una copia de la BD
+# y no toca nada si el dominio ya apunta a QemuCP.
+RECEPTOR_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/migrate/recibir-bd.sh"
+declare -A SSH_LISTO=()
+preparar_ssh() {  # IP -> 0 si se puede entrar y el receptor esta
+    local ip="$1"
+    [[ -n "${SSH_LISTO[$ip]:-}" ]] && { [[ "${SSH_LISTO[$ip]}" == si ]]; return; }
+    SSH_LISTO[$ip]=no
+    if ! ssh -n -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "root@$ip" true 2>/dev/null; then
+        echo "   !! No se puede entrar por SSH sin contrasena a root@$ip. En este cPanel:"
+        echo "        ssh-keygen -t ed25519 -N \"\" -f /root/.ssh/id_ed25519   (si no hay clave)"
+        echo "        ssh-copy-id root@$ip"
+        return 1
+    fi
+    if ! ssh -n "root@$ip" "mkdir -p /root/migracion && wget -q -O /root/migracion/recibir-bd.sh '$RECEPTOR_URL?cb=$(date +%s)' && bash -n /root/migracion/recibir-bd.sh" >/dev/null 2>&1; then
+        echo "   !! No se pudo dejar recibir-bd.sh en root@$ip:/root/migracion/"
+        return 1
+    fi
+    SSH_LISTO[$ip]=si
+}
+bds_de() {  # usuario cPanel -> sus bases de datos
+    local u="$1" p8="${1:0:8}"
+    mysql -N -e "SHOW DATABASES" 2>/dev/null | grep -E "^(${u}|${p8})_" | sort -u
+}
+resincronizar_cuenta() {  # CU IP DOMINIO
+    local cu="$1" ip="$2" dom="$3" db n=0 tam rc mal=0 out
+    local dbs
+    dbs=$(bds_de "$cu")
+    if [[ -z "$dbs" ]]; then echo "   (sin bases de datos)"; return 0; fi
+    if [[ "$APLICAR" != "si" ]]; then
+        for db in $dbs; do
+            tam=$(mysql -N -e "SELECT ROUND(SUM(data_length+index_length)/1048576,1) FROM information_schema.tables WHERE table_schema='$db'" 2>/dev/null)
+            echo "   BD $db (${tam:-0} MB): se copiaria a $ip antes de cambiar el DNS"
+        done
+        preparar_ssh "$ip" && echo "   SSH a root@$ip: OK"
+        return 0
+    fi
+    preparar_ssh "$ip" || { N_RESYNC_MAL=$((N_RESYNC_MAL+1)); return 1; }
+    for db in $dbs; do
+        out=$( { mysqldump --single-transaction --quick --routines --triggers --events --hex-blob \
+                    --no-tablespaces --default-character-set=utf8mb4 "$db" 2>/tmp/qemucp-resync.err \
+                  | gzip | ssh -o BatchMode=yes "root@$ip" "bash /root/migracion/recibir-bd.sh '$dom' '$cu' '$db'" 2>&1
+                 echo "__RC ${PIPESTATUS[*]}"; } )
+        read -r -a rc <<< "$(printf '%s\n' "$out" | tail -1 | sed 's/^__RC //')"
+        out=$(printf '%s\n' "$out" | sed '$d')
+        printf '%s\n' "$out" | sed 's/^/   /'
+        if [[ ${rc[0]} -ne 0 ]]; then
+            echo "   !! mysqldump fallo en $db: $(head -c 200 /tmp/qemucp-resync.err)"; mal=1
+        elif [[ ${rc[2]} -eq 0 ]]; then
+            N_RESYNC_OK=$((N_RESYNC_OK+1))
+        elif [[ ${rc[2]} -eq 3 || ${rc[2]} -eq 4 ]]; then
+            :   # no existe en QemuCP / ya apunta alli: aviso, no bloquea
+        else
+            mal=1
+        fi
+    done
+    [[ $mal -eq 0 ]] || { N_RESYNC_MAL=$((N_RESYNC_MAL+1)); return 1; }
+}
+
+procesar_linea() {  # D NUEVA LOCAL DKIM
+    local D="$1" NUEVA="$2" LOCAL="$3" DKIM="$4" Z T NC
+    [[ -z "${D:-}" || "$D" == \#* ]] && return
     Z="$ZDIR/$D.db"
-    if [[ ! -f "$Z" ]]; then echo "-- $D: no tiene zona en este cPanel, se salta"; N_SIN=$((N_SIN+1)); continue; fi
+    if [[ ! -f "$Z" ]]; then echo "-- $D: no tiene zona en este cPanel, se salta"; N_SIN=$((N_SIN+1)); return; fi
     T=$(mktemp)
     # MX al hostname de este servidor (fuera de la zona): se cambia a mail.D
     awk -v dom="$D" -v nueva="$NUEVA" -v local="$LOCAL" -v v4=" $V4 " -v v6=" $V6 " -v dkim="$DKIM" '
@@ -200,11 +277,58 @@ while IFS='|' read -r D NUEVA LOCAL DKIM; do
         fi
     fi
     rm -f "$T" "$T.n"
+}
+
+# Lineas de la lista (se leen antes: ssh y mysqldump no deben comerse la
+# entrada del bucle)
+LINEAS=()
+while IFS= read -r L || [[ -n "$L" ]]; do
+    [[ -z "${L// }" || "$L" == \#* ]] && continue
+    LINEAS+=("$L")
 done < "$LISTA"
+
+if [[ "$RESYNC" != "si" ]]; then
+    for L in "${LINEAS[@]}"; do
+        IFS='|' read -r D NUEVA LOCAL DKIM <<< "$L"
+        procesar_linea "$D" "$NUEVA" "$LOCAL" "${DKIM:-}"
+    done
+else
+    # Por cuenta de cPanel: primero sus bases de datos, y en cuanto estan
+    # en QemuCP se cambia el DNS de sus dominios (lo mas seguido posible: lo
+    # que entre en el cPanel despues de la copia se perderia).
+    declare -A DOMS_DE=() IP_DE=()
+    ORDEN=()
+    for L in "${LINEAS[@]}"; do
+        IFS='|' read -r D NUEVA _ <<< "$L"
+        CU=$(awk -F': ' -v d="$D" '$1 == d {print $2; exit}' ${QEMUCP_USERDOMAINS:-/etc/userdomains} 2>/dev/null)
+        [[ -z "$CU" || "$CU" == "nobody" ]] && CU="-"
+        [[ -z "${DOMS_DE[$CU]+x}" ]] && { ORDEN+=("$CU"); IP_DE[$CU]="$NUEVA"; }
+        DOMS_DE[$CU]+="$L"$'\n'
+    done
+    for CU in "${ORDEN[@]}"; do
+        echo "######## Cuenta cPanel: $CU"
+        RESYNC_OK=si
+        if [[ "$CU" != "-" ]]; then
+            resincronizar_cuenta "$CU" "${IP_DE[$CU]}" "$(printf '%s' "${DOMS_DE[$CU]}" | head -1 | cut -d'|' -f1)" || RESYNC_OK=no
+        fi
+        if [[ "$RESYNC_OK" == "no" && "$APLICAR" == "si" ]]; then
+            echo "   !! NO se cambia el DNS de esta cuenta: sus bases de datos no se pudieron resincronizar"
+            echo "      (la web sigue en el cPanel con sus datos; revisa el error y relanza)"
+            while IFS= read -r L; do [[ -n "$L" ]] && N_RESYNC_SALTA=$((N_RESYNC_SALTA+1)); done <<< "${DOMS_DE[$CU]}"
+            continue
+        fi
+        while IFS= read -r L; do
+            [[ -z "$L" ]] && continue
+            IFS='|' read -r D NUEVA LOCAL DKIM <<< "$L"
+            procesar_linea "$D" "$NUEVA" "$LOCAL" "${DKIM:-}"
+        done <<< "${DOMS_DE[$CU]}"
+    done
+fi
 
 echo ""
 if [[ "$APLICAR" == "si" ]]; then
     echo "Zonas cambiadas: $N_OK   Sin zona aqui: $N_SIN   Con error (sin tocar): $N_MAL"
+    [[ "$RESYNC" == "si" ]] && echo "Bases de datos resincronizadas: $N_RESYNC_OK   Cuentas con error: $N_RESYNC_MAL   Dominios sin cambiar por ese error: $N_RESYNC_SALTA"
     echo "Copia de las zonas originales: $BK"
     echo "Para deshacer un dominio:  cp $BK/DOMINIO.db $ZDIR/ && rndc reload DOMINIO"
 else

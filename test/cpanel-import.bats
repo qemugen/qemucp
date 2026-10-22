@@ -187,6 +187,32 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
     mysql -u "$DBU" -p"$DBP" -N -e 'SELECT COUNT(*) FROM cpclient_wp.wp_options'
 }
 
+@test "resincronizar BD al apuntar el DNS (recibir-bd.sh): trae los datos nuevos y conserva las credenciales" {
+    R=/hestiacp-git/install/migrate/recibir-bd.sh
+    # "cPanel" con una fila nueva: se vuelca y luego se quita de QemuCP
+    mysql cpclient_wp -e "INSERT INTO wp_options (option_id, option_name, option_value) VALUES (999, 'pedido_nuevo', '42')"
+    D=$(mktemp); mysqldump --single-transaction --routines --triggers cpclient_wp | gzip > "$D"
+    mysql cpclient_wp -e "DELETE FROM wp_options WHERE option_name='pedido_nuevo'"
+    # Copia incompleta: no se toca nada
+    T=$(mktemp); zcat "$D" | head -n 5 | gzip > "$T"
+    run bash -c "QEMUCP_FORZAR=si bash $R principal-ci.com cpclient cpclient_wp < $T"
+    echo "$output"; [ "$status" -eq 2 ]
+    [ "$(mysql -N -e "SELECT COUNT(*) FROM cpclient_wp.wp_options WHERE option_name='pedido_nuevo'")" -eq 0 ]
+    # Copia buena: la fila vuelve, con copia de seguridad de lo anterior
+    run bash -c "QEMUCP_FORZAR=si bash $R principal-ci.com cpclient cpclient_wp < $D"
+    echo "$output"; [ "$status" -eq 0 ]
+    [ "$(mysql -N -e "SELECT COUNT(*) FROM cpclient_wp.wp_options WHERE option_name='pedido_nuevo'")" -eq 1 ]
+    ls /root/qemucp-resync-*/cpclient_wp.qemucp-antes.sql.gz
+    # La web sigue entrando con su usuario y contrasena
+    WP=/home/$U/web/principal-ci.com/public_html/wp-config.php
+    DBU=$(grep -oP "DB_USER', '\K[^']+" "$WP"); DBP=$(grep -oP "DB_PASSWORD', '\K[^']+" "$WP")
+    mysql -u "$DBU" -p"$DBP" -N -e 'SELECT COUNT(*) FROM cpclient_wp.wp_options'
+    # Base de datos que no existe en QemuCP: aviso, codigo 3
+    run bash -c "echo x | gzip | bash $R principal-ci.com cpclient cpclient_noexiste"
+    [ "$status" -eq 3 ]
+    rm -f "$D" "$T"
+}
+
 @test "migrador: buzones con su contrasena ORIGINAL de cPanel" {
     doveadm auth test info@principal-ci.com 'ClaveInfo2024!'
     doveadm auth test juan@principal-ci.com 'ClaveJuan2024!'
