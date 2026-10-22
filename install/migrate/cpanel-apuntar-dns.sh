@@ -223,7 +223,7 @@ procesar_linea() {  # D NUEVA LOCAL DKIM
         type = toupper(f[i]); val = f[i + 1]
         if (type == "SOA") { print line; if (line ~ /\(/ && line !~ /\)/) insoa = 1; next }
         esmail = (name == "mail." dom "." || name == "webmail." dom ".")
-        if (esmail && (type == "A" || type == "CNAME")) tienemail = 1
+        if (name == "mail." dom "." && (type == "A" || type == "CNAME")) tienemail = 1
         if (type == "A" && es_vieja(val)) {
             if (esmail && local != "si") { print line; next }
             cambio(name " A " val " -> " nueva)
