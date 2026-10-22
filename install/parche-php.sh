@@ -109,6 +109,18 @@ informe() {
             echo "         mitigacion activa (session.upload_progress desactivado)"
         fi
     done
+    # PHP interno del panel (hestia-php): sirve el propio panel en el puerto
+    # 8083, asi que tambien esta expuesto
+    local pv pr
+    if [[ -x $HESTIA/php/bin/php ]]; then
+        pv=$($HESTIA/php/bin/php -r 'echo PHP_VERSION;' 2>/dev/null)
+        pr="${pv%.*}"
+        if [[ -n "${CORREGIDA[$pr]:-}" ]] && dpkg --compare-versions "$pv" ge "${CORREGIDA[$pr]}"; then
+            ok "Panel   parcheado        (PHP interno del panel $pv)"
+        else
+            mal "Panel   SIN PARCHE       (PHP interno del panel $pv; hace falta ${CORREGIDA[$pr]:-una version corregida}). Actualizar: bash qemucp_install.sh --actualizar"
+        fi
+    fi
     # Webs en versiones sin parche
     if [[ ${#SIN[@]} -gt 0 && -d $HESTIA/data/users ]]; then
         echo ""
@@ -180,6 +192,17 @@ for v in "${VERSIONES[@]}"; do
     fi
 done
 
+# PHP interno del panel desde apt.hestiacp.com, si alli hay uno mas nuevo
+if dpkg -l hestia-php 2>/dev/null | grep -q '^ii'; then
+    ANTES=$(dpkg-query -W -f='${Version}' hestia-php)
+    apt-get install --only-upgrade -y -o Dpkg::Options::="--force-confold" hestia-php >> "$LOG" 2>&1 || true
+    DESPUES=$(dpkg-query -W -f='${Version}' hestia-php)
+    if [[ "$ANTES" != "$DESPUES" ]]; then
+        ok "PHP del panel actualizado: $ANTES -> $DESPUES"
+        systemctl restart hestia >> "$LOG" 2>&1 || true
+    fi
+fi
+
 # --- 2. Mitigacion (solo con --mitigar) --------------------------------------
 [[ "$MODO" == "--mitigar" ]] && for v in "${VERSIONES[@]}"; do
     [[ -d "/etc/php/$v/fpm/conf.d" ]] || continue
@@ -206,8 +229,13 @@ if dpkg -l unattended-upgrades 2>/dev/null | grep -q '^ii'; then
 Unattended-Upgrade::Allowed-Origins {
     "LP-PPA-ondrej-php:${distro_codename}";
 };
+// PHP y nginx internos del panel (hestia-php, hestia-nginx). El paquete
+// hestia esta retenido (apt-mark hold) y en la lista negra: no se toca.
+Unattended-Upgrade::Origins-Pattern {
+    "site=apt.hestiacp.com";
+};
 Unattended-Upgrade::Package-Blacklist {
-    "hestia";
+    "^hestia$";
 };
 EOF
     ok "Actualizaciones automaticas de PHP activadas (unattended-upgrades)"

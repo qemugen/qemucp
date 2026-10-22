@@ -469,9 +469,9 @@ PCRE='https://github.com/PCRE2Project/pcre2/releases/download/pcre2-'$PCRE_V'/pc
 ZLIB='https://github.com/madler/zlib/archive/refs/tags/v'$ZLIB_V'.tar.gz'
 
 if [[ $PHP_V =~ - ]]; then
-	PHP='http://de2.php.net/distributions/php-'$(echo $PHP_V | cut -d"-" -f1)'.tar.gz'
+	PHP='https://www.php.net/distributions/php-'$(echo $PHP_V | cut -d"-" -f1)'.tar.gz'
 else
-	PHP='http://de2.php.net/distributions/php-'$(echo $PHP_V | cut -d"~" -f1)'.tar.gz'
+	PHP='https://www.php.net/distributions/php-'$(echo $PHP_V | cut -d"~" -f1)'.tar.gz'
 fi
 
 # Forward slashes in branchname are replaced with dashes to match foldername in github archive.

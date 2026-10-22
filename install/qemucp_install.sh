@@ -322,6 +322,24 @@ if [[ "$QEMUCP_MODO" == "actualizar" ]]; then
     AC_NUEVA=$(dpkg-deb -f "$AC_DEB" Version)
     log "Paquete hestia $AC_NUEVA compilado"
 
+    # PHP interno del panel: si el del fork es mas nuevo que el instalado
+    # (parches de seguridad de PHP), se compila e instala tambien.
+    AC_PHP_FORK=$( { grep "^Version:" "$AC_SRC/src/deb/php/control" || true; } | cut -d' ' -f2)
+    AC_PHP_INST=$(dpkg-query -W -f='${Version}' hestia-php 2>/dev/null | sed -E 's/[-+~].*$//' || true)
+    AC_PHP_DEB=""
+    if [[ -n "$AC_PHP_FORK" ]] && { [[ -z "$AC_PHP_INST" ]] || dpkg --compare-versions "$AC_PHP_INST" lt "$AC_PHP_FORK"; }; then
+        info "PHP del panel: instalado ${AC_PHP_INST:-ninguno}, fork $AC_PHP_FORK -> compilando (10-15 minutos)..."
+        ( cd "$AC_SRC" && bash src/hst_autocompile.sh --php --noinstall --keepbuild '~localsrc' ) \
+            > /var/log/qemucp-build-php.log 2>&1 || true
+        AC_PHP_DEB=$(ls -1 "$AC_DEBS"/hestia-php_*.deb 2>/dev/null | head -1 || true)
+        if [[ -n "$AC_PHP_DEB" ]] && dpkg-deb -I "$AC_PHP_DEB" >/dev/null 2>&1; then
+            log "Paquete hestia-php $(dpkg-deb -f "$AC_PHP_DEB" Version) compilado"
+        else
+            AC_PHP_DEB=""
+            warn "No se pudo compilar hestia-php (ver /var/log/qemucp-build-php.log): el panel sigue con PHP $AC_PHP_INST"
+        fi
+    fi
+
     # Copia de la configuracion del panel por si hubiera que volver atras
     AC_BK="/root/qemucp-backups/actualizar-$(date +%Y%m%d-%H%M%S)"
     mkdir -p "$AC_BK"
@@ -363,6 +381,13 @@ if [[ "$QEMUCP_MODO" == "actualizar" ]]; then
     apt-mark hold hestia >> "$AC_LOG" 2>&1 \
         && log "Paquete hestia bloqueado: apt no lo cambiara por el de upstream" \
         || warn "No se pudo bloquear el paquete hestia (apt-mark hold hestia)"
+    if [[ -n "${AC_PHP_DEB:-}" ]]; then
+        if dpkg -i --force-confold "$AC_PHP_DEB" >> "$AC_LOG" 2>&1; then
+            log "PHP del panel actualizado: $(/usr/local/hestia/php/bin/php -r 'echo PHP_VERSION;' 2>/dev/null)"
+        else
+            warn "dpkg fallo con hestia-php (ver $AC_LOG)"
+        fi
+    fi
 
     if tail -n +"$((AC_HOOK_N+1))" /var/log/qemucp-post-install.log 2>/dev/null | grep -q "QemuCP post_install"; then
         log "Hook post_install ejecutado (ver /var/log/qemucp-post-install.log)"
@@ -2164,6 +2189,23 @@ else
         # '~localsrc' = compilar desde la carpeta local, sin descargar nada mas
         ( cd "$FORK_SRC" && bash src/hst_autocompile.sh --hestia --noinstall --keepbuild '~localsrc' ) \
             > /var/log/qemucp-build.log 2>&1 || true
+        # PHP y nginx internos del panel, tambien desde el fork: no dependemos
+        # de apt.hestiacp.com (el 22-oct-2026 su indice daba "Hash Sum
+        # mismatch" y no se podia instalar) y el PHP del panel lleva la version
+        # de src/deb/php/control (8.5.12 con el parche de php2shell). Si la
+        # compilacion falla, hst-install los coge de apt como siempre.
+        info "  compilando el PHP y el nginx internos del panel (10-20 minutos)..."
+        ( cd "$FORK_SRC" && bash src/hst_autocompile.sh --php --nginx --noinstall --keepbuild '~localsrc' ) \
+            > /var/log/qemucp-build-backend.log 2>&1 || true
+        for P in hestia-php hestia-nginx; do
+            D=$(ls -1 "$FORK_DEBS"/${P}_*.deb 2>/dev/null | head -1 || true)
+            if [[ -n "$D" ]] && dpkg-deb -I "$D" >/dev/null 2>&1; then
+                log "Paquete $P $(dpkg-deb -f "$D" Version) compilado desde el fork"
+            else
+                rm -f "$FORK_DEBS"/${P}_*.deb 2>/dev/null || true
+                warn "$P no se pudo compilar (ver /var/log/qemucp-build-backend.log): se usara el de apt"
+            fi
+        done
         # '|| true': si la compilacion fallo no hay .deb, ls devuelve 2 y con
         # pipefail la asignacion abortaria el script antes de caer a apt.
         DEB_HESTIA=$(ls -1 "$FORK_DEBS"/hestia_*.deb 2>/dev/null | head -1 || true)

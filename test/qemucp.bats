@@ -102,6 +102,9 @@ crear() {
     echo "$output" | grep -q "Estado de PHP"
     # Todas las versiones instaladas con el parche de php2shell
     ! echo "$output" | grep -q "SIN PARCHE"
+    # El PHP interno del panel tambien (compilado desde el fork)
+    v=$("$H/php/bin/php" -r 'echo PHP_VERSION;'); echo "panel: $v"
+    dpkg --compare-versions "$v" ge 8.5.12
 }
 
 # --------------------------------------------- plantillas y sesiones (Redis)
