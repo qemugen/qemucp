@@ -195,11 +195,11 @@ mailval() { grep "^ACCOUNT='$3'" "$H/data/users/$U/mail/$2.conf" | grep -oP "$1=
     mysql cpclient_wp -e "DELETE FROM wp_options WHERE option_name='pedido_nuevo'"
     # Copia incompleta: no se toca nada
     T=$(mktemp); zcat "$D" | head -n 5 | gzip > "$T"
-    run bash -c "QEMUCP_FORZAR=si bash $R principal-ci.com cpclient cpclient_wp < $T"
+    run bash -c "bash $R principal-ci.com cpclient cpclient_wp < $T"
     echo "$output"; [ "$status" -eq 2 ]
     [ "$(mysql -N -e "SELECT COUNT(*) FROM cpclient_wp.wp_options WHERE option_name='pedido_nuevo'")" -eq 0 ]
     # Copia buena: la fila vuelve, con copia de seguridad de lo anterior
-    run bash -c "QEMUCP_FORZAR=si bash $R principal-ci.com cpclient cpclient_wp < $D"
+    run bash -c "bash $R principal-ci.com cpclient cpclient_wp < $D"
     echo "$output"; [ "$status" -eq 0 ]
     [ "$(mysql -N -e "SELECT COUNT(*) FROM cpclient_wp.wp_options WHERE option_name='pedido_nuevo'")" -eq 1 ]
     ls /root/qemucp-resync-*/cpclient_wp.qemucp-antes.sql.gz

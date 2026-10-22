@@ -133,7 +133,7 @@ N_RESYNC_OK=0; N_RESYNC_MAL=0; N_RESYNC_SALTA=0
 # entrar por SSH sin contrasena del cPanel al QemuCP:
 #     ssh-copy-id root@IP_QEMUCP
 # En el QemuCP lo recibe recibir-bd.sh, que guarda antes una copia de la BD
-# y no toca nada si el dominio ya apunta a QemuCP.
+# y la restaura si la importacion falla.
 RECEPTOR_URL="https://raw.githubusercontent.com/qemugen/qemucp/release/install/migrate/recibir-bd.sh"
 declare -A SSH_LISTO=()
 preparar_ssh() {  # IP -> 0 si se puede entrar y el receptor esta
@@ -182,8 +182,8 @@ resincronizar_cuenta() {  # CU IP DOMINIO
             echo "   !! mysqldump fallo en $db: $(head -c 200 /tmp/qemucp-resync.err)"; mal=1
         elif [[ ${rc[2]} -eq 0 ]]; then
             N_RESYNC_OK=$((N_RESYNC_OK+1))
-        elif [[ ${rc[2]} -eq 3 || ${rc[2]} -eq 4 ]]; then
-            :   # no existe en QemuCP / ya apunta alli: aviso, no bloquea
+        elif [[ ${rc[2]} -eq 3 ]]; then
+            :   # no existe en QemuCP: aviso, no bloquea
         else
             mal=1
         fi

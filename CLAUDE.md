@@ -255,7 +255,7 @@ error evaluating DMARC policy`); dos MX con prioridad 0 reparten el correo
   `install/migrate/recibir-bd.sh` (lo descarga solo en /root/migracion del
   QemuCP) y en cuanto estan cambia el DNS de esa cuenta. recibir-bd.sh: misma
   regla de nombres que el importador, no toca nada si la copia no trae "Dump
-  completed" o si el dominio ya apunta a QemuCP (QEMUCP_FORZAR=si), copia
+  completed", copia
   previa en /root/qemucp-resync-FECHA/ y la restaura si la importacion falla.
   Si una cuenta falla, su DNS no se cambia.
 - **Certificado SNI de correo**: Exim y Dovecot lo buscan en
