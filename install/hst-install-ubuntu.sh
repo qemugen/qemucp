@@ -1162,6 +1162,22 @@ echo
 echo "========================================================================"
 echo
 
+# QemuCP: instalar un paquete de apt.hestiacp.com con reintentos. Antes se
+# instalaba en silencio (> /dev/null) y si el repositorio fallaba (503 el
+# 21/22-oct-2026) la instalacion seguia sin /usr/local/hestia/php/bin/php y
+# fallaba mucho despues con errores sin relacion aparente.
+qemucp_apt_paquete() {
+	local pkg="$1" bin="$2" i
+	for i in 1 2 3 4 5; do
+		apt-get -y install "$pkg" >> "$LOG" 2>&1 && [ -x "$bin" ] && return 0
+		echo "      $pkg: intento $i fallido (repositorio de HestiaCP); reintento en $((i * 20)) s"
+		tail -n 3 "$LOG" | sed 's/^/        /'
+		sleep $((i * 20))
+		apt-get update >> "$LOG" 2>&1
+	done
+	check_result 1 "No se pudo instalar $pkg desde apt.hestiacp.com (ver $LOG)"
+}
+
 # Install Hestia packages from local folder
 if [ -n "$withdebs" ] && [ -d "$withdebs" ]; then
 	echo "[ * ] Installing local package files..."
@@ -1170,7 +1186,7 @@ if [ -n "$withdebs" ] && [ -d "$withdebs" ]; then
 
 	if [ -z $(ls $withdebs/hestia-php_*.deb 2> /dev/null) ]; then
 		echo "    - hestia-php backend package (from apt)"
-		apt-get -y install hestia-php > /dev/null 2>&1
+		qemucp_apt_paquete hestia-php /usr/local/hestia/php/bin/php
 	else
 		echo "    - hestia-php backend package"
 		dpkg -i $withdebs/hestia-php_*.deb > /dev/null 2>&1
@@ -1178,7 +1194,7 @@ if [ -n "$withdebs" ] && [ -d "$withdebs" ]; then
 
 	if [ -z $(ls $withdebs/hestia-nginx_*.deb 2> /dev/null) ]; then
 		echo "    - hestia-nginx backend package (from apt)"
-		apt-get -y install hestia-nginx > /dev/null 2>&1
+		qemucp_apt_paquete hestia-nginx /usr/local/hestia/nginx/sbin/hestia-nginx
 	else
 		echo "    - hestia-nginx backend package"
 		dpkg -i $withdebs/hestia-nginx_*.deb > /dev/null 2>&1
