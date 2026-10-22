@@ -100,6 +100,8 @@ crear() {
     echo "$output"
     [ "$status" -eq 0 ]
     echo "$output" | grep -q "Estado de PHP"
+    # Todas las versiones instaladas con el parche de php2shell
+    ! echo "$output" | grep -q "SIN PARCHE"
 }
 
 # --------------------------------------------- plantillas y sesiones (Redis)
