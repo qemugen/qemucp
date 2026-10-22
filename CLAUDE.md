@@ -250,7 +250,7 @@ error evaluating DMARC policy`); dos MX con prioridad 0 reparten el correo
   futuro: subir la version en `src/deb/php/control`. `apt-get update` del
   instalador va por `qemucp_apt_update` (no se para si un repositorio falla).
 - **Resincronizar BD al apuntar el DNS**: `cpanel-apuntar-dns.sh LISTA
-  --aplicar --resincronizar-bd` (en el cPanel; necesita `ssh-copy-id
+  --aplicar` lo hace SIEMPRE (`--sin-bd` para no; en el cPanel; necesita `ssh-copy-id
   root@IP_QEMUCP`) vuelca por cuenta sus BD, las manda por SSH a
   `install/migrate/recibir-bd.sh` (lo descarga solo en /root/migracion del
   QemuCP) y en cuanto estan cambia el DNS de esa cuenta. recibir-bd.sh: misma

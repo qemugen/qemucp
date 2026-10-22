@@ -9,10 +9,11 @@
 #   bash cpanel-apuntar-dns.sh todas --bajar-ttl              1o, horas antes
 #   bash cpanel-apuntar-dns.sh dominios-qemucp.txt             solo MUESTRA
 #   bash cpanel-apuntar-dns.sh dominios-qemucp.txt --aplicar   aplica
-#   ... --aplicar --resincronizar-bd   ademas, justo antes de cambiar el DNS
-#        de cada cuenta, vuelve a copiar sus bases de datos al QemuCP (lo que
-#        entro en el cPanel durante la migracion). Sin --aplicar solo muestra
-#        que bases de datos copiaria. Necesita ssh-copy-id root@IP_QEMUCP.
+#
+# Con --aplicar, justo antes de cambiar el DNS de cada cuenta vuelve a copiar
+# sus bases de datos al QemuCP (lo que entro en el cPanel durante la
+# migracion). Sin --aplicar solo muestra que copiaria. Necesita entrar por SSH
+# sin contrasena al QemuCP (ssh-copy-id root@IP_QEMUCP). --sin-bd: no copiar.
 #
 # Por cada dominio de la lista, en su zona del cPanel:
 #   - registros A que apuntan a ESTE servidor cPanel -> IP de QemuCP
@@ -32,11 +33,14 @@
 set -uo pipefail
 
 LISTA="${1:-}"
-APLICAR="no"; RESYNC="no"
+# Las bases de datos se vuelven a copiar SIEMPRE antes de cambiar el DNS de
+# cada cuenta; --sin-bd para no hacerlo (--resincronizar-bd se acepta y no
+# cambia nada: es lo de siempre).
+APLICAR="no"; RESYNC="si"
 for arg in "${@:2}"; do
     case "$arg" in
         --aplicar) APLICAR="si" ;;
-        --resincronizar-bd) RESYNC="si" ;;
+        --sin-bd) RESYNC="no" ;;
     esac
 done
 [[ $EUID -ne 0 ]] && { echo "Ejecuta como root"; exit 1; }
