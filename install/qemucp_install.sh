@@ -3092,12 +3092,12 @@ qemucp_apt_update
 for VER in "${PHP_VERSIONS[@]}"; do
     # Extensiones ESENCIALES (CMS/WordPress las necesitan) + optimizacion
     # mysql=mysqli (WordPress/PrestaShop), gd (imagenes), curl, mbstring, xml, zip, intl, bcmath, soap
-    ESSENTIAL_EXTENSIONS="mysql gd curl mbstring xml zip intl bcmath soap"
+    ESSENTIAL_EXTENSIONS="mysql sqlite3 gd curl mbstring xml zip intl bcmath soap"
     EXTRA_EXTENSIONS="imagick redis apcu mcrypt"
     for EXT in $ESSENTIAL_EXTENSIONS $EXTRA_EXTENSIONS; do
         apt-get install -y -qq "php${VER}-${EXT}" 2>/dev/null || true
     done
-    log "Extensiones PHP $VER: mysql, gd, curl, mbstring, xml, zip, intl, bcmath, soap, imagick, redis, apcu, mcrypt"
+    log "Extensiones PHP $VER: mysql, sqlite3, gd, curl, mbstring, xml, zip, intl, bcmath, soap, imagick, redis, apcu, mcrypt"
 done
 
 # Parches de seguridad de PHP (php2shell, CVE-2026-109618/109619, y los que
