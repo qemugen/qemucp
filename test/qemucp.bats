@@ -303,6 +303,8 @@ crear() {
     [ -d "$H/web/fm" ] || skip "gestor de archivos no instalado"
     [ -s "$H/web/fm/dist/css/qemucp-fm.css" ] || [ -s "$H/web/fm/css/qemucp-fm.css" ]
     grep -q '/fm/css/qemucp-fm.css' "$H/web/fm/configuration.php"
+    # La version servida es la del paquete (incluye el arreglo del modo oscuro)
+    cat "$H/web/fm/dist/css/qemucp-fm.css" "$H/web/fm/css/qemucp-fm.css" 2>/dev/null | grep -q "Modo oscuro del sistema"
 }
 
 # ------------------------------------------------------- textos sencillos

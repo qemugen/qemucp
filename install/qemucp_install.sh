@@ -362,11 +362,11 @@ if [[ "$QEMUCP_MODO" == "actualizar" ]]; then
             chmod +x "/usr/local/hestia/data/qemucp/$S"
         fi
     done
-    if grep -q "QemuCP" /etc/hestiacp/hooks/post_install.sh 2>/dev/null; then
-        log "Hook post_install de QemuCP presente"
-    elif bash /usr/local/hestia/data/qemucp/instalar-hook.sh >> "$AC_LOG" 2>&1 \
+    # Siempre se regenera: asi los pasos nuevos del hook llegan a los
+    # servidores que ya lo tenian (instalar-hook.sh sustituye su bloque).
+    if bash /usr/local/hestia/data/qemucp/instalar-hook.sh >> "$AC_LOG" 2>&1 \
         && grep -q "QemuCP" /etc/hestiacp/hooks/post_install.sh 2>/dev/null; then
-        log "Hook post_install de QemuCP instalado (este servidor no lo tenia)"
+        log "Hook post_install de QemuCP al dia"
     else
         warn "No se pudo instalar el hook post_install (ver $AC_LOG)"
     fi
@@ -679,6 +679,18 @@ if [ "$MODO" = "instalar" ]; then
     if [ -f "$FM" ] && grep -q '\$_SESSION\["look"\] == \$_SESSION\["root"\]' "$FM" 2>/dev/null; then
         sed -i 's|\$_SESSION\["look"\] == \$_SESSION\["root"\] &&|$_SESSION["look"] == ($_SESSION["root"] ?? "") \&\&|' "$FM"
         echo "  File Manager parcheado"
+    fi
+
+    # 1b. Aspecto del gestor de archivos: el paquete trae qemucp-fm.css en
+    #     install/, pero la actualizacion del panel no lo copia a web/fm
+    #     (solo se copia al instalar el gestor). Sin esto los arreglos de
+    #     estilo (botones del editor en modo oscuro...) no llegaban.
+    FMCSS="$H/install/deb/filemanager/filegator/dist/css/qemucp-fm.css"
+    if [ -s "$FMCSS" ] && [ -d "$H/web/fm" ]; then
+        for D in "$H/web/fm/dist/css" "$H/web/fm/css"; do
+            [ -d "$D" ] || continue
+            cmp -s "$FMCSS" "$D/qemucp-fm.css" || { cp -f "$FMCSS" "$D/qemucp-fm.css" && echo "  estilo del gestor de archivos actualizado ($D)"; }
+        done
     fi
 
     # 2. Plantillas php-fpm: bloque de QemuCP (sesiones en Redis, OPcache,

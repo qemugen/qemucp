@@ -162,6 +162,18 @@ if [ "$MODO" = "instalar" ]; then
         echo "  File Manager parcheado"
     fi
 
+    # 1b. Aspecto del gestor de archivos: el paquete trae qemucp-fm.css en
+    #     install/, pero la actualizacion del panel no lo copia a web/fm
+    #     (solo se copia al instalar el gestor). Sin esto los arreglos de
+    #     estilo (botones del editor en modo oscuro...) no llegaban.
+    FMCSS="$H/install/deb/filemanager/filegator/dist/css/qemucp-fm.css"
+    if [ -s "$FMCSS" ] && [ -d "$H/web/fm" ]; then
+        for D in "$H/web/fm/dist/css" "$H/web/fm/css"; do
+            [ -d "$D" ] || continue
+            cmp -s "$FMCSS" "$D/qemucp-fm.css" || { cp -f "$FMCSS" "$D/qemucp-fm.css" && echo "  estilo del gestor de archivos actualizado ($D)"; }
+        done
+    fi
+
     # 2. Plantillas php-fpm: bloque de QemuCP (sesiones en Redis, OPcache,
     #    limites) UNA vez y cada directiva UNA vez. Mismo normalizador que el
     #    instalador. Cubre: plantillas regeneradas por una actualizacion que

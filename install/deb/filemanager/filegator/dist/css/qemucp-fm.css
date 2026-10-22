@@ -525,3 +525,134 @@ html body .tree-list a:not([data-v]) {
 html body .tree-list a:not([data-v])::before {
 	color: #f59e0b !important;
 }
+
+/* ------------------------------------------------------------------
+   Modo oscuro del sistema
+   FileGator trae un tema oscuro (@media prefers-color-scheme: dark) que
+   pone los botones transparentes con borde verde y texto blanco, y las
+   ventanas, campos y desplegables en gris oscuro. El gestor de QemuCP es
+   siempre claro: con el sistema en oscuro quedaban texto blanco sobre fondo
+   claro (botones "Guardar"/"Cerrar" del editor casi invisibles). Aqui se
+   fijan los colores claros de todo lo que toca ese tema.
+   ------------------------------------------------------------------ */
+
+/* Botones normales (editor, ventanas, dialogos): blancos con texto oscuro */
+html body .button:not(.is-primary, .is-danger, .is-success, .is-warning, .is-info, .is-link) {
+	color: var(--qemucp-navy) !important;
+	background-color: #fff !important;
+	border: 1px solid #c9d4e1 !important;
+	border-radius: 8px !important;
+}
+
+html body .button:not(.is-primary, .is-danger, .is-success, .is-warning, .is-info, .is-link):hover,
+html body .button:not(.is-primary, .is-danger, .is-success, .is-warning, .is-info, .is-link):focus {
+	color: var(--qemucp-blue-dark) !important;
+	background-color: var(--qemucp-cyan-soft) !important;
+	border-color: var(--qemucp-cyan) !important;
+}
+
+/* Editor: el primero de dos botones sin tipo es la accion (Guardar). En los
+   dialogos de Buefy el primero es "Cancelar" y la accion lleva su tipo
+   (is-primary, is-danger...): ahi no se toca */
+html body .modal-card-foot:not(:has(.is-primary, .is-danger, .is-success, .is-warning)) .button:first-child:not(:last-child) {
+	color: #fff !important;
+	background: var(--qemucp-gradient) !important;
+	border: 0 !important;
+}
+
+html body .modal-card-foot:not(:has(.is-primary, .is-danger, .is-success, .is-warning)) .button:first-child:not(:last-child):hover {
+	color: #fff !important;
+	filter: brightness(1.06);
+}
+
+/* Dialogos de confirmar (borrar...) y avisos */
+html body .button.is-danger {
+	color: #fff !important;
+	background: #dc2626 !important;
+	border: 0 !important;
+	border-radius: 8px !important;
+}
+
+html body .button.is-success {
+	color: #fff !important;
+	background: #16a34a !important;
+	border: 0 !important;
+	border-radius: 8px !important;
+}
+
+html body .button.is-danger:hover,
+html body .button.is-success:hover {
+	filter: brightness(1.08);
+}
+
+html body .button:active {
+	color: inherit !important;
+}
+
+/* Ventanas */
+html body .modal-card-head,
+html body .modal-card-foot {
+	color: var(--qemucp-navy) !important;
+}
+
+html body .modal-card-body {
+	color: var(--qemucp-text) !important;
+	background-color: #fff !important;
+}
+
+html body .modal-card-body .content,
+html body .modal-card-body p,
+html body .modal-card-body strong,
+html body .label,
+html body .box,
+html body strong {
+	color: var(--qemucp-navy) !important;
+}
+
+html body .box {
+	background-color: #fff !important;
+}
+
+/* Campos y desplegables */
+html body .input,
+html body .textarea,
+html body .modal input,
+html body .select select {
+	color: var(--qemucp-navy) !important;
+	background-color: #fff !important;
+	border: 1px solid #c9d4e1 !important;
+}
+
+html body .input::placeholder,
+html body .textarea::placeholder {
+	color: #8a99ad !important;
+}
+
+html body .dropdown-content {
+	background-color: #fff !important;
+}
+
+html body .checkbox:hover {
+	color: var(--qemucp-navy) !important;
+}
+
+/* Textos de la tabla (nombres de carpeta y archivo) */
+html body .file-row a,
+html body .node-tree > a {
+	color: var(--qemucp-navy) !important;
+}
+
+/* Los botones "..." de cada fila siguen sin fondo ni borde (la regla de
+   botones normales de arriba es posterior y los alcanzaria) */
+html body #single-actions .button,
+html body .dropdown-trigger .button {
+	color: #6b7c93 !important;
+	background: transparent !important;
+	border: 0 !important;
+}
+
+html body #single-actions .button:hover,
+html body .dropdown-trigger .button:hover {
+	color: var(--qemucp-blue-dark) !important;
+	background: var(--qemucp-cyan-soft) !important;
+}
