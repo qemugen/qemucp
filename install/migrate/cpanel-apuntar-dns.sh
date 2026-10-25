@@ -202,7 +202,10 @@ procesar_linea() {  # D NUEVA LOCAL DKIM
     if [[ ! -f "$Z" ]]; then echo "-- $D: no tiene zona en este cPanel, se salta"; N_SIN=$((N_SIN+1)); return; fi
     T=$(mktemp)
     # MX al hostname de este servidor (fuera de la zona): se cambia a mail.D
-    awk -v dom="$D" -v nueva="$NUEVA" -v local="$LOCAL" -v v4=" $V4 " -v v6=" $V6 " -v dkim="$DKIM" '
+    # Destinos de los NS de la zona (absolutos) y hostname de este servidor
+    NSH=" $(awk -v d="$D." '$0 !~ /^[ \t]*;/ && toupper($0) ~ /[ \t]NS[ \t]/ {h=tolower($NF); if (h !~ /\.$/) h=h"."d; print h}' "$Z" | tr '\n' ' ') "
+    HOSTN="$(hostname -f 2>/dev/null | tr 'A-Z' 'a-z')."
+    awk -v dom="$D" -v nueva="$NUEVA" -v local="$LOCAL" -v v4=" $V4 " -v v6=" $V6 " -v dkim="$DKIM" -v nsh="$NSH" -v hostn="$HOSTN" '
     function absn(n) { if (n == "@" || n == "") return dom "."; if (n ~ /\.$/) return tolower(n); return tolower(n) "." dom "." }
     function es_vieja(ip) { return index(v4, " " ip " ") > 0 }
     function es_vieja6(ip) { return index(v6, " " tolower(ip) " ") > 0 }
@@ -226,6 +229,13 @@ procesar_linea() {  # D NUEVA LOCAL DKIM
         if (name == "mail." dom "." && (type == "A" || type == "CNAME")) tienemail = 1
         if (type == "A" && es_vieja(val)) {
             if (esmail && local != "si") { print line; next }
+            # Nameservers (ns, ns1, ns2... y los nombres que la zona usa en sus
+            # NS) y el hostname de este servidor NO se mueven: siguen sirviendo
+            # el DNS de todos los dominios que estan en este cPanel u otros.
+            if (name ~ /^ns[0-9]*\./ || index(nsh, " " name " ") > 0 || name == hostn) {
+                print "   (no se toca: " name " es nameserver o el hostname de este servidor)" > "/dev/stderr"
+                print line; next
+            }
             cambio(name " A " val " -> " nueva)
             print name "\t300\tIN\tA\t" nueva; next
         }

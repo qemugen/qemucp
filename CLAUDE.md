@@ -258,6 +258,11 @@ error evaluating DMARC policy`); dos MX con prioridad 0 reparten el correo
   completed", copia
   previa en /root/qemucp-resync-FECHA/ y la restaura si la importacion falla.
   Si una cuenta falla, su DNS no se cambia.
+- **Nameservers en las zonas del cPanel**: `cpanel-apuntar-dns.sh` cambiaba
+  TODOS los A con la IP vieja, tambien `ns1/ns2.laprimeracloud10.com` (el
+  dominio de los nameservers del propio cPanel) y `ns.uvision.es`: se habria
+  roto el DNS de todos los dominios servidos por ese cPanel. Ahora no toca
+  `ns*`, los destinos de los NS de la zona ni el hostname del servidor.
 - **Certificado SNI de correo**: Exim y Dovecot lo buscan en
   `/usr/local/hestia/ssl/mail/mail.DOMINIO.crt`. Sin él sirven el del
   hostname y los clientes avisan. Se emite con
