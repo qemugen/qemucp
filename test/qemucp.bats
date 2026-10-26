@@ -145,6 +145,37 @@ crear() {
     [ -n "$output" ]
 }
 
+@test "filtro anti-bots de PrestaShop: ?q= sin cookie da 403 en nginx; con cookie y en otras webs, normal" {
+    F=$H/data/qemucp/qemucp-filtro-prestashop.sh
+    [ -x "$F" ]
+    grep -q "qemucp-filtro-prestashop.sh --todas" /etc/cron.d/qemucp-filtro-prestashop
+    PS="tienda${CI_ID}.qemucp.test"; WP="otra${CI_ID}.qemucp.test"
+    "$B/v-add-web-domain" "$U" "$PS" >/dev/null
+    "$B/v-add-web-domain" "$U" "$WP" >/dev/null
+    # Tienda PrestaShop 1.7 de mentira (lo que mira la deteccion)
+    mkdir -p "/home/$U/web/$PS/public_html/app/config" "/home/$U/web/$PS/public_html/classes"
+    echo "<?php return array();" > "/home/$U/web/$PS/public_html/app/config/parameters.php"
+    echo "<?php echo 'TIENDA';" > "/home/$U/web/$PS/public_html/index.php"
+    echo "<?php echo 'OTRA';" > "/home/$U/web/$WP/public_html/index.php"
+    chown -R "$U:$U" "/home/$U/web/$PS/public_html" "/home/$U/web/$WP/public_html"
+    run bash "$F" --todas
+    echo "$output"
+    [ "$status" -eq 0 ]
+    [ -f "/home/$U/conf/web/$PS/nginx.conf_qemucp_filtro_ps" ]
+    [ ! -f "/home/$U/conf/web/$WP/nginx.conf_qemucp_filtro_ps" ]
+    nginx -t
+    c() { curl -s -o /dev/null -w '%{http_code}' --max-time 20 -H "Host: $1" "${@:2}"; }
+    sin=$(c "$PS" "http://$IP/?q=Precio-EUR-1-99"); con=$(c "$PS" -H "Cookie: PrestaShop-0123456789abcdef0123456789abcdef=x" "http://$IP/?q=Precio-EUR-1-99")
+    normal=$(c "$PS" "http://$IP/"); otra=$(c "$WP" "http://$IP/?q=algo")
+    echo "tienda ?q= sin cookie=$sin con cookie=$con sin ?q=$normal | otra web ?q= sin cookie=$otra"
+    [ "$sin" = "403" ]; [ "$con" = "200" ]; [ "$normal" = "200" ]; [ "$otra" = "200" ]
+    # Se conserva al reconstruir el dominio y se puede quitar
+    "$B/v-rebuild-web-domain" "$U" "$PS" yes >/dev/null
+    [ "$(c "$PS" "http://$IP/?q=x")" = "403" ]
+    bash "$F" --quitar "$PS"
+    [ "$(c "$PS" "http://$IP/?q=x")" = "200" ]
+}
+
 @test "varias webs con SSL a la vez: nginx sigue validando y recargando (HTTP/3)" {
     for n in 1 2 3; do
         D="ssl${n}${CI_ID}.qemucp.test"

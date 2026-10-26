@@ -263,6 +263,13 @@ error evaluating DMARC policy`); dos MX con prioridad 0 reparten el correo
   dominio de los nameservers del propio cPanel) y `ns.uvision.es`: se habria
   roto el DNS de todos los dominios servidos por ese cPanel. Ahora no toca
   `ns*`, los destinos de los NS de la zona ni el hostname del servidor.
+- **Bots en los filtros de PrestaShop (`?q=`)**: miles de combinaciones de
+  facetas tumbaban PHP/MariaDB. `install/qemucp-filtro-prestashop.sh` deja en
+  cada tienda `conf/web/D/nginx.conf_qemucp_filtro_ps` (y `.ssl.`): `?q=` sin
+  cookie `PrestaShop-<32hex>` -> 403 en nginx. Mecanismo por dominio de
+  HestiaCP (sobrevive a v-rebuild). La instalacion (PASO 10F) pone un cron
+  horario `--todas`; `--actualizar` solo copia el script. `--quitar D`,
+  `--estado`, `--probar D`.
 - **Certificado SNI de correo**: Exim y Dovecot lo buscan en
   `/usr/local/hestia/ssl/mail/mail.DOMINIO.crt`. Sin él sirven el del
   hostname y los clientes avisan. Se emite con

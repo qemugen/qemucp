@@ -356,7 +356,7 @@ if [[ "$QEMUCP_MODO" == "actualizar" ]]; then
     # postinst no reaplica nuestros parches. Se instala ANTES de dpkg para
     # que se ejecute ya en esta actualizacion.
     mkdir -p /usr/local/hestia/data/qemucp
-    for S in instalar-hook.sh parche-subdominios.sh arreglar-crons.sh qemucp-rebrand.sh parche-php.sh; do
+    for S in instalar-hook.sh parche-subdominios.sh arreglar-crons.sh qemucp-rebrand.sh parche-php.sh qemucp-filtro-prestashop.sh; do
         if [ -f "$AC_SRC/install/$S" ]; then
             cp -f "$AC_SRC/install/$S" "/usr/local/hestia/data/qemucp/$S"
             chmod +x "/usr/local/hestia/data/qemucp/$S"
@@ -4259,6 +4259,32 @@ if $HESTIA/bin/v-add-dns-domain admin "$ZONA_TEST" 127.0.0.1 >/dev/null 2>&1; th
     $HESTIA/bin/v-restart-dns yes >/dev/null 2>&1 || true
 else
     info "No se pudo crear la zona de prueba (se omite la comprobacion)"
+fi
+
+
+# ---------------------------------------------
+#  PASO 10F: FILTRO ANTI-BOTS EN TIENDAS PRESTASHOP
+# ---------------------------------------------
+header "PASO 10F: Filtro anti-bots para tiendas PrestaShop (nginx)"
+# Bots que recorren los filtros (?q=...) de las tiendas tumbaban PHP y
+# MariaDB. Una peticion con ?q= sin la cookie de PrestaShop recibe un 403 en
+# nginx. Fichero propio por dominio (nginx.conf_qemucp_filtro_ps), sin tocar
+# la configuracion global. Un cron lo pone en cada PrestaShop nueva (las
+# importadas o instaladas despues). Quitarlo en una tienda:
+#   bash /usr/local/hestia/data/qemucp/qemucp-filtro-prestashop.sh --quitar DOMINIO
+mkdir -p "$HESTIA/data/qemucp"
+if cp -f "$FORK_SRC/install/qemucp-filtro-prestashop.sh" "$HESTIA/data/qemucp/qemucp-filtro-prestashop.sh" 2>/dev/null \
+    && bash -n "$HESTIA/data/qemucp/qemucp-filtro-prestashop.sh"; then
+    chmod +x "$HESTIA/data/qemucp/qemucp-filtro-prestashop.sh"
+    cat > /etc/cron.d/qemucp-filtro-prestashop << 'CRONEOF'
+# QemuCP: filtro anti-bots en las tiendas PrestaShop nuevas (ver qemucp-filtro-prestashop.sh)
+23 * * * * root bash /usr/local/hestia/data/qemucp/qemucp-filtro-prestashop.sh --todas --silencio >> /var/log/qemucp-filtro-prestashop.log 2>&1
+CRONEOF
+    chmod 644 /etc/cron.d/qemucp-filtro-prestashop
+    bash "$HESTIA/data/qemucp/qemucp-filtro-prestashop.sh" --todas --silencio >> /var/log/qemucp-filtro-prestashop.log 2>&1 || true
+    log "Filtro anti-bots de PrestaShop instalado (cada hora se aplica a las tiendas nuevas)"
+else
+    warn "No esta install/qemucp-filtro-prestashop.sh en el fork: sin filtro anti-bots de PrestaShop"
 fi
 
 
