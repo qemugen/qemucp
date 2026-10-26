@@ -168,6 +168,13 @@ crear() {
     sin=$(c "$PS" "http://$IP/?q=Precio-EUR-1-99"); con=$(c "$PS" -H "Cookie: PrestaShop-0123456789abcdef0123456789abcdef=x" "http://$IP/?q=Precio-EUR-1-99")
     normal=$(c "$PS" "http://$IP/"); otra=$(c "$WP" "http://$IP/?q=algo")
     echo "tienda ?q= sin cookie=$sin con cookie=$con sin ?q=$normal | otra web ?q= sin cookie=$otra"
+    if [ "$sin" != "403" ]; then
+        echo "--- DEPURACION"; ls -la "/home/$U/conf/web/$PS/"
+        grep -n "include\|server_name\|listen" "/home/$U/conf/web/$PS/nginx.conf" | head -20
+        nginx -T 2>/dev/null | grep -n "qemucp_ps_bot\|tienda${CI_ID}" | head -20
+        curl -sv -o /dev/null --max-time 20 -H "Host: $PS" "http://$IP/?q=x" 2>&1 | grep -E "^[<>]" | head -20
+        grep "DOMAIN='$PS'" "$H/data/users/$U/web.conf" | grep -oP "(IP|PROXY|TPL)='[^']*'"
+    fi
     [ "$sin" = "403" ]; [ "$con" = "200" ]; [ "$normal" = "200" ]; [ "$otra" = "200" ]
     # Se conserva al reconstruir el dominio y se puede quitar
     "$B/v-rebuild-web-domain" "$U" "$PS" yes >/dev/null
