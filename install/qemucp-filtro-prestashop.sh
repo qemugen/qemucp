@@ -74,9 +74,26 @@ es_prestashop() {  # $1 usuario, $2 dominio
     return 1
 }
 
+# Recarga nginx y espera a que los procesos nuevos (con la configuracion
+# nueva) esten atendiendo: "reload" vuelve al momento, pero con muchos vhosts
+# y GeoIP el maestro tarda en levantar los nuevos y las primeras peticiones
+# las seguian atendiendo los viejos (sin el filtro).
+recargar_nginx() {
+    local pidf m antes
+    pidf=$(nginx -V 2>&1 | grep -oP -- '--pid-path=\K\S+'); pidf=${pidf:-/run/nginx.pid}
+    m=$(cat "$pidf" 2>/dev/null)
+    antes=$( [[ -n "$m" ]] && pgrep -P "$m" | sort | tr '\n' ' ')
+    systemctl reload nginx 2>/dev/null || nginx -s reload
+    for _ in $(seq 1 40); do
+        sleep 0.25
+        [[ -z "$m" ]] && break
+        [[ "$(pgrep -P "$m" | sort | tr '\n' ' ')" != "$antes" ]] && { sleep 0.5; break; }
+    done
+}
+
 recargar() {  # $@ = ficheros recien creados (se quitan si nginx no valida)
     if nginx -t >/tmp/qemucp-filtro-nginx.log 2>&1; then
-        systemctl reload nginx
+        recargar_nginx
         return 0
     fi
     rm -f "$@"
@@ -147,7 +164,7 @@ case "$MODO" in
             rm -f "$(conf_dir "$u" "$d")/nginx.conf_$NOMBRE" "$(conf_dir "$u" "$d")/nginx.ssl.conf_$NOMBRE"
             echo "OK $d: filtro quitado"
         done
-        nginx -t >/dev/null 2>&1 && systemctl reload nginx
+        nginx -t >/dev/null 2>&1 && recargar_nginx
         ;;
     estado)
         ls "$HESTIA_HOME"/*/conf/web/*/nginx.conf_$NOMBRE 2>/dev/null | awk -F/ '{print "activo: "$(NF-1)}' | sort

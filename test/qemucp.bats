@@ -174,6 +174,12 @@ crear() {
         nginx -T 2>/dev/null | grep -n "qemucp_ps_bot\|tienda${CI_ID}" | head -20
         curl -sv -o /dev/null --max-time 20 -H "Host: $PS" "http://$IP/?q=x" 2>&1 | grep -E "^[<>]" | head -20
         grep "DOMAIN='$PS'" "$H/data/users/$U/web.conf" | grep -oP "(IP|PROXY|TPL)='[^']*'"
+        echo "--- nginx en marcha:"; ps -o pid,lstart,cmd -C nginx | head -5; systemctl is-active nginx
+        echo "--- tras nginx -s reload + 3s:"; nginx -s reload; sleep 3
+        curl -s -o /dev/null -w '%{http_code}\n' -H "Host: $PS" "http://$IP/?q=x"
+        echo "--- prueba con return 418 incondicional:"; echo 'return 418;' > "/home/$U/conf/web/$PS/nginx.conf_zz418"; nginx -s reload; sleep 3
+        curl -s -o /dev/null -w '%{http_code}\n' -H "Host: $PS" "http://$IP/?q=x"; rm -f "/home/$U/conf/web/$PS/nginx.conf_zz418"; nginx -s reload
+        curl -sI -H "Host: $PS" "http://$IP/?q=x" | head -8
     fi
     [ "$sin" = "403" ]; [ "$con" = "200" ]; [ "$normal" = "200" ]; [ "$otra" = "200" ]
     # Se conserva al reconstruir el dominio y se puede quitar
