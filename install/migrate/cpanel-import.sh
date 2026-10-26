@@ -1742,6 +1742,37 @@ moodle_dataroot() {  # $1 = config.php de un Moodle en /home/U/web/DOM/public_ht
 }
 
 
+# Cambia SOLO el valor entre comillas de una asignacion de config, sin tocar
+# el resto de la linea. Antes se usaba sed 's|define(...DB_NAME.*|...|', que
+# borraba hasta el final de la linea: en ficheros con saltos de linea \r
+# (Mac antiguo / WordPress Toolkit) todo el fichero es "una linea" y se
+# perdia desde DB_NAME hasta el final, require de wp-settings incluido
+# (anaheviainteriorismo.es: "Call to undefined function wp()").
+#   cambiar_valor FICHERO MODO CLAVE VALOR
+#   MODO: define  -> define('CLAVE', '...')
+#         var     -> $CLAVE = '...'
+#         prop    -> public $CLAVE = '...'
+#         cfg     -> $CFG->CLAVE = '...'
+cambiar_valor() {
+    python3 - "$@" << 'PYCV'
+import re, sys
+f, modo, clave, valor = sys.argv[1:5]
+k = re.escape(clave)
+pre = {
+    'define': r"(define\(\s*['\"]" + k + r"['\"]\s*,\s*)",
+    'var':    r"(\$" + k + r"\s*=\s*)",
+    'prop':   r"(public\s+\$" + k + r"\s*=\s*)",
+    'cfg':    r"(\$CFG->" + k + r"\s*=\s*)",
+}[modo]
+pat = re.compile(pre + r"(['\"])((?:\\.|(?!\2).)*)\2", re.S)
+s = open(f, encoding='utf-8', errors='surrogateescape').read()
+v = valor.replace('\\', '\\\\').replace("'", "\\'")
+n = pat.subn(lambda m: m.group(1) + "'" + v + "'", s, count=1)
+if n[1]:
+    open(f, 'w', encoding='utf-8', errors='surrogateescape').write(n[0])
+PYCV
+}
+
 # Actualiza UN fichero de config concreto con las credenciales dadas
 update_one_config() {
     local FILE="$1"
@@ -1751,37 +1782,37 @@ update_one_config() {
     local PASS="$5"
     case "$TYPE" in
         wordpress)
-            sed -i "s|define(\s*['\"]DB_NAME['\"].*|define('DB_NAME', '$DB');|" "$FILE" 2>/dev/null
-            sed -i "s|define(\s*['\"]DB_USER['\"].*|define('DB_USER', '$USER');|" "$FILE" 2>/dev/null
-            sed -i "s|define(\s*['\"]DB_PASSWORD['\"].*|define('DB_PASSWORD', '$PASS');|" "$FILE" 2>/dev/null ;;
+            cambiar_valor "$FILE" define DB_NAME "$DB"
+            cambiar_valor "$FILE" define DB_USER "$USER"
+            cambiar_valor "$FILE" define DB_PASSWORD "$PASS" ;;
         ps16)
-            sed -i "s|define('_DB_NAME_'.*|define('_DB_NAME_', '$DB');|" "$FILE" 2>/dev/null
-            sed -i "s|define('_DB_USER_'.*|define('_DB_USER_', '$USER');|" "$FILE" 2>/dev/null
-            sed -i "s|define('_DB_PASSWD_'.*|define('_DB_PASSWD_', '$PASS');|" "$FILE" 2>/dev/null
+            cambiar_valor "$FILE" define _DB_NAME_ "$DB"
+            cambiar_valor "$FILE" define _DB_USER_ "$USER"
+            cambiar_valor "$FILE" define _DB_PASSWD_ "$PASS"
             rm -f "${FILE%/config/settings.inc.php}/cache/class_index.php" 2>/dev/null
             find "${FILE%/config/settings.inc.php}/cache/smarty/compile" "${FILE%/config/settings.inc.php}/cache/smarty/cache" \
                 -mindepth 1 ! -name index.php -delete 2>/dev/null || true ;;
         ps17)
             sed -i -E "s|('database_name'[[:space:]]*=>[[:space:]]*)'[^']*'|\1'$DB'|; s|('database_user'[[:space:]]*=>[[:space:]]*)'[^']*'|\1'$USER'|; s|('database_password'[[:space:]]*=>[[:space:]]*)'[^']*'|\1'$PASS'|" "$FILE" 2>/dev/null
-            sed -i "s|database_name:.*|database_name: $DB|; s|database_user:.*|database_user: $USER|; s|database_password:.*|database_password: $PASS|" "$FILE" 2>/dev/null
+            sed -i -E "s|(database_name:[[:space:]]*)[^[:space:]]+|\1$DB|; s|(database_user:[[:space:]]*)[^[:space:]]+|\1$USER|; s|(database_password:[[:space:]]*)[^[:space:]]+|\1$PASS|" "$FILE" 2>/dev/null
             # cache con rutas y contenedores del servidor viejo
             rm -rf "${FILE%/app/config/parameters.*}/var/cache/prod" "${FILE%/app/config/parameters.*}/var/cache/dev" 2>/dev/null ;;
         joomla)
-            sed -i "s|public \$db =.*|public \$db = '$DB';|" "$FILE" 2>/dev/null
-            sed -i "s|public \$user =.*|public \$user = '$USER';|" "$FILE" 2>/dev/null
-            sed -i "s|public \$password =.*|public \$password = '$PASS';|" "$FILE" 2>/dev/null ;;
+            cambiar_valor "$FILE" prop db "$DB"
+            cambiar_valor "$FILE" prop user "$USER"
+            cambiar_valor "$FILE" prop password "$PASS" ;;
         whmcs)
-            sed -i "s|\$db_name.*|\$db_name = \"$DB\";|" "$FILE" 2>/dev/null
-            sed -i "s|\$db_username.*|\$db_username = \"$USER\";|" "$FILE" 2>/dev/null
-            sed -i "s|\$db_password.*|\$db_password = \"$PASS\";|" "$FILE" 2>/dev/null ;;
+            cambiar_valor "$FILE" var db_name "$DB"
+            cambiar_valor "$FILE" var db_username "$USER"
+            cambiar_valor "$FILE" var db_password "$PASS" ;;
         opencart)
-            sed -i "s|define('DB_DATABASE'.*|define('DB_DATABASE', '$DB');|" "$FILE" 2>/dev/null
-            sed -i "s|define('DB_USERNAME'.*|define('DB_USERNAME', '$USER');|" "$FILE" 2>/dev/null
-            sed -i "s|define('DB_PASSWORD'.*|define('DB_PASSWORD', '$PASS');|" "$FILE" 2>/dev/null ;;
+            cambiar_valor "$FILE" define DB_DATABASE "$DB"
+            cambiar_valor "$FILE" define DB_USERNAME "$USER"
+            cambiar_valor "$FILE" define DB_PASSWORD "$PASS" ;;
         moodle)
-            sed -i "s|\$CFG->dbname.*|\$CFG->dbname   = '$DB';|" "$FILE" 2>/dev/null
-            sed -i "s|\$CFG->dbuser.*|\$CFG->dbuser   = '$USER';|" "$FILE" 2>/dev/null
-            sed -i "s|\$CFG->dbpass.*|\$CFG->dbpass   = '$PASS';|" "$FILE" 2>/dev/null 
+            cambiar_valor "$FILE" cfg dbname "$DB"
+            cambiar_valor "$FILE" cfg dbuser "$USER"
+            cambiar_valor "$FILE" cfg dbpass "$PASS"
             moodle_dataroot "$FILE" || true ;;
         drupal|magento2|codeigniter)
             python3 -c "
