@@ -3473,6 +3473,9 @@ if rm -rf /root/tmp_brotli && mkdir -p /root/tmp_brotli && cd /root/tmp_brotli \
 else
     warn "No se pudieron obtener fuentes para Brotli - se omite"
 fi
+# Salir antes de borrar: si no, todo lo que sigue corre en un directorio
+# borrado (getcwd falla y exim4 -bV, entre otros, devuelve error)
+cd /root
 rm -rf /root/tmp_brotli 2>/dev/null || true
 
 # Anadir load_module de Brotli SOLO si se compilo
@@ -4266,6 +4269,7 @@ fi
 #  PASO 10G: ANTISPAM (LISTAS NEGRAS + SPAMASSASSIN AL DIA)
 # ---------------------------------------------
 header "PASO 10G: Antispam: listas negras (DNSBL) y reglas de SpamAssassin"
+cd /root
 # Clientes con mucho spam. HestiaCP solo traia spamcop y Spamhaus ZEN sin
 # filtrar el codigo de respuesta: Spamhaus contesta 127.255.255.254 a las
 # consultas que llegan por un DNS publico (Google, Cloudflare, el del
@@ -4290,7 +4294,12 @@ DNSBLEOF
 
     # Resolver local (BIND) para que las listas funcionen
     if systemctl is-active --quiet named 2>/dev/null || systemctl is-active --quiet bind9 2>/dev/null; then
-        if dig +short +time=3 +tries=2 @127.0.0.1 debian.org A 2>/dev/null | grep -qE '^[0-9.]+$'; then
+        BIND_OK=no
+        for _ in 1 2 3; do
+            dig +short +time=3 +tries=2 @127.0.0.1 debian.org A 2>/dev/null | grep -qE '^[0-9.]+$' && { BIND_OK=si; break; }
+            sleep 3
+        done
+        if [[ "$BIND_OK" == "si" ]]; then
             if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
                 mkdir -p /etc/systemd/resolved.conf.d
                 PROV_DNS=$(resolvectl dns 2>/dev/null | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | grep -v '^127\.' | sort -u | head -2 | tr '\n' ' ')
@@ -4320,7 +4329,7 @@ RESEOF
                 *) warn "Spamhaus no contesta desde aqui: esa lista no filtra, las demas si";;
             esac
         else
-            warn "El BIND local no resuelve: las listas negras usan el DNS del sistema"
+            warn "El BIND local no resuelve ($(dig +time=3 +tries=1 @127.0.0.1 debian.org A 2>&1 | grep -oE 'status: [A-Z]+|timed out|refused' | head -1)): las listas negras usan el DNS del sistema"
         fi
     fi
 
