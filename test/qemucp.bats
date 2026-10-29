@@ -176,6 +176,25 @@ crear() {
     [ "$(c "$PS" "http://$IP/?q=x")" = "200" ]
 }
 
+@test "antispam: listas negras con codigos de listado, exim las acepta y SpamAssassin al dia" {
+    grep -q '^zen.spamhaus.org=127.0.0.2' /etc/exim4/dnsbl.conf
+    grep -q '^bl.spamcop.net=127.0.0.2' /etc/exim4/dnsbl.conf
+    grep -q '^psbl.surriel.com=' /etc/exim4/dnsbl.conf
+    exim4 -bV >/dev/null
+    # La lista se expande como la usa la ACL
+    run exim4 -be '${readfile {/etc/exim4/dnsbl.conf}{:}}'
+    echo "$output"
+    echo "$output" | grep -q "zen.spamhaus.org=127.0.0.2,.*:bl.spamcop.net=127.0.0.2"
+    # Una sesion SMTP de prueba pasa por la ACL de las listas sin error de configuracion
+    run bash -c 'printf "EHLO prueba.example\nMAIL FROM:<a@example.com>\nRCPT TO:<postmaster@example.net>\nQUIT\n" | exim4 -bh 192.0.2.10 2>&1'
+    echo "${output: -1500}"
+    ! echo "$output" | grep -qi "error in\|configuration error\|failed to expand"
+    # El servidor sigue resolviendo nombres (con el BIND local o el del proveedor)
+    getent hosts debian.org
+    # Reglas de SpamAssassin con actualizacion diaria
+    systemctl is-enabled spamassassin-maintenance.timer >/dev/null 2>&1 || [ -f /etc/cron.d/qemucp-sa-update ]
+}
+
 @test "varias webs con SSL a la vez: nginx sigue validando y recargando (HTTP/3)" {
     for n in 1 2 3; do
         D="ssl${n}${CI_ID}.qemucp.test"

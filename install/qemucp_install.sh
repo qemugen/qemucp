@@ -4263,6 +4263,95 @@ fi
 
 
 # ---------------------------------------------
+#  PASO 10G: ANTISPAM (LISTAS NEGRAS + SPAMASSASSIN AL DIA)
+# ---------------------------------------------
+header "PASO 10G: Antispam: listas negras (DNSBL) y reglas de SpamAssassin"
+# Clientes con mucho spam. HestiaCP solo traia spamcop y Spamhaus ZEN sin
+# filtrar el codigo de respuesta: Spamhaus contesta 127.255.255.254 a las
+# consultas que llegan por un DNS publico (Google, Cloudflare, el del
+# proveedor) y exim lo tomaba como "listado"; y la lista no se consultaba
+# bien desde los DNS del proveedor. Ahora:
+#  1. /etc/exim4/dnsbl.conf con 4 listas y SOLO sus codigos de "listado"
+#     (Spamhaus ZEN, SpamCop, PSBL, Mailspike): se rechaza en la conexion,
+#     antes de recibir el mensaje.
+#  2. El servidor resuelve con su propio BIND (127.0.0.1, ya instalado por
+#     HestiaCP): las consultas a las listas salen desde la IP del servidor y
+#     no desde un DNS publico, que Spamhaus bloquea.
+#  3. SpamAssassin actualiza sus reglas cada dia (sa-update).
+if [[ -d /etc/exim4 ]]; then
+    [[ -f /etc/exim4/dnsbl.conf ]] && cp -p /etc/exim4/dnsbl.conf "/etc/exim4/dnsbl.conf.antes-qemucp" 2>/dev/null || true
+    cat > /etc/exim4/dnsbl.conf << 'DNSBLEOF'
+zen.spamhaus.org=127.0.0.2,127.0.0.3,127.0.0.4,127.0.0.9,127.0.0.10,127.0.0.11
+bl.spamcop.net=127.0.0.2
+psbl.surriel.com=127.0.0.2
+bl.mailspike.net=127.0.0.2
+DNSBLEOF
+    log "Listas negras de correo: Spamhaus ZEN, SpamCop, PSBL y Mailspike (solo codigos de listado)"
+
+    # Resolver local (BIND) para que las listas funcionen
+    if systemctl is-active --quiet named 2>/dev/null || systemctl is-active --quiet bind9 2>/dev/null; then
+        if dig +short +time=3 +tries=2 @127.0.0.1 debian.org A 2>/dev/null | grep -qE '^[0-9.]+$'; then
+            if systemctl is-active --quiet systemd-resolved 2>/dev/null; then
+                mkdir -p /etc/systemd/resolved.conf.d
+                PROV_DNS=$(resolvectl dns 2>/dev/null | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' | grep -v '^127\.' | sort -u | head -2 | tr '\n' ' ')
+                cat > /etc/systemd/resolved.conf.d/qemucp-dns-local.conf << RESEOF
+# QemuCP: resolver con el BIND local (las listas negras de correo, como
+# Spamhaus, no contestan a los DNS publicos). Los del proveedor quedan de
+# respaldo. Ver PASO 10G de qemucp_install.sh
+[Resolve]
+DNS=127.0.0.1 ${PROV_DNS}
+Domains=~.
+RESEOF
+                systemctl restart systemd-resolved
+                sleep 2
+                if getent hosts debian.org >/dev/null 2>&1; then
+                    log "El servidor resuelve con su BIND local (respaldo: ${PROV_DNS:-ninguno})"
+                else
+                    rm -f /etc/systemd/resolved.conf.d/qemucp-dns-local.conf
+                    systemctl restart systemd-resolved
+                    warn "El servidor no resolvia con el BIND local: se deja el DNS como estaba"
+                fi
+            fi
+            # Comprobacion de Spamhaus con su direccion de prueba (127.0.0.2)
+            ZEN=$(dig +short +time=3 +tries=2 2.0.0.127.zen.spamhaus.org A 2>/dev/null | head -1)
+            case "$ZEN" in
+                127.0.0.*) log "Spamhaus contesta bien desde este servidor ($ZEN)";;
+                127.255.255.*) warn "Spamhaus no acepta consultas desde aqui ($ZEN): esa lista no filtra, las demas si";;
+                *) warn "Spamhaus no contesta desde aqui: esa lista no filtra, las demas si";;
+            esac
+        else
+            warn "El BIND local no resuelve: las listas negras usan el DNS del sistema"
+        fi
+    fi
+
+    # Reglas de SpamAssassin al dia
+    if command -v sa-update >/dev/null 2>&1; then
+        sa-update >/dev/null 2>&1 || true
+        if systemctl list-unit-files spamassassin-maintenance.timer >/dev/null 2>&1; then
+            systemctl enable --now spamassassin-maintenance.timer >/dev/null 2>&1 || true
+        else
+            cat > /etc/cron.d/qemucp-sa-update << 'SAEOF'
+# QemuCP: reglas de SpamAssassin al dia
+47 4 * * * root sa-update >/dev/null 2>&1 && (systemctl reload spamd 2>/dev/null || systemctl reload spamassassin 2>/dev/null || true)
+SAEOF
+        fi
+        systemctl reload spamd 2>/dev/null || systemctl restart spamd 2>/dev/null || true
+        log "SpamAssassin: reglas actualizadas y actualizacion diaria activada"
+    fi
+
+    if exim4 -bV >/dev/null 2>&1; then
+        systemctl restart exim4 >/dev/null 2>&1 || true
+        log "Exim reiniciado con las listas negras nuevas"
+    else
+        warn "exim4 -bV falla tras el antispam: se restaura dnsbl.conf"
+        [[ -f /etc/exim4/dnsbl.conf.antes-qemucp ]] && cp -p /etc/exim4/dnsbl.conf.antes-qemucp /etc/exim4/dnsbl.conf
+        systemctl restart exim4 >/dev/null 2>&1 || true
+    fi
+else
+    info "Sin exim: se omite el antispam"
+fi
+
+# ---------------------------------------------
 #  PASO 10F: FILTRO ANTI-BOTS EN TIENDAS PRESTASHOP
 # ---------------------------------------------
 header "PASO 10F: Filtro anti-bots para tiendas PrestaShop (nginx)"

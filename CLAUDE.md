@@ -270,6 +270,13 @@ error evaluating DMARC policy`); dos MX con prioridad 0 reparten el correo
   HestiaCP (sobrevive a v-rebuild). La instalacion (PASO 10F) pone un cron
   horario `--todas`; `--actualizar` solo copia el script. `--quitar D`,
   `--estado`, `--probar D`.
+- **Antispam (PASO 10G)**: `/etc/exim4/dnsbl.conf` con Spamhaus ZEN, SpamCop,
+  PSBL y Mailspike, cada una con SOLO sus codigos de listado (`lista=127.0.0.2,...`):
+  Spamhaus contesta 127.255.255.254 a consultas desde DNS publicos y exim lo
+  tomaba como listado. El servidor resuelve con su BIND (systemd-resolved
+  `DNS=127.0.0.1` + los del proveedor de respaldo, `Domains=~.`) para que las
+  listas contesten; se deshace solo si deja de resolver. sa-update diario.
+  Tambien `install/deb/exim/dnsbl.conf` del paquete.
 - **Certificado SNI de correo**: Exim y Dovecot lo buscan en
   `/usr/local/hestia/ssl/mail/mail.DOMINIO.crt`. Sin él sirven el del
   hostname y los clientes avisan. Se emite con
