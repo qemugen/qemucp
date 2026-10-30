@@ -396,6 +396,14 @@ if [[ "$QEMUCP_MODO" == "actualizar" ]]; then
     fi
 
     systemctl restart hestia >> "$AC_LOG" 2>&1 || true
+    # Limite de ficheros del maestro de nginx (ver PASO de nginx): se aplica en
+    # el siguiente restart de nginx.
+    if [ ! -f /etc/systemd/system/nginx.service.d/qemucp-limites.conf ]; then
+        mkdir -p /etc/systemd/system/nginx.service.d
+        printf '[Service]\nLimitNOFILE=65535\n' > /etc/systemd/system/nginx.service.d/qemucp-limites.conf
+        systemctl daemon-reload
+        warn "Subido el limite de ficheros de nginx: aplica con 'nginx -t && systemctl restart nginx'"
+    fi
     sleep 3
     AC_PUERTO=$( { grep "^BACKEND_PORT=" /usr/local/hestia/conf/hestia.conf || true; } | cut -d"'" -f2)
     AC_PUERTO="${AC_PUERTO:-8083}"
@@ -2948,6 +2956,15 @@ if grep -q "worker_rlimit_nofile" /etc/nginx/nginx.conf 2>/dev/null; then
 else
     sed -i "/worker_processes/a worker_rlimit_nofile 65535;" /etc/nginx/nginx.conf
 fi
+# worker_rlimit_nofile solo sube el limite de los workers. El proceso maestro
+# abre los logs de TODOS los dominios (3 por vhost) al recargar y se queda con
+# el limite de systemd (1024): con unos 300 dominios el reload falla en
+# silencio ("Too many open files"), nginx sigue con la configuracion vieja y
+# los retos de Let's Encrypt dan 404.
+mkdir -p /etc/systemd/system/nginx.service.d
+printf '[Service]\nLimitNOFILE=65535\n' > /etc/systemd/system/nginx.service.d/qemucp-limites.conf
+systemctl daemon-reload
+log "Limite de ficheros abiertos del maestro de nginx: 65535"
 
 # Worker connections
 if grep -q "worker_connections" /etc/nginx/nginx.conf 2>/dev/null; then

@@ -467,3 +467,11 @@ crear() {
         "$H/php/bin/php" -l "$H/web/$f" >/dev/null
     done
 }
+
+@test "nginx: el maestro tiene limite de ficheros alto (si no, los reload fallan con muchos dominios)" {
+	run cat /etc/systemd/system/nginx.service.d/qemucp-limites.conf
+	assert_success
+	assert_output --partial "LimitNOFILE=65535"
+	run systemctl show nginx -p LimitNOFILE --value
+	assert_output "65535"
+}

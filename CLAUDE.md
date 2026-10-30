@@ -153,6 +153,13 @@ nada". Atajo: `v-restart-dns yes`.
   algo que también define el bloque de QemuCP y se pone el bloque una vez.
   Buscar una línea concreta falló tres veces; la última, porque las
   `PHP-X_Y.tpl` salen de `multiphp.tpl`, que ya trae la línea de Redis.
+- **Reload de nginx fallando en silencio con muchos dominios**: el maestro
+  abre los logs de todos los vhosts al recargar y tenía el límite de systemd
+  (1024): `Too many open files` en error.log, nginx seguía con la
+  configuración vieja y los retos de Let's Encrypt daban 404 (`nginx -t` OK).
+  El instalador pone `LimitNOFILE=65535` en
+  `/etc/systemd/system/nginx.service.d/qemucp-limites.conf` (también
+  `--actualizar`). `worker_rlimit_nofile` solo afecta a los workers.
 - **Relanzar el instalador rompía nginx**: el paso de Brotli añadía sus
   `load_module` sin comprobar si ya estaban; duplicados, `nginx -t` falla,
   nginx no recarga y ningún `v-add-web-domain` funciona (código 20). Ahora
