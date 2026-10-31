@@ -191,7 +191,7 @@ warn()   { echo -e "${YELLOW}[!]${NC} $1"; }
 error()  { echo -e "${RED}[!!]${NC} $1"; exit 1; }
 info()   { echo -e "${BLUE}[..]${NC} $1"; }
 header() {
-    QEMUCP_PASO="$1" echo -e "\n${BLUE}======================================${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}======================================${NC}\n"; }
+    QEMUCP_PASO="$1"; echo -e "\n${BLUE}======================================${NC}"; echo -e "${BLUE}  $1${NC}"; echo -e "${BLUE}======================================${NC}\n"; }
 
 # =============================================================================
 #  ACCESO AL REPOSITORIO DEL FORK (puede ser PRIVADO)

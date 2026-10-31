@@ -469,9 +469,6 @@ crear() {
 }
 
 @test "nginx: el maestro tiene limite de ficheros alto (si no, los reload fallan con muchos dominios)" {
-	run cat /etc/systemd/system/nginx.service.d/qemucp-limites.conf
-	assert_success
-	assert_output --partial "LimitNOFILE=65535"
-	run systemctl show nginx -p LimitNOFILE --value
-	assert_output "65535"
+    grep -q "LimitNOFILE=65535" /etc/systemd/system/nginx.service.d/qemucp-limites.conf
+    [ "$(systemctl show nginx -p LimitNOFILE --value)" = "65535" ]
 }
