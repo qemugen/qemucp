@@ -81,6 +81,13 @@ echo "[6/7] Paquete hestia del fork bloqueado (no lo cambia apt upgrade)"
 apt-mark hold hestia >/dev/null 2>&1 || true
 [[ -f $HESTIA/conf/qemucp-origen ]] || echo "fork completar-base $(date '+%F %T')" > $HESTIA/conf/qemucp-origen
 
+# El instalador, al relanzarlo, no toca el tema (servidor "ya instalado"):
+# se pone aqui el de QemuCP, como en una instalacion nueva.
+if $BIN/v-list-sys-themes plain 2>/dev/null | grep -qx qemucp; then
+    $BIN/v-change-sys-config-value THEME qemucp >/dev/null 2>&1 || true
+    $BIN/v-change-user-theme admin qemucp >/dev/null 2>&1 || true
+fi
+
 echo "[7/7] Contrasena nueva del admin"
 PASS=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)
 $BIN/v-change-user-password admin "$PASS" >/dev/null 2>&1 || { echo "!! No se pudo cambiar la contrasena del admin"; exit 1; }
