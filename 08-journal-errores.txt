@@ -1,0 +1,65 @@
+Oct 31 16:33:57 qemucp-ci.local.test kernel: EXT4-fs: Mount option(s) incompatible with ext3
+Oct 31 16:33:57 qemucp-ci.local.test kernel: EXT4-fs: Mount option(s) incompatible with ext2
+Oct 31 16:33:57 qemucp-ci.local.test kernel: /dev/sr0: Can't lookup blockdev
+Oct 31 16:33:57 qemucp-ci.local.test kernel: ephemeral0: Can't lookup blockdev
+Oct 31 16:33:57 qemucp-ci.local.test kernel: ephemeral0: Can't lookup blockdev
+Oct 31 16:44:03 qemucp-ci.local.test (sd-exec-[188484]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:03 qemucp-ci.local.test (sd-exec-[188509]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:04 qemucp-ci.local.test (sd-exec-[188945]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:09 qemucp-ci.local.test (sd-exec-[190633]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:09 qemucp-ci.local.test (sd-exec-[190700]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:09 qemucp-ci.local.test (sd-exec-[190736]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:09 qemucp-ci.local.test (sd-exec-[190772]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:10 qemucp-ci.local.test (sd-exec-[190807]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:10 qemucp-ci.local.test (sd-exec-[190991]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:11 qemucp-ci.local.test (sd-exec-[191256]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:12 qemucp-ci.local.test (sd-exec-[191332]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:12 qemucp-ci.local.test (sd-exec-[191399]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:13 qemucp-ci.local.test (sd-exec-[191830]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:13 qemucp-ci.local.test (sd-exec-[191863]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:13 qemucp-ci.local.test (sd-exec-[191892]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:14 qemucp-ci.local.test (sd-exec-[192020]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:15 qemucp-ci.local.test (sd-exec-[192057]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:15 qemucp-ci.local.test (sd-exec-[192079]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:15 qemucp-ci.local.test (sd-exec-[192105]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:15 qemucp-ci.local.test (sd-exec-[192128]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:15 qemucp-ci.local.test (sd-exec-[192149]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:20 qemucp-ci.local.test (sd-exec-[196104]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:20 qemucp-ci.local.test (sd-exec-[196130]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:21 qemucp-ci.local.test (sd-exec-[196409]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:21 qemucp-ci.local.test (sd-exec-[196443]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:25 qemucp-ci.local.test (sd-exec-[199476]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:27 qemucp-ci.local.test (sd-exec-[200739]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:28 qemucp-ci.local.test (sd-exec-[201326]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:33 qemucp-ci.local.test (sd-exec-[204832]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:34 qemucp-ci.local.test (sd-exec-[205415]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:44:34 qemucp-ci.local.test (sd-exec-[205990]: /usr/lib/systemd/system-generators/sshd-socket-generator failed with exit status 1.
+Oct 31 16:54:18 qemucp-ci.local.test named[389945]: automatic interface scanning terminated: end of file
+Oct 31 16:57:55 qemucp-ci.local.test named[412556]: dns_master_load: /home/test-5285/conf/dns/test-5285.hestiacp.com.db:27: mail.test-5285.hestiacp.com: CNAME and other data
+Oct 31 16:57:55 qemucp-ci.local.test named[412556]: zone test-5285.hestiacp.com/IN: loading from master file /home/test-5285/conf/dns/test-5285.hestiacp.com.db failed: CNAME and other data
+Oct 31 16:57:55 qemucp-ci.local.test named[412556]: zone test-5285.hestiacp.com/IN: not loaded due to errors.
+Oct 31 16:57:56 qemucp-ci.local.test named[412556]: dns_master_load: /home/test-5285/conf/dns/test-5285.hestiacp.com.db:27: mail.test-5285.hestiacp.com: CNAME and other data
+Oct 31 16:57:56 qemucp-ci.local.test named[412556]: zone test-5285.hestiacp.com/IN: loading from master file /home/test-5285/conf/dns/test-5285.hestiacp.com.db failed: CNAME and other data
+Oct 31 16:57:56 qemucp-ci.local.test named[412556]: zone test-5285.hestiacp.com/IN: not loaded due to errors.
+Oct 31 16:57:57 qemucp-ci.local.test named[412556]: dns_master_load: /home/test-5285/conf/dns/test-5285.hestiacp.com.db:27: mail.test-5285.hestiacp.com: CNAME and other data
+Oct 31 16:57:57 qemucp-ci.local.test named[412556]: zone test-5285.hestiacp.com/IN: loading from master file /home/test-5285/conf/dns/test-5285.hestiacp.com.db failed: CNAME and other data
+Oct 31 16:57:57 qemucp-ci.local.test named[412556]: zone test-5285.hestiacp.com/IN: not loaded due to errors.
+Oct 31 16:57:57 qemucp-ci.local.test named[412556]: dns_master_load: /home/test-5285/conf/dns/test-5285.hestiacp.com.db:27: mail.test-5285.hestiacp.com: CNAME and other data
+Oct 31 16:57:57 qemucp-ci.local.test named[412556]: zone test-5285.hestiacp.com/IN: loading from master file /home/test-5285/conf/dns/test-5285.hestiacp.com.db failed: CNAME and other data
+Oct 31 16:57:57 qemucp-ci.local.test named[412556]: zone test-5285.hestiacp.com/IN: not loaded due to errors.
+Oct 31 16:58:11 qemucp-ci.local.test named[412556]: zone test-5285.hestiacp.com/IN: zone serial (2) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:01:03 qemucp-ci.local.test named[546412]: zone adicional-ci.com/IN: zone serial (3000000000) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:01:05 qemucp-ci.local.test named[546412]: zone aparcado-ci.net/IN: zone serial (3000000000) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:01:07 qemucp-ci.local.test named[546412]: zone otro-ci.org/IN: zone serial (3000000000) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:01:10 qemucp-ci.local.test named[546412]: zone principal-ci.com/IN: zone serial (3000000000) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:01:13 qemucp-ci.local.test named[546412]: zone tienda-ci.es/IN: zone serial (3000000000) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:01:51 qemucp-ci.local.test named[546412]: zone adicional-ci.com/IN: zone serial (3000000000) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:01:52 qemucp-ci.local.test named[546412]: zone aparcado-ci.net/IN: zone serial (3000000002) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:01:53 qemucp-ci.local.test named[546412]: zone otro-ci.org/IN: zone serial (3000000000) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:01:54 qemucp-ci.local.test named[546412]: zone principal-ci.com/IN: zone serial (3000000002) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:01:56 qemucp-ci.local.test named[546412]: zone tienda-ci.es/IN: zone serial (3000000002) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:02:16 qemucp-ci.local.test named[546412]: zone adicional-ci.com/IN: zone serial (3000000000) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:02:17 qemucp-ci.local.test named[546412]: zone aparcado-ci.net/IN: zone serial (3000000002) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:02:18 qemucp-ci.local.test named[546412]: zone otro-ci.org/IN: zone serial (3000000000) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:02:19 qemucp-ci.local.test named[546412]: zone principal-ci.com/IN: zone serial (3000000002) unchanged. zone may fail to transfer to secondaries.
+Oct 31 17:02:20 qemucp-ci.local.test named[546412]: zone tienda-ci.es/IN: zone serial (3000000002) unchanged. zone may fail to transfer to secondaries.

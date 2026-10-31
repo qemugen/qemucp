@@ -1,0 +1,29 @@
+
+[0;34m======================================[0m
+[0;34m  QemuCP - Actualizacion del panel desde el fork[0m
+[0;34m======================================[0m
+
+[0;34m[..][0m Instalado ahora: hestia 1.10.5-1+ubuntu24.04 (fork ?)
+[0;34m[..][0m Compilando el fork (commit ?); tarda unos minutos...
+[0;32m[OK][0m Paquete hestia 1.10.5-1+ubuntu24.04 compilado
+[0;32m[OK][0m Copia de la configuracion del panel en /root/qemucp-backups/actualizar-20261031-170915
+[0;32m[OK][0m Hook post_install de QemuCP al dia
+[0;34m[..][0m Instalando el paquete (el hook post_install se ejecuta solo)...
+[0;32m[OK][0m Paquete hestia bloqueado: apt no lo cambiara por el de upstream
+[0;32m[OK][0m Hook post_install ejecutado (ver /var/log/qemucp-post-install.log)
+[0;32m[OK][0m Panel respondiendo en el puerto 8083
+[0;34m[..][0m Aplicando los parches de seguridad de PHP...
+[1;33m[!!][0m unattended-upgrades no esta instalado: las proximas actualizaciones de PHP hay que lanzarlas con este script
+[0;32m[OK][0m php-fpm y Apache reiniciados
+[0;32m[OK][0m PHP 7.2  parcheado        (7.2.34-66+ubuntu24.04.1+deb.sury.org+1)
+[0;32m[OK][0m PHP 7.3  parcheado        (7.3.33-35+ubuntu24.04.1+deb.sury.org+1)
+[0;32m[OK][0m PHP 7.4  parcheado        (1:7.4.33-31+ubuntu24.04.1+deb.sury.org+1)
+[0;32m[OK][0m PHP 8.0  parcheado        (1:8.0.30-25+ubuntu24.04.1+deb.sury.org+1)
+[0;32m[OK][0m PHP 8.1  parcheado        (8.1.34-9+ubuntu24.04.1+deb.sury.org+1)
+[0;32m[OK][0m PHP 8.2  parcheado        (8.2.35-1+ubuntu24.04.1+deb.sury.org+1)
+[0;32m[OK][0m PHP 8.3  parcheado        (8.3.36-1+ubuntu24.04.1+deb.sury.org+1)
+[0;32m[OK][0m PHP 8.4  parcheado        (8.4.27-1+ubuntu24.04.1+deb.sury.org+1)
+[0;32m[OK][0m PHP 8.5  parcheado        (8.5.12-1+ubuntu24.04.1+deb.sury.org+1)
+[0;32m[OK][0m Panel   parcheado        (PHP interno del panel 8.5.12)
+
+[0;32m[OK][0m Actualizado: hestia 1.10.5-1+ubuntu24.04 -> 1.10.5-1+ubuntu24.04 (fork, commit ?)

@@ -1,0 +1,46 @@
+1..45
+ok 1 migrador: un plan que no cubre el backup se rechaza sin crear nada
+ok 2 migrador: plan antiguo (sin limite de subdominios) cuenta todo junto
+ok 3 migrador: con un plan justo (5 dominios + 2 subdominios) entra todo
+ok 4 migrador: la importacion termina bien
+ok 5 migrador: dominios adicionales y subdominios correctos, sin los subdominios internos de cPanel
+ok 6 migrador: contadores del usuario 5 dominios / 2 subdominios (promo.aparcado cuenta como dominio)
+ok 7 migrador: dominio aparcado como alias del principal (con www)
+ok 8 migrador: cada web con sus ficheros y sin duplicar las carpetas de otros dominios
+ok 9 migrador: resto del home copiado con su ruta (scripts de cron)
+ok 10 migrador: .htaccess de cPanel adaptado (no descarga los .php, sin error 500)
+ok 11 migrador: .user.ini de cPanel limpiado y php.ini retirado (webs colgadas)
+ok 12 migrador: el .htaccess de la raiz del home de cPanel no se copia (daba 500 en todas las webs)
+ok 13 migrador: la web principal se sirve (PHP ejecutado, no descargado)
+ok 14 migrador: version de PHP de cPanel asignada
+ok 15 migrador: bases de datos importadas (tambien vistas con DEFINER)
+ok 16 migrador: wp-config apunta a la base de datos nueva y sus credenciales funcionan
+ok 17 resincronizar BD al apuntar el DNS (recibir-bd.sh): trae los datos nuevos y conserva las credenciales
+ok 18 migrador: buzones con su contrasena ORIGINAL de cPanel
+ok 19 migrador: las contrasenas sobreviven a una reconstruccion del usuario
+ok 20 migrador: cuenta por defecto de cPanel con su correo y su contrasena
+ok 21 migrador: mensajes y carpetas copiados
+ok 22 migrador: buzon en formato mdbox convertido a maildir
+ok 23 migrador: respuestas automaticas de cPanel (HTML a texto; las caducadas no)
+ok 24 migrador: cuota del buzon
+ok 25 migrador: reenviador puro (sin buzon) solo reenvia
+ok 26 migrador: reenvio en cuenta con buzon guarda copia
+ok 27 migrador: catch-all a la cuenta por defecto
+ok 28 migrador: reenvio de dominio (aparcado-ci.net -> principal-ci.com)
+ok 29 migrador: correo externo (Google) no se crea en local; MX del hosting viejo si
+ok 30 migrador: DNS principal - zona valida, web y correo a este servidor
+ok 31 migrador: DNS principal - registros externos intactos
+ok 32 migrador: DNS principal - un solo SPF, con lo del cliente y sin el servidor viejo
+ok 33 migrador: DNS principal - un solo DMARC (el del cliente) y DKIM de este servidor
+ok 34 migrador: DNS principal - sin registros de cPanel y CAA con Let's Encrypt
+ok 35 migrador: DNS con correo externo - MX y SPF de Google, nada local
+ok 36 migrador: MX dentro del dominio pero en otro servidor = correo externo, intacto
+ok 37 migrador: DNS con MX al hostname del hosting viejo pasa a correo local
+ok 38 migrador: crons con las rutas y el PHP de QemuCP
+ok 39 migrador: SSL vigente de cPanel instalado
+ok 40 migrador: informe con lo que hay que revisar a mano
+ok 41 migrador: volver a ejecutarlo no duplica nada
+ok 42 migrador: no mezcla clientes si el usuario ya existe y es de otro
+ok 43 migrador: se para si los dominios ya estan en otra cuenta
+ok 44 migrador en lote: sigue tras un fallo y deja resumen
+ok 45 ssl en lote: no pide nada a Let's Encrypt si el DNS no apunta aqui
