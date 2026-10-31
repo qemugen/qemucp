@@ -2176,6 +2176,16 @@ if [ -f /usr/local/hestia/conf/hestia.conf ] && [ -x /usr/local/hestia/bin/v-lis
     warn "Se SALTA la instalacion base y se aplican solo las optimizaciones."
     warn "Si quieres una instalacion limpia, reinstala el sistema operativo."
     SKIP_BASE_INSTALL="yes"
+    # La instalacion base se corto a medias (p.ej. codigo 20 al crear la web
+    # del hostname): faltan los crons, el servicio hestia y la configuracion
+    # final. Saltarla dejaria un panel roto.
+    if [ ! -s /var/spool/cron/crontabs/hestiaweb ]; then
+        echo ""
+        echo -e "${RED}[!!]${NC} La instalacion base de una ejecucion anterior NO termino"
+        echo "     (faltan los crons y la configuracion final del panel)."
+        echo "     Reinstala el sistema operativo del servidor y lanza otra vez el instalador."
+        exit 1
+    fi
 fi
 
 if [ "$SKIP_BASE_INSTALL" = "no" ]; then

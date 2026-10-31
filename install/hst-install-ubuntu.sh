@@ -2481,7 +2481,17 @@ fi
 
 # Adding default domain
 $HESTIA/bin/v-add-web-domain "$username" "$servername" "$ip"
-check_result $? "can't create $servername domain"
+rc=$?
+# QemuCP: el dominio se crea, pero el reinicio de apache/nginx justo despues
+# del de remoteip a veces falla (codigo 20) y la instalacion se cortaba a
+# medias. Reintentar los reinicios antes de darlo por fallido.
+if [ "$rc" -eq 20 ]; then
+	for i in 1 2 3; do
+		sleep 5
+		$HESTIA/bin/v-restart-web > /dev/null 2>&1 && $HESTIA/bin/v-restart-proxy > /dev/null 2>&1 && { rc=0; break; }
+	done
+fi
+check_result $rc "can't create $servername domain"
 
 # Adding cron jobs
 export SCHEDULED_RESTART="yes"
